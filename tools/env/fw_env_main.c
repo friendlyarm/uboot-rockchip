@@ -98,6 +98,13 @@ void usage_env_set(void)
 		" -l, --lock           lock node, default:/var/lock\n"
 		" -s, --script         batch mode to minimize writes\n"
 		"\n"
+#if defined(CONFIG_ENV_IS_IN_MMC)
+		"To specify the device instead of default `" DEVICE1_NAME "', add\n"
+		"the device name (e.g. /dev/sdd) as first argument.\n"
+		"  fw_printenv /dev/sdd ...\n"
+		"  fw_setenv /dev/sdd ...\n"
+		"\n"
+#endif
 		"Examples:\n"
 		"  fw_setenv foo bar   set variable foo equal bar\n"
 		"  fw_setenv foo       clear variable foo\n"
@@ -239,6 +246,17 @@ int main(int argc, char *argv[])
 			CMD_PRINTENV, CMD_SETENV, _cmdname);
 		exit(EXIT_FAILURE);
 	}
+
+#if defined(CONFIG_ENV_IS_IN_MMC)
+	/* Try to get ENV device from arg1 for HOST PC */
+	if (argc > 1 && !strncmp(argv[1], "/dev/", 5)) {
+		fw_set_device(argv[1]);
+
+		/* skip argv1 for getopt() */
+		argc--;
+		argv++;
+	}
+#endif
 
 	if (do_printenv) {
 		if (parse_printenv_args(argc, argv))

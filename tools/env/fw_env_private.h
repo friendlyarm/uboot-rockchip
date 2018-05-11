@@ -5,6 +5,9 @@
  * SPDX-License-Identifier:	GPL-2.0+
  */
 
+#ifndef __FW_ENV_PRIV_H__
+#define __FW_ENV_PRIV_H__ 1
+
 /* Pull in the current config to define the default environment */
 #include <linux/kconfig.h>
 
@@ -38,6 +41,16 @@
 #define DEVICE2_ENVSECTORS     2
 #endif
 
+#ifdef CONFIG_ENV_IS_IN_MMC
+#undef  CONFIG_FILE
+#undef  HAVE_REDUND
+#define DEVICE1_NAME      "/dev/mmcblk0"
+#define DEVICE1_OFFSET    CONFIG_ENV_OFFSET
+#define ENV1_SIZE         CONFIG_ENV_SIZE
+
+extern int fw_set_device(const char *dname);
+#endif
+
 #ifndef CONFIG_BAUDRATE
 #define CONFIG_BAUDRATE		115200
 #endif
@@ -53,3 +66,5 @@
 	"ip=${ipaddr}:${serverip}:${gatewayip}:${netmask}:${hostname}::off; "\
 	"bootm"
 #endif
+
+#endif /* __FW_ENV_PRIV_H__ */
