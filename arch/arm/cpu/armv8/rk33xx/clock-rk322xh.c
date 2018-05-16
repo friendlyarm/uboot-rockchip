@@ -528,9 +528,10 @@ void rkclk_set_pll_rate_by_id(enum rk_plls_id pll_id, uint32 mHz)
 /*
  * rkplat clock set apll a high frequency
  */
-void rkclk_set_apll_high(void)
+int rkclk_set_apll_high(void)
 {
 	rkclk_pll_set_rate(APLL_ID, CONFIG_RKCLK_APLL_FREQ_HIGH, rkclk_apll_cb);
+	return 1;
 }
 
 /*
