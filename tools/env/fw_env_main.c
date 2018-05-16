@@ -54,6 +54,12 @@ void usage(void)
 		"\tfw_setenv [-a key] [variable name] [variable value]\n"
 		"\tfw_setenv -s [ file ]\n"
 		"\tfw_setenv -s - < [ file ]\n\n"
+#if defined(CONFIG_ENV_IS_IN_MMC)
+		"To specify the device instead of default `" DEVICE1_NAME "', add\n"
+		"the device name (e.g. /dev/sdd) as first argument.\n"
+		"\tfw_printenv /dev/sdd ...\n"
+		"\tfw_setenv /dev/sdd ...\n\n"
+#endif
 		"The file passed as argument contains only pairs "
 		"name / value\n"
 		"Example:\n"
@@ -97,6 +103,17 @@ int main(int argc, char *argv[])
 	if ((p = strrchr (cmdname, '/')) != NULL) {
 		cmdname = p + 1;
 	}
+
+#if defined(CONFIG_ENV_IS_IN_MMC)
+	/* Try to get ENV device from arg1 for HOST PC */
+	if (argc > 1 && !strncmp(argv[1], "/dev/", 5)) {
+		fw_set_device(argv[1]);
+
+		/* skip argv1 for getopt() */
+		argc--;
+		argv++;
+	}
+#endif
 
 	while ((c = getopt_long (argc, argv, "a:ns:h",
 		long_options, NULL)) != EOF) {
