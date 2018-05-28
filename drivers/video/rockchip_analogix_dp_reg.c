@@ -360,7 +360,7 @@ void analogix_dp_init_analog_func(struct analogix_dp_device *dp)
 
 		while (analogix_dp_get_pll_lock_status(dp) == PLL_UNLOCKED) {
 			timeout_loop++;
-			if(DP_TIMEOUT_LOOP_COUNT < timeout_loop) {
+			if (DP_TIMEOUT_LOOP_COUNT < timeout_loop) {
 				pr_err("failed to get pll lock status\n");
 				return;
 			}
@@ -525,7 +525,7 @@ int analogix_dp_start_aux_transaction(struct analogix_dp_device *dp)
 			return -ETIMEDOUT;
 		}
 		reg = readl(dp->reg_base + ANALOGIX_DP_INT_STA);
-		udelay(11);
+		udelay(30);
 	}
 
 	/* Clear interrupt source for AUX CH command reply */
