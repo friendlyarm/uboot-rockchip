@@ -574,7 +574,7 @@ static int analogix_dp_set_link_train(struct analogix_dp_device *dp,
 	int i;
 	int retval;
 
-	for (i = 0; i < DP_TIMEOUT_LOOP_COUNT; i++) {
+	for (i = 0; i < DP_TRAINING_MAX_COUNT; i++) {
 		analogix_dp_init_training(dp, count, bwtype);
 		retval = analogix_dp_sw_link_training(dp);
 		if (retval == 0)
