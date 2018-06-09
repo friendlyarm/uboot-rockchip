@@ -1325,7 +1325,10 @@ static void hdmi_find_best_mode(struct hdmi_dev *hdmi_dev)
 	}
 	printf("\n");
 #endif
-	/*if read edid error,use default vic mode, or not check pos_baseparamer and selete best video mode*/
+
+	/* if read edid error, use default vic mode, or
+	 * check pos_baseparamer and selete best video mode */
+	hdmi_dev->vic = HDMI_VIDEO_DEFAULT_MODE;
 	if (hdmi_dev->vic_pos > 0) {
 		hdmi_dev->video.sink_hdmi = hdmi_dev->driver.edid.sink_hdmi;
 		if (pos_baseparamer >= 0) {
@@ -1358,14 +1361,12 @@ static void hdmi_find_best_mode(struct hdmi_dev *hdmi_dev)
 	} else {
 		if (hdmi_dev->defaultmode)
 			hdmi_dev->vic = hdmi_dev->defaultmode;
-		else
-			hdmi_dev->vic = HDMI_VIDEO_DEFAULT_MODE;
 		printf("no edid message:use default vic config:%d\n",hdmi_dev->vic);
 	}
-	hdmi_dev->vic = HDMI_VIDEO_DEFAULT_MODE;
 
 	hdmi_dev->video.vic = hdmi_dev->vic & HDMI_VIC_MASK;
 	printf("hdmi_dev->video.vic is %d\n", hdmi_dev->video.vic);
+
 	if (hdmi_dev->video.sink_hdmi == 0) {
 		hdmi_dev->video.color_output = HDMI_COLOR_RGB_0_255;
 		hdmi_dev->video.color_input = HDMI_COLOR_RGB_0_255;
