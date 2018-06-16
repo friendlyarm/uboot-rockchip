@@ -5502,3 +5502,25 @@ u8 drm_scdc_writeb(struct ddc_adapter *adap, u8 offset,
 	return hdmi_ddc_write(adap, SCDC_I2C_SLAVE_ADDRESS, offset, &value,
 			      sizeof(value));
 }
+
+char *edid_get_monitor_name(struct edid1_info *edid_info)
+{
+	struct edid_monitor_descriptor *monitor;
+	unsigned char *bytes;
+	char *name;
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(edid_info->monitor_details.descriptor);
+			i++) {
+		monitor = &edid_info->monitor_details.descriptor[i];
+		bytes = (unsigned char *)monitor;
+
+		if (bytes[0] == 0 && bytes[1] == 0) {
+			name = snip(monitor->data.string);
+			if (strlen(name) > 0)
+				return name;
+		}
+	}
+
+	return NULL;
+}
