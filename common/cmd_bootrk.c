@@ -469,6 +469,11 @@ static bool rk_load_devinfo(void)
 }
 #endif
 
+__weak char *board_get_panel_name(void)
+{
+	return NULL;
+}
+
 static void rk_commandline_setenv(const char *boot_name, rk_boot_img_hdr *hdr, bool charge)
 {
 #ifdef CONFIG_CMDLINE_TAG
@@ -495,6 +500,12 @@ static void rk_commandline_setenv(const char *boot_name, rk_boot_img_hdr *hdr, b
 	board_fbt_finalize_bootargs(command_line, sizeof(command_line),
 			hdr->ramdisk_addr, hdr->ramdisk_size,
 			!strcmp(boot_name, RECOVERY_NAME));
+
+	char *panel = board_get_panel_name();
+	if (panel) {
+		snprintf(command_line, sizeof(command_line),
+			 "%s lcd=%s", command_line, panel);
+	}
 
 	if (media == BOOT_FROM_FLASH)
 		medianame = "nand";

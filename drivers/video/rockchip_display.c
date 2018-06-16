@@ -327,6 +327,12 @@ static int display_get_timing(struct display_state *state)
 				     &panel_bits_per_colourp)) {
 			printf("Using display timing from edid\n");
 			edid_print_info((void *)&conn_state->edid);
+
+extern char *edid_get_monitor_name(struct edid1_info *edid_info);
+			char *str = edid_get_monitor_name((void *)&conn_state->edid);
+			if (str)
+				setenv("panel", str);
+
 			goto done;
 		}
 	}

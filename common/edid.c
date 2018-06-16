@@ -403,3 +403,25 @@ void edid_print_info(struct edid1_info *edid_info)
 	if (!have_timing)
 		printf("\tNone\n");
 }
+
+char *edid_get_monitor_name(struct edid1_info *edid_info)
+{
+	struct edid_monitor_descriptor *monitor;
+	unsigned char *bytes;
+	char *name;
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(edid_info->monitor_details.descriptor);
+			i++) {
+		monitor = &edid_info->monitor_details.descriptor[i];
+		bytes = (unsigned char *)monitor;
+
+		if (bytes[0] == 0 && bytes[1] == 0) {
+			name = snip(monitor->data.string);
+			if (strlen(name) > 0)
+				return name;
+		}
+	}
+
+	return NULL;
+}

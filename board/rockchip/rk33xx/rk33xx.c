@@ -58,6 +58,65 @@ int board_storage_init(void)
 }
 
 
+/* Board revision list: <GPIO4_D1 | GPIO4_D0>
+ *  0b00 - NanoPC-T4
+ */
+static int pcb_rev = -1;
+
+static void bd_hwrev_init(void)
+{
+	gpio_direction_input(GPIO_BANK4 | GPIO_D0);
+	gpio_direction_input(GPIO_BANK4 | GPIO_D1);
+
+	pcb_rev  =  gpio_get_value(GPIO_BANK4 | GPIO_D0);
+	pcb_rev |= (gpio_get_value(GPIO_BANK4 | GPIO_D1) << 1);
+}
+
+/* To override __weak symbols */
+u32 get_board_rev(void)
+{
+	return pcb_rev;
+}
+
+/* PWM0/GPIO4_C2 */
+static int panel_pwm_status = 0;
+
+static void panel_pwm_status_init(void)
+{
+#define GPIO_PWM0	(GPIO_BANK4 | GPIO_C2)
+
+	gpio_direction_input(GPIO_PWM0);
+	panel_pwm_status = gpio_get_value(GPIO_PWM0);
+}
+
+/* Supported panels and dpi for nanopi4 series */
+static char *panels[] = {
+	"HD702E,213dpi",
+	"HD101B,160dpi",
+	"S701,160dpi",
+};
+
+char *board_get_panel_name(void)
+{
+	char *name;
+	int i;
+
+	if (!panel_pwm_status)
+		return NULL;
+
+	name = getenv("panel");
+	if (!name)
+		return NULL;
+
+	for (i = 0; i < ARRAY_SIZE(panels); i++) {
+		if (!strncmp(panels[i], name, strlen(name)))
+			return panels[i];
+	}
+
+	return name;
+}
+
+
 /*****************************************
  * Routine: board_init
  * Description: Early hardware init.
@@ -187,6 +246,9 @@ int board_late_init(void)
 	debug("key_init\n");
 	key_init();
 #endif
+
+	bd_hwrev_init();
+	panel_pwm_status_init();
 
 #ifdef CONFIG_RK_POWER
 	debug("fixed_init\n");
