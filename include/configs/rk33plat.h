@@ -147,7 +147,7 @@
  * we should enable this macro when we use emmc and secure store
  * data to security partition, not to rpmb.
  */
-	/* #define CONFIG_OPTEE_ALWAYS_USE_SECURITY_PARTITION */
+	#define CONFIG_OPTEE_ALWAYS_USE_SECURITY_PARTITION
 #endif
 
 #if defined(CONFIG_RKCHIP_RK322XH)
