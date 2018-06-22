@@ -52,7 +52,8 @@ typedef struct {
 #define OPT_TEST_CHARGE     "--test_charge"
 #define OPT_IMAGE           "--image="
 #define OPT_ROOT            "--root="
+#define OPT_DTBNAME         "--dtbname"
 
-#define VERSION             "2014-5-31 14:43:42"
+#define VERSION             "2018-6-22 18:51:18"
 
 #endif //RESOURCE_TOOL_H
