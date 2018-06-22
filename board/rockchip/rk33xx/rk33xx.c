@@ -81,6 +81,15 @@ u32 get_board_rev(void)
 	return pcb_rev;
 }
 
+static void set_dtb_name(void)
+{
+	char info[64] = {0, };
+
+	snprintf(info, ARRAY_SIZE(info),
+			"rk3399-nanopi4-rev%02x.dtb", get_board_rev());
+	setenv("dtb_name", info);
+}
+
 /* PWM0/GPIO4_C2 */
 static int panel_pwm_status = 0;
 
@@ -237,6 +246,10 @@ int board_late_init(void)
 
 	board_init_adjust_env();
 
+	bd_hwrev_init();
+	panel_pwm_status_init();
+	set_dtb_name();
+
 	load_disk_partitions();
 
 #ifdef CONFIG_RK_PWM_REMOTE
@@ -249,9 +262,6 @@ int board_late_init(void)
 	debug("key_init\n");
 	key_init();
 #endif
-
-	bd_hwrev_init();
-	panel_pwm_status_init();
 
 #ifdef CONFIG_RK_POWER
 	debug("fixed_init\n");
