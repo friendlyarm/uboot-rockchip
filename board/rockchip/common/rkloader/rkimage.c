@@ -649,6 +649,10 @@ int rkimage_handleDownload(unsigned char *buffer,
 #define FDT_PATH        "rk-kernel.dtb"
 static const char* get_fdt_name(void)
 {
+	char *name = getenv("dtb_name");
+	if (name)
+		return name;
+
 	if (!gBootInfo.fdt_name[0]) {
 		return FDT_PATH;
 	}
