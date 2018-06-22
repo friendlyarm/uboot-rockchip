@@ -11,6 +11,7 @@
 static const char* PROG = NULL;
 static resource_ptn_header header;
 static bool just_print = false;
+static bool keep_dtbname = false;
 char image_path[MAX_INDEX_ENTRY_PATH_LEN] = "\0";
 char root_path[MAX_INDEX_ENTRY_PATH_LEN] = "\0";
 
@@ -75,6 +76,8 @@ int main(int argc, char** argv) {
             return 0;
         } else if (!strcmp(OPT_PRINT, arg)) {
             just_print = true;
+        } else if (!strcmp(OPT_DTBNAME, arg)) {
+            keep_dtbname = true;
         } else if (!strcmp(OPT_PACK, arg)) {
             action = ACTION_PACK;
         } else if (!strcmp(OPT_UNPACK, arg)) {
@@ -233,16 +236,16 @@ done:
 end:
     if (out_file)
         fclose(out_file);
-	if (pos)
-		fseek(file, pos, SEEK_SET);
-	return ret;
+    if (pos)
+        fseek(file, pos, SEEK_SET);
+    return ret;
 }
 
 static int unpack_image(const char* dir) {
     bool ret = false;
     char unpack_dir[MAX_INDEX_ENTRY_PATH_LEN];
-	if (just_print)
-		dir = ".";
+    if (just_print)
+        dir = ".";
     snprintf(unpack_dir, sizeof(unpack_dir), "%s", dir);
     if (!strlen(unpack_dir)) {
         goto end;
@@ -412,23 +415,35 @@ static bool write_index_tbl(const int file_num, const char** files) {
         fix_entry(&entry);
         memset(entry.path, 0, sizeof(entry.path));
         const char* path = files[i];
-		if (root_path[0]) {
-			if (!strncmp(path, root_path, strlen(root_path))) {
-				path += strlen(root_path);
-				if (path[0] == '/')
-					path++;
-			}
-		}
-		path = fix_path(path);
-        if (!strcmp(files[i] + strlen(files[i]) - strlen(DTD_SUBFIX),
-                    DTD_SUBFIX)) {
-            if (!foundFdt) {
-                //use default path.
-                LOGD("mod fdt path:%s -> %s...", files[i], FDT_PATH);
-                path = FDT_PATH;
-                foundFdt = true;
+
+        if (strstr(path, ".dtb") && keep_dtbname) {
+            path = rindex(path, '/');
+            if (!path)
+                path = files[i];
+            else
+                path++;
+            LOGD("using dtb name: %s", path);
+
+        } else {
+            if (root_path[0]) {
+                if (!strncmp(path, root_path, strlen(root_path))) {
+                    path += strlen(root_path);
+                    if (path[0] == '/')
+                        path++;
+                }
+            }
+            path = fix_path(path);
+            if (!strcmp(files[i] + strlen(files[i]) - strlen(DTD_SUBFIX),
+                        DTD_SUBFIX)) {
+                if (!foundFdt) {
+                    //use default path.
+                    LOGD("mod fdt path:%s -> %s...", files[i], FDT_PATH);
+                    path = FDT_PATH;
+                    foundFdt = true;
+                }
             }
         }
+
         snprintf(entry.path, sizeof(entry.path), "%s", path);
         offset += fix_blocks(file_size);
         if (!write_data(header.header_size + i * header.tbl_entry_size,
