@@ -11,6 +11,8 @@
 #include <fdtdec.h>
 #include <fdt_support.h>
 #include <power/pmic.h>
+#include <u-boot/sha256.h>
+#include <hash.h>
 
 #include <asm/io.h>
 #include <asm/arch/rkplat.h>
@@ -18,6 +20,10 @@
 #include "../common/config.h"
 #ifdef CONFIG_OPTEE_CLIENT
 #include "../common/rkloader/attestation_key.h"
+#endif
+
+#ifndef BIT
+#define BIT(nr)			(1UL << (nr))
 #endif
 
 DECLARE_GLOBAL_DATA_PTR;
@@ -126,6 +132,145 @@ char *board_get_panel_name(void)
 	}
 
 	return name;
+}
+
+
+/* RK3399 eFuse */
+#define RK3399_A_SHIFT          16
+#define RK3399_A_MASK           0x3ff
+#define RK3399_NFUSES           32
+#define RK3399_BYTES_PER_FUSE   4
+#define RK3399_STROBSFTSEL      BIT(9)
+#define RK3399_RSB              BIT(7)
+#define RK3399_PD               BIT(5)
+#define RK3399_PGENB            BIT(3)
+#define RK3399_LOAD             BIT(2)
+#define RK3399_STROBE           BIT(1)
+#define RK3399_CSB              BIT(0)
+
+#define RK3399_CPUID_OFF        0x7
+#define RK3399_CPUID_LEN        0x10
+
+static int rk3399_efuse_read(unsigned long base, int offset,
+			     void *buf, int size)
+{
+	void *ctrl_reg = (uint32 *)base;
+	void *dout_reg = (uint32 *)(base + 4);
+
+	unsigned int addr_start, addr_end, addr_offset;
+	u32 addr;
+	u32 out_value;
+	u8  bytes[RK3399_NFUSES * RK3399_BYTES_PER_FUSE];
+	int i = 0;
+
+	addr_start = offset / RK3399_BYTES_PER_FUSE;
+	addr_offset = offset % RK3399_BYTES_PER_FUSE;
+	addr_end = DIV_ROUND_UP(offset + size, RK3399_BYTES_PER_FUSE);
+
+	/* cap to the size of the efuse block */
+	if (addr_end > RK3399_NFUSES)
+		addr_end = RK3399_NFUSES;
+
+	writel(RK3399_LOAD | RK3399_PGENB | RK3399_STROBSFTSEL | RK3399_RSB,
+	       ctrl_reg);
+
+	udelay(1);
+	for (addr = addr_start; addr < addr_end; addr++) {
+		setbits_le32(ctrl_reg,
+			     RK3399_STROBE | (addr << RK3399_A_SHIFT));
+		udelay(1);
+		out_value = readl(dout_reg);
+		clrbits_le32(ctrl_reg, RK3399_STROBE);
+		udelay(1);
+
+		memcpy(&bytes[i], &out_value, RK3399_BYTES_PER_FUSE);
+		i += RK3399_BYTES_PER_FUSE;
+	}
+
+	/* Switch to standby mode */
+	writel(RK3399_PD | RK3399_CSB, ctrl_reg);
+
+	memcpy(buf, bytes + addr_offset, size);
+	return 0;
+}
+
+static void setup_serial(void)
+{
+	u8 cpuid[RK3399_CPUID_LEN];
+	u8 low[RK3399_CPUID_LEN/2], high[RK3399_CPUID_LEN/2];
+	char cpuid_str[RK3399_CPUID_LEN * 2 + 1];
+	u64 serialno;
+	char serialno_str[16];
+	char *env_cpuid, *env_serial;
+	int i;
+
+	env_cpuid = getenv("cpuid#");
+	env_serial = getenv("serial#");
+	if (env_cpuid && env_serial)
+		return;
+
+	rk3399_efuse_read(RKIO_FTEFUSE_BASE, RK3399_CPUID_OFF, cpuid, sizeof(cpuid));
+
+	memset(cpuid_str, 0, sizeof(cpuid_str));
+	for (i = 0; i < 16; i++)
+		sprintf(&cpuid_str[i * 2], "%02x", cpuid[i]);
+
+	/*
+	 * Mix the cpuid bytes using the same rules as in
+	 *   ${linux}/drivers/soc/rockchip/rockchip-cpuinfo.c
+	 */
+	for (i = 0; i < 8; i++) {
+		low[i] = cpuid[1 + (i << 1)];
+		high[i] = cpuid[i << 1];
+	}
+
+	serialno = crc32_no_comp(0, low, 8);
+	serialno |= (u64)crc32_no_comp(serialno, high, 8) << 32;
+	snprintf(serialno_str, sizeof(serialno_str), "%llx", serialno);
+
+	setenv("cpuid#", cpuid_str);
+	if (!env_serial)
+		setenv("serial#", serialno_str);
+	saveenv();
+}
+
+static void setup_macaddr(void)
+{
+	int ret;
+	const char *cpuid = getenv("cpuid#");
+	u8 hash[SHA256_SUM_LEN];
+	int size = sizeof(hash);
+	uchar mac_addr[6];
+	char buf[18];
+	int i, n;
+
+	/* Only generate a MAC address, if none is set in the environment */
+	if (getenv("ethaddr"))
+		return;
+
+	if (!cpuid) {
+		debug("%s: could not retrieve 'cpuid#'\n", __func__);
+		return;
+	}
+
+	ret = hash_block("sha256", (void *)cpuid, strlen(cpuid), hash, &size);
+	if (ret) {
+		debug("%s: failed to calculate SHA256\n", __func__);
+		return;
+	}
+
+	/* Copy 6 bytes of the hash to base the MAC address on */
+	memcpy(mac_addr, hash, 6);
+
+	/* Make this a valid MAC address and set it */
+	mac_addr[0] &= 0xfe;  /* clear multicast bit */
+	mac_addr[0] |= 0x02;  /* set local assignment bit (IEEE802) */
+
+	for (i = 0, n = 0; i < sizeof(mac_addr); i++)
+		n += sprintf(buf + n, "%02x:", mac_addr[i]);
+	buf[17] = '\0';
+
+	setenv("ethaddr", buf);
 }
 
 
@@ -249,6 +394,9 @@ int board_late_init(void)
 	bd_hwrev_init();
 	panel_pwm_status_init();
 	set_dtb_name();
+
+	setup_serial();
+	setup_macaddr();
 
 	load_disk_partitions();
 
