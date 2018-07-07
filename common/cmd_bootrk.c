@@ -501,6 +501,23 @@ static void rk_commandline_setenv(const char *boot_name, rk_boot_img_hdr *hdr, b
 			hdr->ramdisk_addr, hdr->ramdisk_size,
 			!strcmp(boot_name, RECOVERY_NAME));
 
+#ifdef CONFIG_RK_SDCARD_BOOT_EN
+	if (StorageSDCardBootMode()) {
+		/* Remove `mtdparts=[^ ]*' for SDCard boot */
+		char *mtd_start, *mtd_end;
+
+		mtd_start = strstr(command_line, "mtdparts=");
+		if (mtd_start) {
+			mtd_end = strstr(mtd_start, " ");
+			if (mtd_end)
+				strcpy(mtd_start, mtd_end + 1);
+			else
+				while (--mtd_start >= command_line && *mtd_start == ' ')
+					*mtd_start = '\0';
+		}
+	}
+#endif
+
 	char *panel = board_get_panel_name();
 	if (panel) {
 		snprintf(command_line, sizeof(command_line),
