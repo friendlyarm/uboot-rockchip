@@ -878,6 +878,7 @@ static int rockchip_analogix_dp_init(struct display_state *state)
 	dp->plat_data = plat_data;
 	dp->plat_data->dev_type = ROCKCHIP_DP;
 	dp->plat_data->subdev_type = pdata->chip_type;
+	dp->hpd_gpio = INVALID_GPIO;
 
 	dp->video_info.max_link_rate = pdata->max_link_rate;
 	dp->video_info.max_lane_count = pdata->max_lane_count;
