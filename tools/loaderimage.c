@@ -12,16 +12,26 @@
 
 extern uint32_t crc32_rk (uint32_t, const unsigned char *, uint32_t);
 
+#define OPT_PACK		"--pack"
+#define OPT_UNPACK		"--unpack"
+#define OPT_UBOOT		"--uboot"
+#define OPT_TRUSTOS		"--trustos"
+#define OPT_SIZE		"--size"
+#define OPT_VERSION		"--version"
+#define OPT_INFO                "--info"
+
 /* pack or unpack */
 #define MODE_PACK		0
 #define MODE_UNPACK		1
+#define MODE_INFO               2
+#define CONFIG_SECUREBOOT_SHA256
 
 /* image type */
 #define IMAGE_UBOOT		0
 #define IMAGE_TRUST		1
 
 /* magic and hash size */
-#define LOADER_MAGIC_SIZE	16
+#define LOADER_MAGIC_SIZE	8
 #define LOADER_HASH_SIZE	32
 
 /* uboot image config */
@@ -50,7 +60,8 @@ extern uint32_t crc32_rk (uint32_t, const unsigned char *, uint32_t);
 
 typedef struct tag_second_loader_hdr {
 	uint8_t magic[LOADER_MAGIC_SIZE];	/* magic */
-
+	uint32_t version;
+	uint32_t reserved0;
 	uint32_t loader_load_addr;		/* physical load addr */
 	uint32_t loader_load_size;		/* size in bytes */
 	uint32_t crc32;				/* crc32 */
@@ -67,7 +78,9 @@ typedef struct tag_second_loader_hdr {
 
 void usage(const char *prog)
 {
-	fprintf(stderr, "Usage: %s [--pack|--unpack] [--uboot|--trustos] file_in file_out [load_addr]\n", prog);
+	fprintf(stderr, "Usage: %s [--pack|--unpack] [--uboot|--trustos]\
+		file_in file_out [load_addr]  [--size] [size number]\
+		[--version] [version] | [--info] [file]\n", prog);
 }
 
 unsigned int str2hex(char *str)
@@ -96,38 +109,67 @@ unsigned int str2hex(char *str)
 
 int main (int argc, char *argv[])
 {
-	int			mode, image;
+	int			mode = -1, image = -1;
 	int			max_size, max_num;
 	int			size, i;
-	uint32_t		loader_addr;
+	uint32_t		loader_addr, in_loader_addr = -1;
 	char			*magic, *version, *name;
 	FILE			*fi, *fo;
 	second_loader_hdr	hdr;
 	char 			*buf = 0;
+	uint32_t		in_size = 0, in_num = 0;
+	char 			*file_in = NULL, *file_out = NULL;
+	uint32_t curr_version = 0;
 
-	if (argc < 5) {
+	if (argc < 3) {
 		usage(argv[0]);
 		exit(EXIT_FAILURE);
 	}
 
-	/* pack or unpack */
-	if (!strcmp(argv[1], "--pack"))
-		mode = MODE_PACK;
-	else if (!strcmp(argv[1], "--unpack"))
-		mode = MODE_UNPACK;
-	else {
-		usage(argv[0]);
-		exit(EXIT_FAILURE);
-	}
+	for (i = 1; i < argc; i++) {
+		if (!strcmp(argv[i], OPT_PACK)) {
+			mode = MODE_PACK;
+		} else if (!strcmp(argv[i], OPT_UNPACK)) {
+			mode = MODE_UNPACK;
+		} else if (!strcmp(argv[i], OPT_UBOOT)) {
+			image = IMAGE_UBOOT;
+			file_in = argv[++i];
+			file_out = argv[++i];
+			/* detect whether loader address is delivered */
+			if ((argv[i+1]) && (strncmp(argv[i+1], "--", 2)))
+				in_loader_addr = str2hex(argv[++i]);
+		} else if (!strcmp(argv[i], OPT_TRUSTOS)) {
+			image = IMAGE_TRUST;
+			file_in = argv[++i];
+			file_out = argv[++i];
+			/* detect whether loader address is delivered */
+			if ((argv[i+1]) && (strncmp(argv[i+1], "--", 2)))
+				in_loader_addr = str2hex(argv[++i]);
+		} else if (!strcmp(argv[i], OPT_SIZE)) {
+			in_size = strtoul(argv[++i], NULL, 10);
+			/*
+			 * Usually, it must be at 512kb align due to preloader
+			 * detects every 512kb. But some product has critial
+			 * flash size requirement, we have to make it small than
+			 * 512KB.
+			 */
+			if (in_size % 64) {
+				usage(argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			in_size *= 1024;
 
-	/* uboot or trust */
-	if (!strcmp(argv[2], "--uboot")) {
-		image = IMAGE_UBOOT;
-	} else if (!strcmp(argv[2], "--trustos")) {
-		image = IMAGE_TRUST;
-	} else {
-		usage(argv[0]);
-		exit(EXIT_FAILURE);
+			in_num = strtoul(argv[++i], NULL, 10);
+		} else if (!strcmp(argv[i], OPT_VERSION)) {
+			curr_version = strtoul(argv[++i], NULL, 10);
+			printf("curr_version = 0x%x\n", curr_version);
+		} else if (!strcmp(argv[i], OPT_INFO)) {
+			mode = MODE_INFO;
+			file_in = argv[++i];
+		} else {
+			usage(argv[0]);
+			exit(EXIT_FAILURE);
+		}
 	}
 
 	/* config image information */
@@ -135,57 +177,62 @@ int main (int argc, char *argv[])
 		name = UBOOT_NAME;
 		magic = RK_UBOOT_MAGIC;
 		version = UBOOT_VERSION_STRING;
-		max_size = UBOOT_MAX_SIZE;
-		max_num = UBOOT_NUM;
-		loader_addr = RK_UBOOT_RUNNING_ADDR;
+		max_size = in_size ? in_size : UBOOT_MAX_SIZE;
+		max_num = in_num ? in_num : UBOOT_NUM;
+		loader_addr = (in_loader_addr == -1) ?
+			RK_UBOOT_RUNNING_ADDR : in_loader_addr;
 	} else if (image == IMAGE_TRUST) {
 		name = TRUST_NAME;
 		magic = RK_TRUST_MAGIC;
 		version = TRUST_VERSION_STRING;
-		max_size = TRUST_MAX_SIZE;
-		max_num = TRUST_NUM;
-		loader_addr = RK_TRUST_RUNNING_ADDR;
+		max_size = in_size ? in_size : TRUST_MAX_SIZE;
+		max_num = in_num ? in_num : TRUST_NUM;
+		loader_addr = (in_loader_addr == -1) ?
+			RK_TRUST_RUNNING_ADDR : in_loader_addr;
+	} else if (mode == MODE_INFO) {
+
 	} else {
 		exit(EXIT_FAILURE);
 	}
 
-	/* file in */
-	fi = fopen(argv[3], "rb");
-	if (!fi) {
-		perror(argv[3]);
-		exit(EXIT_FAILURE);
-	}
-
-	/* file out */
-	fo = fopen(argv[4], "wb");
-	if (!fo) {
-		perror(argv[4]);
-		exit (EXIT_FAILURE);
-	}
-
-	if (argc == 6) {
-		loader_addr = str2hex(argv[5]);
-		printf("\n load addr is 0x%x!\n", loader_addr);
-	}
-
-	buf = calloc(max_size, max_num);
-	if (!buf) {
-		perror(argv[4]);
-		exit (EXIT_FAILURE);
-	}
-
 	if (mode == MODE_PACK) {
-		printf("pack input %s \n", argv[3]);
+		buf = calloc(max_size, max_num);
+		if (!buf) {
+			perror(file_out);
+			exit (EXIT_FAILURE);
+		}
+		printf("\n load addr is 0x%x!\n", loader_addr);
+		if (!file_in || !file_out) {
+			usage(argv[0]);
+			exit(EXIT_FAILURE);
+		}
+
+		/* file in */
+		fi = fopen(file_in, "rb");
+		if (!fi) {
+			perror(file_in);
+			exit(EXIT_FAILURE);
+		}
+
+		/* file out */
+		fo = fopen(file_out, "wb");
+		if (!fo) {
+			perror(file_out);
+			exit (EXIT_FAILURE);
+		}
+
+		printf("pack input %s \n", file_in);
 		fseek(fi, 0, SEEK_END);
 		size = ftell(fi);
 		fseek(fi, 0, SEEK_SET);
 		printf("pack file size: %d \n", size);
 		if (size > max_size - sizeof(second_loader_hdr)) {
-			perror(argv[4]);
+			perror(file_out);
 			exit (EXIT_FAILURE);
 		}
 		memset(&hdr, 0, sizeof(second_loader_hdr));
-		strcpy((char *)hdr.magic, magic);
+		memcpy((char *)hdr.magic, magic, LOADER_MAGIC_SIZE);
+		hdr.version = curr_version;
 		hdr.loader_load_addr = loader_addr;
 		if (!fread(buf + sizeof(second_loader_hdr), size, 1, fi))
 			exit (EXIT_FAILURE);
@@ -203,6 +250,9 @@ int main (int argc, char *argv[])
 		hdr.hash_len = (SHA_DIGEST_SIZE > LOADER_HASH_SIZE) ? LOADER_HASH_SIZE : SHA_DIGEST_SIZE;
 		SHA_init(&ctx);
 		SHA_update(&ctx, buf + sizeof(second_loader_hdr), size);
+		if (hdr.version > 0)
+			SHA_update(&ctx, (void *)&hdr.version, 8);
+
 		SHA_update(&ctx, &hdr.loader_load_addr, sizeof(hdr.loader_load_addr));
 		SHA_update(&ctx, &hdr.loader_load_size, sizeof(hdr.loader_load_size));
 		SHA_update(&ctx, &hdr.hash_len, sizeof(hdr.hash_len));
@@ -217,6 +267,9 @@ int main (int argc, char *argv[])
 		hdr.hash_len = 32; /* sha256 */
 		sha256_starts(&ctx);
 		sha256_update(&ctx, (void *)buf + sizeof(second_loader_hdr), size);
+		if (hdr.version > 0)
+			sha256_update(&ctx, (void *)&hdr.version, 8);
+
 		sha256_update(&ctx, (void *)&hdr.loader_load_addr, sizeof(hdr.loader_load_addr));
 		sha256_update(&ctx, (void *)&hdr.loader_load_size, sizeof(hdr.loader_load_size));
 		sha256_update(&ctx, (void *)&hdr.hash_len, sizeof(hdr.hash_len));
@@ -224,14 +277,40 @@ int main (int argc, char *argv[])
 		memcpy(hdr.hash, hash, hdr.hash_len);
 #endif /* CONFIG_SECUREBOOT_SHA256 */
 
-		printf("%s version: %s\n", name, version);
+		/* printf("%s version: %s\n", name, version); */
 		memcpy(buf, &hdr, sizeof(second_loader_hdr));
 		for(i = 0; i < max_num; i++)
 			fwrite(buf, max_size, 1, fo);
 
-		printf("pack %s success! \n", argv[4]);
+		printf("pack %s success! \n", file_out);
+		fclose(fi);
+		fclose(fo);
 	} else if (mode == MODE_UNPACK) {
-		printf("unpack input %s \n", argv[3]);
+		buf = calloc(max_size, max_num);
+		if (!buf) {
+			perror(file_out);
+			exit (EXIT_FAILURE);
+		}
+		if (!file_in || !file_out) {
+			usage(argv[0]);
+			exit(EXIT_FAILURE);
+		}
+
+		/* file in */
+		fi = fopen(file_in, "rb");
+		if (!fi) {
+			perror(file_in);
+			exit(EXIT_FAILURE);
+		}
+
+		/* file out */
+		fo = fopen(file_out, "wb");
+		if (!fo) {
+			perror(file_out);
+			exit (EXIT_FAILURE);
+		}
+
+		printf("unpack input %s \n", file_in);
 		memset(&hdr, 0, sizeof(second_loader_hdr));
 		if (!fread(&hdr, sizeof(second_loader_hdr), 1, fi))
 			exit (EXIT_FAILURE);
@@ -240,12 +319,36 @@ int main (int argc, char *argv[])
 			exit (EXIT_FAILURE);
 
 		fwrite(buf, hdr.loader_load_size, 1, fo);
-		printf("unpack %s success! \n", argv[4]);
-	}
+		printf("unpack %s success! \n", file_out);
+		fclose(fi);
+		fclose(fo);
+	} else if (mode == MODE_INFO) {
+		second_loader_hdr *hdr;
 
+		hdr = malloc(sizeof(struct tag_second_loader_hdr));
+		if (hdr == NULL) {
+			printf("Memory error!\n");
+			exit (EXIT_FAILURE);
+		}
+		/* file in */
+		fi = fopen(file_in, "rb");
+		if (!fi) {
+			perror(file_in);
+			exit(EXIT_FAILURE);
+		}
+		fread(hdr, sizeof(struct tag_second_loader_hdr), 1, fi);
+		if (!(memcmp(RK_UBOOT_MAGIC, hdr->magic, 5)) || !(memcmp(RK_TRUST_MAGIC, hdr->magic, 3))) {
+			printf("The image info:\n");
+			printf("Rollback index is %d\n", hdr->version);
+			printf("Load Addr is 0x%x\n", hdr->loader_load_addr);
+		} else {
+			printf("Please input the correct file.\n");
+		}
+
+		fclose(fi);
+		free(hdr);
+	}
 	free(buf);
-	fclose(fi);
-	fclose(fo);
 
 	return 0;
 }
