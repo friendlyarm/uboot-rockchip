@@ -8,6 +8,7 @@
 #include <asm/io.h>
 #include <linux/sizes.h>
 #include <i2c.h>
+#include <edid.h>
 #include <asm/arch/rkplat.h>
 
 
@@ -305,7 +306,8 @@ static inline void rk_i2c_disable(struct rk_i2c *i2c)
 }
 
 
-static int rk_i2c_read(struct rk_i2c *i2c, uchar chip, uint reg, uint r_len, uchar *buf, uint b_len)
+static int rk_i2c_read(struct rk_i2c *i2c, uchar chip, uint reg, uint r_len,
+		       uchar *buf, uint b_len)
 {
 	int err = I2C_OK;
 	int TimeOut = I2C_TIMEOUT_US;
@@ -316,8 +318,10 @@ static int rk_i2c_read(struct rk_i2c *i2c, uchar chip, uint reg, uint r_len, uch
 	uint con = 0;
 	uint rxdata;
 	uint i, j;
+	bool snd_chunk = false;
 
-	i2c_info("rk_i2c_read: chip = %d, reg = %d, r_len = %d, b_len = %d\n", chip, reg, r_len, b_len);
+	i2c_info("rk_i2c_read: chip = %d, reg = %d, r_len = %d, b_len = %d\n",
+			chip, reg, r_len, b_len);
 
 	err = rk_i2c_send_start_bit(i2c);
 	if (err != I2C_OK) {
@@ -336,13 +340,23 @@ static int rk_i2c_read(struct rk_i2c *i2c, uchar chip, uint reg, uint r_len, uch
 
 	while (bytes_remain_len) {
 		if (bytes_remain_len > RK_I2C_FIFO_SIZE) {
-			con = I2C_CON_EN | I2C_CON_MOD(I2C_MODE_TRX);
+			con = I2C_CON_EN;
 			bytes_tranfered_len = 32;
 		} else {
-			con = I2C_CON_EN | I2C_CON_MOD(I2C_MODE_TRX) | I2C_CON_LASTACK;
+			/*
+			 * The hw can read up to 32 bytes at a time. If we need
+			 * more than one chunk, send an ACK after the last byte.
+			 */
+			con = I2C_CON_EN | I2C_CON_LASTACK;
 			bytes_tranfered_len = bytes_remain_len;
 		}
 		words_tranfered_len = RK_CEIL(bytes_tranfered_len, 4);
+
+		/* make sure we are in plain RX mode if we read a second chunk */
+		if (snd_chunk)
+			con |= I2C_CON_MOD(I2C_MODE_RX);
+		else
+			con |= I2C_CON_MOD(I2C_MODE_TRX);
 
 		i2c_writel(con, i2c->regs + I2C_CON);
 		i2c_writel(bytes_tranfered_len, i2c->regs + I2C_MRXCNT);
@@ -379,6 +393,7 @@ static int rk_i2c_read(struct rk_i2c *i2c, uchar chip, uint reg, uint r_len, uch
 			}
 		}
 		bytes_remain_len -= bytes_tranfered_len;
+		snd_chunk = true;
 		i2c_info("I2C Read bytes_remain_len %d\n", bytes_remain_len);
 	}
 
@@ -391,7 +406,8 @@ i2c_exit:
 	return err;
 }
 
-static int rk_i2c_write(struct rk_i2c *i2c, uchar chip, uint reg, uint r_len, uchar *buf, uint b_len)
+static int rk_i2c_write(struct rk_i2c *i2c, uchar chip, uint reg, uint r_len,
+			uchar *buf, uint b_len)
 {
 	int err = I2C_OK;
 	int TimeOut = I2C_TIMEOUT_US;
@@ -402,7 +418,8 @@ static int rk_i2c_write(struct rk_i2c *i2c, uchar chip, uint reg, uint r_len, uc
 	uint txdata;
 	uint i, j;
 
-	i2c_info("rk_i2c_write: chip = %d, reg = %d, r_len = %d, b_len = %d\n", chip, reg, r_len, b_len);
+	i2c_info("rk_i2c_write: chip = %d, reg = %d, r_len = %d, b_len = %d\n",
+			chip, reg, r_len, b_len);
 
 	err = rk_i2c_send_start_bit(i2c);
 	if (err != I2C_OK) {
@@ -472,7 +489,6 @@ i2c_exit:
 
 	return err;
 }
-
 
 #ifdef CONFIG_I2C_MULTI_BUS
 unsigned int i2c_get_bus_num(void)
@@ -546,6 +562,50 @@ int i2c_write(uchar chip, uint addr, int alen, uchar *buf, int len)
 	}
 
 	return rk_i2c_write(i2c, chip, addr, alen, buf, len);
+}
+
+
+/*
+ * i2c_xfer() - Transfer messages over I2C
+ *
+ * This transfers a raw message.
+ *
+ * @msg:	List of messages to transfer
+ * @num:	Number of messages to transfer
+ * @return 0 on success, -ve on error
+ */
+int i2c_xfer(struct i2c_msg *msg, int num)
+{
+	struct rk_i2c *i2c = (struct rk_i2c *)rk_i2c_get_base();
+	int i;
+	int ret;
+
+	if (!i2c)
+		return -1;
+
+	debug("i2c_xfer: %d messages\n", num);
+	for (i = 0; i < num; i++, msg++) {
+		if (!msg->buf && msg->len) {
+			printf("i2c_xfer: invalid msg[%d]\n", i);
+			return -2;
+		}
+
+		debug("i2c_xfer: chip=0x%x, len=0x%x\n", msg->addr, msg->len);
+		if (msg->flags & I2C_M_RD) {
+			ret = rk_i2c_read(i2c, msg->addr, 0, 0, msg->buf,
+					msg->len);
+		} else {
+			ret = rk_i2c_write(i2c, msg->addr, 0, 0, msg->buf,
+					msg->len);
+		}
+
+		if (ret) {
+			debug("i2c_xfer: transfer error, ret = %d\n", ret);
+			return -EREMOTEIO;
+		}
+	}
+
+	return 0;
 }
 
 
