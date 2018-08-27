@@ -599,7 +599,7 @@ static unsigned int drm_rk_select_color(struct hdmi_edid_data *edid_data,
 	}
 
 	if (color_depth > 8 && support_dc) {
-		if (dev_type == RK3288_HDMI)
+		if (dev_type == RK3288_HDMI || dev_type == RK3399_HDMI)
 			return MEDIA_BUS_FMT_RGB101010_1X30;
 		switch (color_format) {
 		case DRM_HDMI_OUTPUT_YCBCR444:
@@ -612,7 +612,7 @@ static unsigned int drm_rk_select_color(struct hdmi_edid_data *edid_data,
 			return MEDIA_BUS_FMT_RGB101010_1X30;
 		}
 	} else {
-		if (dev_type == RK3288_HDMI)
+		if (dev_type == RK3288_HDMI || dev_type == RK3399_HDMI)
 			return MEDIA_BUS_FMT_RGB888_1X24;
 		switch (color_format) {
 		case DRM_HDMI_OUTPUT_YCBCR444:
@@ -646,7 +646,7 @@ void drm_rk_selete_output(struct hdmi_edid_data *edid_data,
 	overscan->top_margin = max_scan;
 	overscan->bottom_margin = max_scan;
 
-	if (dev_type == RK3288_HDMI)
+	if (dev_type == RK3288_HDMI || dev_type == RK3399_HDMI)
 		*bus_format = MEDIA_BUS_FMT_RGB888_1X24;
 	else
 		*bus_format = MEDIA_BUS_FMT_YUV8_1X24;
