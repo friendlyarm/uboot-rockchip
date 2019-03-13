@@ -15,7 +15,6 @@
 #include <optee_include/teesmc_optee.h>
 #include <optee_include/tee_rpc_types.h>
 #include <optee_include/tee_rpc.h>
-#include <optee_include/258be795-f9ca-40e6-a8699ce6886c5d5d.h>
 #include <optee_include/OpteeClientRkFs.h>
 
 /*
@@ -50,6 +49,24 @@ TEEC_Result OpteeRpcFree(uint32_t Address)
 	return TEEC_SUCCESS;
 }
 
+int is_uuid_equal(TEE_UUID uuid1, TEEC_UUID uuid2)
+{
+	bool a, b, c;
+
+	a = (uuid1.timeLow == uuid2.timeLow);
+	b = (uuid1.timeMid == uuid2.timeMid);
+	c = (uuid1.timeHiAndVersion == uuid2.timeHiAndVersion);
+	if ((a & b & c) == 0) {
+		return 0;
+	} else {
+		if (memcmp(uuid1.clockSeqAndNode,
+			   uuid2.clockSeqAndNode, 8) == 0)
+			return 1;
+		else
+			return 0;
+	}
+}
+
 /*
  * Load a TA from storage into memory and provide it back to OpTEE.
  * Param[0] = IN: struct tee_rpc_load_ta_cmd
@@ -61,6 +78,8 @@ TEEC_Result OpteeRpcCmdLoadTa(t_teesmc32_arg *TeeSmc32Arg)
 	t_teesmc32_param *TeeSmc32Param = NULL;
 	struct tee_rpc_load_ta_cmd *TeeLoadTaCmd = NULL;
 	uint32_t TeeLoadTaCmdSize = 0;
+	TEEC_UUID TA_RK_KEYMASTER_UUID = {0x258be795, 0xf9ca, 0x40e6,
+			{0xa8, 0x69, 0x9c, 0xe6, 0x88, 0x6c, 0x5d, 0x5d}};
 
 	if (TeeSmc32Arg->num_params != 2) {
 		TeecResult = TEEC_ERROR_BAD_PARAMETERS;
@@ -83,8 +102,13 @@ TEEC_Result OpteeRpcCmdLoadTa(t_teesmc32_arg *TeeSmc32Arg)
 	uint32_t ImageSize = 0;
 	size_t AllocAddress = 0;
 
-	ImageData = (void *)keymaster_data;
-	ImageSize = keymaster_size;
+	if (is_uuid_equal(TeeLoadTaCmd->uuid, TA_RK_KEYMASTER_UUID)) {
+		ImageData = (void *)0;
+		ImageSize = 0;
+	} else {
+		ImageData = (void *)0;
+		ImageSize = 0;
+	}
 
 	if (Status != 0) {
 		TeecResult = TEEC_ERROR_ITEM_NOT_FOUND;
@@ -139,11 +163,11 @@ TEEC_Result OpteeRpcCmdLoadV2Ta(t_teesmc32_arg *TeeSmc32Arg)
 		printf("uuid 0x%x", uuid[i]);
 
 	if (TeeSmc32Param[1].u.memref.buf_ptr == 0) {
-		printf("return size of TA, keymaster_size = 0x%x", keymaster_size);
-		TeeSmc32Param[1].u.memref.size = keymaster_size;
+		printf("return size of TA, keymaster_size = 0");
+		TeeSmc32Param[1].u.memref.size = 0;
 	} else {
-		memcpy((void *)TeeSmc32Param[1].u.memref.buf_ptr,
-			(void *)keymaster_data, TeeSmc32Param[1].u.memref.size);
+		/*memcpy((void *)TeeSmc32Param[1].u.memref.buf_ptr,
+			(void *)keymaster_data, TeeSmc32Param[1].u.memref.size);*/
 		printf("memref.buf_ptr = 0x%llx; memref.size = 0x%llx",
 			TeeSmc32Param[1].u.memref.buf_ptr,
 			TeeSmc32Param[1].u.memref.size);
@@ -243,7 +267,7 @@ TEEC_Result OpteeRpcCmdRpmb(t_teesmc32_arg *TeeSmc32Arg)
 			(RpmbRequest->block_count == 0 ?
 			1 : RpmbRequest->block_count);
 		RequestPackets_back =
-			malloc(sizeof(EFI_RK_RPMB_DATA_PACKET_BACK)
+			memalign(ARCH_DMA_MINALIGN, sizeof(EFI_RK_RPMB_DATA_PACKET_BACK)
 			* global_block_count);
 		memcpy(RequestPackets_back->stuff,
 			RequestPackets->stuff_bytes,
