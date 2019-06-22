@@ -289,11 +289,13 @@ static void setup_serial(void)
 	u64 serialno;
 	char serialno_str[16];
 	char *env_cpuid, *env_serial;
-	int i;
+	int i, lockdown;
 
 	env_cpuid = getenv("cpuid#");
 	env_serial = getenv("serial#");
-	if (env_cpuid && env_serial)
+	lockdown = !!simple_strtol(getenv("lockdown"), NULL, 10);
+
+	if (lockdown && env_cpuid && env_serial)
 		return;
 
 	rk3399_efuse_read(RKIO_FTEFUSE_BASE, RK3399_CPUID_OFF, cpuid, sizeof(cpuid));
@@ -316,9 +318,10 @@ static void setup_serial(void)
 	snprintf(serialno_str, sizeof(serialno_str), "%llx", serialno);
 
 	setenv("cpuid#", cpuid_str);
-	if (!env_serial)
+	if (!lockdown || !env_serial)
 		setenv("serial#", serialno_str);
-	saveenv();
+	if (lockdown)
+		saveenv();
 }
 
 static void setup_macaddr(void)
@@ -329,10 +332,15 @@ static void setup_macaddr(void)
 	int size = sizeof(hash);
 	uchar mac_addr[6];
 	char buf[18];
-	int i, n;
+	int i, n, lockdown;
 
-	/* Only generate a MAC address, if none is set in the environment */
-	if (getenv("ethaddr"))
+	lockdown = !!simple_strtol(getenv("lockdown"), NULL, 10);
+
+	/* 
+	 * Only generate a MAC address if not in lockdown or none set in
+	 * the environment
+	 */
+	if (lockdown && getenv("ethaddr"))
 		return;
 
 	if (!cpuid) {
