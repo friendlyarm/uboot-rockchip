@@ -2022,6 +2022,11 @@ static void hdmi_tx_hdcp_config(struct dw_hdmi *hdmi,
 	printf("%s success\n", __func__);
 }
 
+__weak int board_set_panel_name(const char *name)
+{
+	return 0;
+}
+
 static int dw_hdmi_setup(struct dw_hdmi *hdmi,
 			 struct drm_display_mode *mode,
 			 struct display_state *state)
@@ -2031,7 +2036,8 @@ static int dw_hdmi_setup(struct dw_hdmi *hdmi,
 
 	hdmi_disable_overflow_interrupts(hdmi);
 	if (!hdmi->vic)
-		printf("Non-CEA mode used in HDMI\n");
+		printf("Non-CEA mode (%dx%d) used in HDMI\n",
+				mode->hdisplay, mode->vdisplay);
 	else
 		printf("CEA mode used vic=%d\n", hdmi->vic);
 
@@ -2110,6 +2116,13 @@ static int dw_hdmi_setup(struct dw_hdmi *hdmi,
 	dw_hdmi_clear_overflow(hdmi);
 	if (hdmi->cable_plugin && hdmi->sink_is_hdmi)
 		hdmi_enable_overflow_interrupts(hdmi);
+
+	/* save resulotion of Non-CEA mode */
+	if (!hdmi->vic) {
+		char hmode[64] = { 0 };
+		sprintf(hmode, "HDMI%dx%d", mode->hdisplay, mode->vdisplay);
+		board_set_panel_name(hmode);
+	}
 
 	return 0;
 }

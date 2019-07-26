@@ -202,6 +202,8 @@ static char *panels[] = {
 	"HD101B,180dpi",
 	"G101E,180dpi",
 	"S701,160dpi",
+	"HDMI1024x768,165dpi",
+	"HDMI1280x800,168dpi",
 };
 
 char *board_get_panel_name(void)
@@ -209,12 +211,12 @@ char *board_get_panel_name(void)
 	char *name;
 	int i;
 
-	if (!panel_pwm_status)
-		return NULL;
-
 	name = getenv("panel");
-	if (!name)
+	if (!name) {
+		if (panel_pwm_status)
+			printf("unknown eDP panal\n");
 		return NULL;
+	}
 
 	for (i = 0; i < ARRAY_SIZE(panels); i++) {
 		if (!strncmp(panels[i], name, strlen(name)))
@@ -222,6 +224,14 @@ char *board_get_panel_name(void)
 	}
 
 	return name;
+}
+
+int board_set_panel_name(const char *name)
+{
+	if (!panel_pwm_status && !getenv("panel"))
+		setenv("panel", name);
+
+	return 0;
 }
 
 
