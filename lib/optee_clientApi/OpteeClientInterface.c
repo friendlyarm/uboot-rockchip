@@ -8,8 +8,169 @@
 #include <common.h>
 #include <optee_include/OpteeClientApiLib.h>
 #include <optee_include/tee_client_api.h>
+#include <optee_include/OpteeClientInterface.h>
 
-#define     BOOT_FROM_EMMC    (1<<1)
+#define	BOOT_FROM_EMMC	(1<<1)
+#define	WIDEVINE_TAG	"KBOX"
+#define	ATTESTATION_TAG	"ATTE"
+#define PLAYREADY_TAG   "SL30"
+
+uint32_t rk_send_keybox_to_ta(uint8_t *filename, uint32_t filename_size,
+			      TEEC_UUID uuid,
+			      uint8_t *key, uint32_t key_size,
+			      uint8_t *data, uint32_t data_size)
+{
+	TEEC_Result TeecResult;
+	TEEC_Context TeecContext;
+	TEEC_Session TeecSession;
+	uint32_t ErrorOrigin;
+	TEEC_UUID *TeecUuid = &uuid;
+	TEEC_Operation TeecOperation = {0};
+	TEEC_SharedMemory SharedMem0 = {0};
+	TEEC_SharedMemory SharedMem1 = {0};
+	TEEC_SharedMemory SharedMem2 = {0};
+
+	TeecResult = OpteeClientApiLibInitialize();
+	if (TeecResult != TEEC_SUCCESS)
+		return TeecResult;
+	TeecResult = TEEC_InitializeContext(NULL, &TeecContext);
+	if (TeecResult != TEEC_SUCCESS)
+		return TeecResult;
+	TeecOperation.paramTypes = TEEC_PARAM_TYPES(TEEC_VALUE_INPUT,
+						    TEEC_NONE,
+						    TEEC_NONE,
+						    TEEC_NONE);
+
+	/* 0 nand or emmc "security" partition , 1 rpmb */
+	if (StorageGetBootMedia() == BOOT_FROM_EMMC)
+		TeecOperation.params[0].value.a = 1;
+	else
+		TeecOperation.params[0].value.a = 0;
+#ifdef CONFIG_OPTEE_ALWAYS_USE_SECURITY_PARTITION
+        TeecOperation.params[0].value.a = 0;
+#endif
+
+	TeecResult = TEEC_OpenSession(&TeecContext,
+				      &TeecSession,
+				      TeecUuid,
+				      TEEC_LOGIN_PUBLIC,
+				      NULL,
+				      &TeecOperation,
+				      &ErrorOrigin);
+	if (TeecResult != TEEC_SUCCESS)
+		return TeecResult;
+
+	SharedMem0.size = filename_size;
+	SharedMem0.flags = 0;
+	TeecResult = TEEC_AllocateSharedMemory(&TeecContext, &SharedMem0);
+	if (TeecResult != TEEC_SUCCESS)
+		return TeecResult;
+	memcpy(SharedMem0.buffer, filename, SharedMem0.size);
+
+	SharedMem1.size = key_size;
+	SharedMem1.flags = 0;
+	TeecResult = TEEC_AllocateSharedMemory(&TeecContext, &SharedMem1);
+	if (TeecResult != TEEC_SUCCESS)
+		return TeecResult;
+	memcpy(SharedMem1.buffer, key, SharedMem1.size);
+
+	SharedMem2.size = data_size;
+	SharedMem2.flags = 0;
+	TeecResult = TEEC_AllocateSharedMemory(&TeecContext, &SharedMem2);
+	if (TeecResult != TEEC_SUCCESS)
+		return TeecResult;
+	memcpy(SharedMem2.buffer, data, SharedMem2.size);
+
+	TeecOperation.params[0].tmpref.buffer = SharedMem0.buffer;
+	TeecOperation.params[0].tmpref.size = SharedMem0.size;
+	TeecOperation.params[1].tmpref.buffer = SharedMem1.buffer;
+	TeecOperation.params[1].tmpref.size = SharedMem1.size;
+	TeecOperation.params[2].tmpref.buffer = SharedMem2.buffer;
+	TeecOperation.params[2].tmpref.size = SharedMem2.size;
+
+	TeecOperation.paramTypes = TEEC_PARAM_TYPES(TEEC_MEMREF_TEMP_INPUT,
+						    TEEC_MEMREF_TEMP_INPUT,
+						    TEEC_MEMREF_TEMP_INOUT,
+						    TEEC_NONE);
+
+	printf("write keybox to secure storage\n");
+	TeecResult = TEEC_InvokeCommand(&TeecSession,
+					6,
+					&TeecOperation,
+					&ErrorOrigin);
+	if (TeecResult != TEEC_SUCCESS)
+		printf("send data to TA failed with code 0x%x\n", TeecResult);
+	else
+		printf("send data to TA success with code 0x%x\n", TeecResult);
+
+	TEEC_ReleaseSharedMemory(&SharedMem0);
+	TEEC_ReleaseSharedMemory(&SharedMem1);
+	TEEC_ReleaseSharedMemory(&SharedMem2);
+
+	TEEC_CloseSession(&TeecSession);
+	TEEC_FinalizeContext(&TeecContext);
+
+	return TeecResult;
+}
+
+int write_keybox_to_secure_storage(uint8_t *uboot_data, uint32_t len)
+{
+	uint32_t key_size;
+	uint32_t data_size;
+	TEEC_Result ret = 0;
+
+	if (memcmp(uboot_data, WIDEVINE_TAG, 4) == 0) {
+		/* widevine keybox */
+		TEEC_UUID widevine_uuid = { 0x1b484ea5, 0x698b, 0x4142,
+			{ 0x82, 0xb8, 0x3a, 0xcf, 0x16, 0xe9, 0x9e, 0x2a } };
+
+		key_size = *(uboot_data + 4);
+		data_size = *(uboot_data + 8);
+
+		ret = rk_send_keybox_to_ta((uint8_t *)"widevine_keybox",
+					   sizeof("widevine_keybox"),
+					   widevine_uuid,
+					   uboot_data + 12,
+					   key_size,
+					   uboot_data + 12 + key_size,
+					   data_size);
+
+		if (ret == TEEC_SUCCESS) {
+			ret = 0;
+			printf("write widevine keybox success\n");
+		} else {
+			ret =-1;
+			printf("write widevine keybox fail\n");
+		}
+	} else if (memcmp(uboot_data, ATTESTATION_TAG, 4) == 0) {
+		/* attestation key */
+	} else if (memcmp(uboot_data, PLAYREADY_TAG, 4) == 0) {
+		/* PlayReady SL3000 root key */
+		data_size = *(uboot_data + 4);
+		ret = write_to_keymaster((uint8_t *)"PlayReady_SL3000",
+					 sizeof("PlayReady_SL3000"),
+					 uboot_data + 8, data_size);
+		if (ret == TEEC_SUCCESS) {
+			ret = 0;
+			printf("write PlayReady SL3000 root key to secure storage success\n");
+		} else {
+			ret = -1;
+			printf("write PlayReady SL3000 root key to secure storage fail\n");
+		}
+	}
+	/* write all data to secure storage for readback check */
+	if (!ret) {
+		uint32_t rc;
+		rc = write_to_keymaster((uint8_t *)"raw_data",
+					sizeof("raw_data"),
+					uboot_data, len);
+		if (rc == TEEC_SUCCESS)
+			ret = 0;
+		else
+			ret = -1;
+	}
+	return ret;
+}
 
 void test_optee(void)
 {
@@ -297,8 +458,8 @@ uint32_t trusty_read_permanent_attributes(uint8_t *attributes, uint32_t size)
 	TEEC_Context TeecContext;
 	TEEC_Session TeecSession;
 	uint32_t ErrorOrigin;
-	TEEC_UUID tempuuid = { 0x258be795, 0xf9ca, 0x40e6,
-		{ 0xa8, 0x69, 0x9c, 0xe6, 0x88, 0x6c, 0x5d, 0x5d } };
+	TEEC_UUID tempuuid = { 0x1b484ea5, 0x698b, 0x4142,
+			{ 0x82, 0xb8, 0x3a, 0xcf, 0x16, 0xe9, 0x9e, 0x2a } };
 	TEEC_UUID *TeecUuid = &tempuuid;
 	TEEC_Operation TeecOperation = {0};
 
@@ -359,7 +520,7 @@ uint32_t trusty_read_permanent_attributes(uint8_t *attributes, uint32_t size)
 						TEEC_NONE);
 
 	TeecResult = TEEC_InvokeCommand(&TeecSession,
-					142,
+					0,
 					&TeecOperation,
 					&ErrorOrigin);
 	if (TeecResult == TEEC_SUCCESS)
@@ -379,8 +540,8 @@ uint32_t trusty_write_permanent_attributes(uint8_t *attributes, uint32_t size)
 	TEEC_Context TeecContext;
 	TEEC_Session TeecSession;
 	uint32_t ErrorOrigin;
-	TEEC_UUID tempuuid = { 0x258be795, 0xf9ca, 0x40e6,
-		{ 0xa8, 0x69, 0x9c, 0xe6, 0x88, 0x6c, 0x5d, 0x5d } };
+	TEEC_UUID tempuuid = { 0x1b484ea5, 0x698b, 0x4142,
+		{ 0x82, 0xb8, 0x3a, 0xcf, 0x16, 0xe9, 0x9e, 0x2a } };
 	TEEC_UUID *TeecUuid = &tempuuid;
 	TEEC_Operation TeecOperation = {0};
 
@@ -443,7 +604,7 @@ uint32_t trusty_write_permanent_attributes(uint8_t *attributes, uint32_t size)
 						TEEC_NONE);
 
 	TeecResult = TEEC_InvokeCommand(&TeecSession,
-					141,
+					1,
 					&TeecOperation,
 					&ErrorOrigin);
 
@@ -786,6 +947,94 @@ uint32_t trusty_write_flash_lock_state(uint8_t flash_lock_state)
 	return TeecResult;
 }
 
+ uint32_t read_from_keymaster(uint8_t *filename,
+				uint32_t filename_size,
+				uint8_t *data,
+				uint32_t size)
+{
+	uint32_t ErrorOrigin;
+	TEEC_Result TeecResult;
+	TEEC_Context TeecContext;
+	TEEC_Session TeecSession;
+	TEEC_Operation TeecOperation = {0};
+	TEEC_SharedMemory SharedMem0 = {0};
+	TEEC_SharedMemory SharedMem1 = {0};
+	TEEC_UUID tempuuid = { 0x1b484ea5, 0x698b, 0x4142,
+		{ 0x82, 0xb8, 0x3a, 0xcf, 0x16, 0xe9, 0x9e, 0x2a } };
+	TEEC_UUID *TeecUuid = &tempuuid;
+
+	debug("read_from_keymaster start\n");
+	TeecResult = OpteeClientApiLibInitialize();
+	if (TeecResult != TEEC_SUCCESS)
+		return TeecResult;
+	TeecResult = TEEC_InitializeContext(NULL, &TeecContext);
+	if (TeecResult != TEEC_SUCCESS)
+		return TeecResult;
+
+	TeecOperation.paramTypes = TEEC_PARAM_TYPES(TEEC_VALUE_INPUT,
+						    TEEC_NONE,
+						    TEEC_NONE,
+						    TEEC_NONE);
+
+	/*0 nand or emmc "security" partition , 1 rpmb*/
+	if (StorageGetBootMedia() == BOOT_FROM_EMMC)
+		TeecOperation.params[0].value.a = 1;
+	else
+		TeecOperation.params[0].value.a = 0;
+#ifdef CONFIG_OPTEE_ALWAYS_USE_SECURITY_PARTITION
+	TeecOperation.params[0].value.a = 0;
+#endif
+
+	TeecResult = TEEC_OpenSession(&TeecContext,
+				      &TeecSession,
+				      TeecUuid,
+				      TEEC_LOGIN_PUBLIC,
+				      NULL,
+				      &TeecOperation,
+				      &ErrorOrigin);
+	if (TeecResult != TEEC_SUCCESS)
+		return TeecResult;
+
+	SharedMem0.size = filename_size;
+	SharedMem0.flags = 0;
+	TeecResult = TEEC_AllocateSharedMemory(&TeecContext, &SharedMem0);
+	if (TeecResult != TEEC_SUCCESS)
+		return TeecResult;
+	memcpy(SharedMem0.buffer, filename, SharedMem0.size);
+
+	SharedMem1.size = size;
+	SharedMem1.flags = 0;
+	TeecResult = TEEC_AllocateSharedMemory(&TeecContext, &SharedMem1);
+	if (TeecResult != TEEC_SUCCESS)
+		return TeecResult;
+
+	TeecOperation.params[0].tmpref.buffer = SharedMem0.buffer;
+	TeecOperation.params[0].tmpref.size = SharedMem0.size;
+
+	TeecOperation.params[1].tmpref.buffer = SharedMem1.buffer;
+	TeecOperation.params[1].tmpref.size = SharedMem1.size;
+
+	TeecOperation.paramTypes = TEEC_PARAM_TYPES(TEEC_MEMREF_TEMP_INPUT,
+						    TEEC_MEMREF_TEMP_INOUT,
+						    TEEC_NONE,
+						    TEEC_NONE);
+
+	TeecResult = TEEC_InvokeCommand(&TeecSession,
+					0,
+					&TeecOperation,
+					&ErrorOrigin);
+
+	if (TeecResult == TEEC_SUCCESS)
+		memcpy(data, SharedMem1.buffer, SharedMem1.size);
+	TEEC_ReleaseSharedMemory(&SharedMem0);
+	TEEC_ReleaseSharedMemory(&SharedMem1);
+	TEEC_CloseSession(&TeecSession);
+	TEEC_FinalizeContext(&TeecContext);
+	debug("read_from_keymaster end\n");
+
+	return TeecResult;
+}
+
 uint32_t write_to_keymaster(uint8_t *filename,
 		uint32_t filename_size,
 		uint8_t *data,
@@ -795,9 +1044,8 @@ uint32_t write_to_keymaster(uint8_t *filename,
 	TEEC_Context TeecContext;
 	TEEC_Session TeecSession;
 	uint32_t ErrorOrigin;
-
-	TEEC_UUID tempuuid = { 0x258be795, 0xf9ca, 0x40e6,
-		{ 0xa8, 0x69, 0x9c, 0xe6, 0x88, 0x6c, 0x5d, 0x5d } };
+	TEEC_UUID tempuuid = { 0x1b484ea5, 0x698b, 0x4142,
+		{ 0x82, 0xb8, 0x3a, 0xcf, 0x16, 0xe9, 0x9e, 0x2a } };
 	TEEC_UUID *TeecUuid = &tempuuid;
 	TEEC_Operation TeecOperation = {0};
 
@@ -860,7 +1108,7 @@ uint32_t write_to_keymaster(uint8_t *filename,
 						TEEC_NONE);
 
 	TeecResult = TEEC_InvokeCommand(&TeecSession,
-					141,
+					1,
 					&TeecOperation,
 					&ErrorOrigin);
 
@@ -1238,8 +1486,8 @@ uint32_t trusty_read_permanent_attributes_flag(uint8_t *attributes)
 	TEEC_Context TeecContext;
 	TEEC_Session TeecSession;
 	uint32_t ErrorOrigin;
-	TEEC_UUID tempuuid = { 0x258be795, 0xf9ca, 0x40e6,
-		{ 0xa8, 0x69, 0x9c, 0xe6, 0x88, 0x6c, 0x5d, 0x5d } };
+	TEEC_UUID tempuuid = { 0x1b484ea5, 0x698b, 0x4142,
+			{ 0x82, 0xb8, 0x3a, 0xcf, 0x16, 0xe9, 0x9e, 0x2a } };
 	TEEC_UUID *TeecUuid = &tempuuid;
 	TEEC_Operation TeecOperation = {0};
 
@@ -1299,7 +1547,7 @@ uint32_t trusty_read_permanent_attributes_flag(uint8_t *attributes)
 						TEEC_NONE);
 
 	TeecResult = TEEC_InvokeCommand(&TeecSession,
-					142,
+					0,
 					&TeecOperation,
 					&ErrorOrigin);
 	if (TeecResult == TEEC_SUCCESS)
@@ -1319,8 +1567,8 @@ uint32_t trusty_write_permanent_attributes_flag(uint8_t attributes)
 	TEEC_Context TeecContext;
 	TEEC_Session TeecSession;
 	uint32_t ErrorOrigin;
-	TEEC_UUID tempuuid = { 0x258be795, 0xf9ca, 0x40e6,
-		{ 0xa8, 0x69, 0x9c, 0xe6, 0x88, 0x6c, 0x5d, 0x5d } };
+	TEEC_UUID tempuuid = { 0x1b484ea5, 0x698b, 0x4142,
+			{ 0x82, 0xb8, 0x3a, 0xcf, 0x16, 0xe9, 0x9e, 0x2a } };
 	TEEC_UUID *TeecUuid = &tempuuid;
 	TEEC_Operation TeecOperation = {0};
 
@@ -1382,7 +1630,7 @@ uint32_t trusty_write_permanent_attributes_flag(uint8_t attributes)
 						TEEC_NONE);
 
 	TeecResult = TEEC_InvokeCommand(&TeecSession,
-					141,
+					1,
 					&TeecOperation,
 					&ErrorOrigin);
 

@@ -14,6 +14,7 @@
 #include <asm/arch/rkplat.h>
 #include <asm/unaligned.h>
 #include <linux/list.h>
+#include <linux/iopoll.h>
 
 #include "rockchip_display.h"
 #include "rockchip_crtc.h"
@@ -60,21 +61,20 @@
 #define DSI_DPI_LP_CMD_TIM		0x18
 #define OUTVACT_LPCMD_TIME(p)		(((p) & 0xff) << 16)
 #define INVACT_LPCMD_TIME(p)		((p) & 0xff)
-
+#define DSI_DBI_VCID			0x1c
+#define DBI_VCID(x)			UPDATE(x, 1, 0)
 #define DSI_DBI_CFG			0x20
 #define DSI_DBI_CMDSIZE			0x28
-
 #define DSI_PCKHDL_CFG			0x2c
 #define EN_CRC_RX			BIT(4)
 #define EN_ECC_RX			BIT(3)
 #define EN_BTA				BIT(2)
 #define EN_EOTP_RX			BIT(1)
 #define EN_EOTP_TX			BIT(0)
-
 #define DSI_MODE_CFG			0x34
-#define ENABLE_VIDEO_MODE		0
-#define ENABLE_CMD_MODE			BIT(0)
-
+#define CMD_VIDEO_MODE			BIT(0)
+#define COMMAND_MODE			BIT(0)
+#define VIDEO_MODE			0
 #define DSI_VID_MODE_CFG		0x38
 #define VPG_EN				BIT(16)
 #define LP_CMD_EN			BIT(15)
@@ -102,34 +102,22 @@
 #define DSI_VID_VBP_LINES		0x58
 #define DSI_VID_VFP_LINES		0x5c
 #define DSI_VID_VACTIVE_LINES		0x60
+#define DSI_EDPI_CMD_SIZE		0x64
 #define DSI_CMD_MODE_CFG		0x68
-#define MAX_RD_PKT_SIZE_LP		BIT(24)
-#define DCS_LW_TX_LP			BIT(19)
-#define DCS_SR_0P_TX_LP			BIT(18)
-#define DCS_SW_1P_TX_LP			BIT(17)
-#define DCS_SW_0P_TX_LP			BIT(16)
-#define GEN_LW_TX_LP			BIT(14)
-#define GEN_SR_2P_TX_LP			BIT(13)
-#define GEN_SR_1P_TX_LP			BIT(12)
-#define GEN_SR_0P_TX_LP			BIT(11)
-#define GEN_SW_2P_TX_LP			BIT(10)
-#define GEN_SW_1P_TX_LP			BIT(9)
-#define GEN_SW_0P_TX_LP			BIT(8)
-#define EN_ACK_RQST			BIT(1)
-#define EN_TEAR_FX			BIT(0)
-
-#define CMD_MODE_ALL_LP			(MAX_RD_PKT_SIZE_LP | \
-					 DCS_LW_TX_LP | \
-					 DCS_SR_0P_TX_LP | \
-					 DCS_SW_1P_TX_LP | \
-					 DCS_SW_0P_TX_LP | \
-					 GEN_LW_TX_LP | \
-					 GEN_SR_2P_TX_LP | \
-					 GEN_SR_1P_TX_LP | \
-					 GEN_SR_0P_TX_LP | \
-					 GEN_SW_2P_TX_LP | \
-					 GEN_SW_1P_TX_LP | \
-					 GEN_SW_0P_TX_LP)
+#define MAX_RD_PKT_SIZE			BIT(24)
+#define DCS_LW_TX			BIT(19)
+#define DCS_SR_0P_TX			BIT(18)
+#define DCS_SW_1P_TX			BIT(17)
+#define DCS_SW_0P_TX			BIT(16)
+#define GEN_LW_TX			BIT(14)
+#define GEN_SR_2P_TX			BIT(13)
+#define GEN_SR_1P_TX			BIT(12)
+#define GEN_SR_0P_TX			BIT(11)
+#define GEN_SW_2P_TX			BIT(10)
+#define GEN_SW_1P_TX			BIT(9)
+#define GEN_SW_0P_TX			BIT(8)
+#define ACK_RQST_EN			BIT(1)
+#define TEAR_FX_EN			BIT(0)
 
 #define DSI_GEN_HDR			0x6c
 #define GEN_HDATA(data)			(((data) & 0xffff) << 8)
@@ -309,7 +297,7 @@ struct mipi_dphy {
 };
 
 struct dw_mipi_dsi {
-	void *base;
+	u32 base;
 	const void *blob;
 	int node;
 	int id;
@@ -325,13 +313,9 @@ struct dw_mipi_dsi {
 	u32 mode_flags;
 	struct mipi_dphy dphy;
 	struct drm_display_mode *mode;
+	struct display_state *state;
 
 	const struct dw_mipi_dsi_plat_data *pdata;
-};
-
-enum dw_mipi_dsi_mode {
-	DSI_COMMAND_MODE,
-	DSI_VIDEO_MODE,
 };
 
 struct dphy_pll_testdin_map {
@@ -419,7 +403,7 @@ static int genif_wait_w_pld_fifo_not_full(struct dw_mipi_dsi *dsi)
 	int ret;
 
 	ret = readl_poll_timeout(dsi->base + DSI_CMD_PKT_STATUS,
-				 sts, !(sts & GEN_PLD_W_FULL), 10,
+				 sts, !(sts & GEN_PLD_W_FULL),
 				 CMD_PKT_STATUS_TIMEOUT_US);
 	if (ret < 0) {
 		printf("generic write payload fifo is full\n");
@@ -435,7 +419,7 @@ static int genif_wait_cmd_fifo_not_full(struct dw_mipi_dsi *dsi)
 	int ret;
 
 	ret = readl_poll_timeout(dsi->base + DSI_CMD_PKT_STATUS,
-				 sts, !(sts & GEN_CMD_FULL), 10,
+				 sts, !(sts & GEN_CMD_FULL),
 				 CMD_PKT_STATUS_TIMEOUT_US);
 	if (ret < 0) {
 		printf("generic write cmd fifo is full\n");
@@ -453,7 +437,7 @@ static int genif_wait_write_fifo_empty(struct dw_mipi_dsi *dsi)
 
 	mask = GEN_CMD_EMPTY | GEN_PLD_W_EMPTY;
 	ret = readl_poll_timeout(dsi->base + DSI_CMD_PKT_STATUS,
-				 sts, (sts & mask) == mask, 10,
+				 sts, (sts & mask) == mask,
 				 CMD_PKT_STATUS_TIMEOUT_US);
 	if (ret < 0) {
 		printf("generic write fifo is full\n");
@@ -493,15 +477,18 @@ static int mipi_dphy_power_on(struct dw_mipi_dsi *dsi)
 				     PHY_UNRSTZ | PHY_UNSHUTDOWNZ);
 	mdelay(2);
 
+	if (dsi->dphy.phy)
+		rockchip_phy_power_on(dsi->state);
+
 	ret = readl_poll_timeout(dsi->base + DSI_PHY_STATUS,
-				 val, val & LOCK, 1000, PHY_STATUS_TIMEOUT_US);
+				 val, val & LOCK, PHY_STATUS_TIMEOUT_US);
 	if (ret < 0) {
 		printf("PHY is not locked\n");
 		return ret;
 	}
 
 	ret = readl_poll_timeout(dsi->base + DSI_PHY_STATUS,
-				 val, val & STOP_STATE_CLK_LANE, 1000,
+				 val, val & STOP_STATE_CLK_LANE,
 				 PHY_STATUS_TIMEOUT_US);
 	if (ret < 0) {
 		printf("lane module is not in stop state\n");
@@ -569,88 +556,106 @@ static int mipi_dphy_configure(struct dw_mipi_dsi *dsi)
 	return 0;
 }
 
-static unsigned long dw_mipi_dsi_calc_bandwidth(struct dw_mipi_dsi *dsi)
+static unsigned long dw_mipi_dsi_get_lane_rate(struct dw_mipi_dsi *dsi)
 {
-	int bpp;
-	unsigned long mpclk, tmp;
-	unsigned long target_mbps = 1000;
-	unsigned int max_mbps;
-	int lanes;
-	int rate;
+	const struct drm_display_mode *mode = dsi->mode;
+	unsigned long max_lane_rate = dsi->pdata->max_bit_rate_per_lane;
+	unsigned long lane_rate;
+	unsigned int value;
+	int bpp, lanes;
+	u64 tmp;
 
 	/* optional override of the desired bandwidth */
-	rate = fdt_getprop_u32_default_node(dsi->blob, dsi->node, 0,
-					     "rockchip,lane-rate", -1);
-	if (rate > 0) {
-		return rate;
-	}
-	max_mbps = dsi->pdata->max_bit_rate_per_lane / USEC_PER_SEC;
+	value = fdt_getprop_u32_default_node(dsi->blob, dsi->node, 0,
+					     "rockchip,lane-rate", 0);
+	if (value > 0)
+		return value * USEC_PER_SEC;
 
 	bpp = mipi_dsi_pixel_format_to_bpp(dsi->format);
-	if (bpp < 0) {
-		printf("failed to get bpp for pixel format %d\n",
-			dsi->format);
+	if (bpp < 0)
 		bpp = 24;
-	}
 
 	lanes = dsi->slave ? dsi->lanes * 2 : dsi->lanes;
+	tmp = (u64)mode->clock * 1000 * bpp;
+	do_div(tmp, lanes);
 
-	mpclk = DIV_ROUND_UP(dsi->mode->clock, MSEC_PER_SEC);
-	if (mpclk) {
-		/* take 1 / 0.9, since mbps must big than bandwidth of RGB */
-		tmp = mpclk * (bpp / lanes) * 10 / 9;
-		if (tmp < max_mbps)
-			target_mbps = tmp;
-		else
-			printf("DPHY clock frequency is out of range\n");
-	}
+	/* take 1 / 0.9, since mbps must big than bandwidth of RGB */
+	tmp *= 10;
+	do_div(tmp, 9);
 
-	return target_mbps;
+	if (tmp > max_lane_rate)
+		lane_rate = max_lane_rate;
+	else
+		lane_rate = tmp;
+
+	return lane_rate;
 }
 
-static int dw_mipi_dsi_get_lane_bps(struct dw_mipi_dsi *dsi)
+static void dw_mipi_dsi_set_pll(struct dw_mipi_dsi *dsi, unsigned long rate)
 {
-	unsigned int i, pre;
-	unsigned long pllref, tmp;
-	unsigned int m = 1, n = 1;
-	unsigned long target_mbps;
+	unsigned long fin, fout;
+	unsigned long fvco_min, fvco_max, best_freq = 984000000;
+	u8 min_prediv, max_prediv;
+	u8 _prediv, best_prediv = 2;
+	u16 _fbdiv, best_fbdiv = 82;
+	u32 min_delta = ~0U;
 
-	if (dsi->master)
-		return 0;
+	fin = 24000000;
+	fout = rate;
 
-	target_mbps = dw_mipi_dsi_calc_bandwidth(dsi);
+	/* 5Mhz < Fref / N < 40MHz, 80MHz < Fvco < 1500Mhz */
+	min_prediv = DIV_ROUND_UP(fin, 40000000);
+	max_prediv = fin / 5000000;
+	fvco_min = 80000000;
+	fvco_max = 1500000000;
 
-	/* ref clk : 24MHz*/
-	pllref = 24;
-	tmp = pllref;
+	for (_prediv = min_prediv; _prediv <= max_prediv; _prediv++) {
+		u64 tmp, _fout;
+		u32 delta;
 
-	for (i = 1; i < 6; i++) {
-		pre = pllref / i;
-		if ((tmp > (target_mbps % pre)) && (target_mbps / pre < 512)) {
-			tmp = target_mbps % pre;
-			n = i;
-			m = target_mbps / pre;
-		}
-		if (tmp == 0)
+		/* Fvco = Fref * M / N */
+		tmp = (u64)fout * _prediv;
+		do_div(tmp, fin);
+		_fbdiv = tmp;
+
+		/*
+		 * Due to the use of a "by 2 pre-scaler," the range of the
+		 * feedback multiplication value M is limited to even division
+		 * numbers, and m must be greater than 12, less than 1000.
+		 */
+		if (_fbdiv <= 12 || _fbdiv >= 1000)
+			continue;
+
+		if (_fbdiv % 2)
+			++_fbdiv;
+
+		_fout = (u64)_fbdiv * fin;
+		do_div(_fout, _prediv);
+
+		if (_fout < fvco_min || _fout > fvco_max)
+			continue;
+
+		delta = abs(fout - _fout);
+		if (!delta) {
+			best_prediv = _prediv;
+			best_fbdiv = _fbdiv;
+			best_freq = _fout;
 			break;
+		} else if (delta < min_delta) {
+			best_prediv = _prediv;
+			best_fbdiv = _fbdiv;
+			best_freq = _fout;
+			min_delta = delta;
+		}
 	}
 
-	dsi->lane_mbps = pllref / n * m;
-	dsi->dphy.input_div = n;
-	dsi->dphy.feedback_div = m;
-
-	return 0;
-}
-
-static void dw_mipi_dsi_set_transfer_mode(struct dw_mipi_dsi *dsi, int flags)
-{
-	if (dsi->mode_flags & MIPI_DSI_MODE_LPM) {
-		dsi_write(dsi, DSI_CMD_MODE_CFG, CMD_MODE_ALL_LP);
-		dsi_update_bits(dsi, DSI_LPCLK_CTRL, PHY_TXREQUESTCLKHS, 0);
-	} else {
-		dsi_write(dsi, DSI_CMD_MODE_CFG, 0);
-		dsi_update_bits(dsi, DSI_LPCLK_CTRL,
-				PHY_TXREQUESTCLKHS, PHY_TXREQUESTCLKHS);
+	dsi->lane_mbps = best_freq / USEC_PER_SEC;
+	dsi->dphy.input_div = best_prediv;
+	dsi->dphy.feedback_div = best_fbdiv;
+	if (dsi->slave) {
+		dsi->slave->lane_mbps = dsi->lane_mbps;
+		dsi->slave->dphy.input_div = dsi->dphy.input_div;
+		dsi->slave->dphy.feedback_div = dsi->dphy.feedback_div;
 	}
 }
 
@@ -663,7 +668,7 @@ static int dw_mipi_dsi_read_from_fifo(struct dw_mipi_dsi *dsi,
 	int ret;
 
 	ret = readl_poll_timeout(dsi->base + DSI_CMD_PKT_STATUS,
-				 val, !(val & GEN_RD_CMD_BUSY), 50, 5000);
+				 val, !(val & GEN_RD_CMD_BUSY), 5000);
 	if (ret) {
 		printf("entire response isn't stored in the FIFO\n");
 		return ret;
@@ -672,8 +677,7 @@ static int dw_mipi_dsi_read_from_fifo(struct dw_mipi_dsi *dsi,
 	/* Receive payload */
 	for (length = msg->rx_len; length; length -= 4) {
 		ret = readl_poll_timeout(dsi->base + DSI_CMD_PKT_STATUS,
-					 val, !(val & GEN_PLD_R_EMPTY),
-					 50, 5000);
+					 val, !(val & GEN_PLD_R_EMPTY), 5000);
 		if (ret) {
 			printf("Read payload FIFO is empty\n");
 			return ret;
@@ -728,27 +732,87 @@ static ssize_t dw_mipi_dsi_transfer(struct dw_mipi_dsi *dsi,
 	int ret;
 	int val;
 
+	if (dsi->mode_flags & MIPI_DSI_MODE_LPM) {
+		dsi_update_bits(dsi, DSI_VID_MODE_CFG, LP_CMD_EN, LP_CMD_EN);
+		dsi_update_bits(dsi, DSI_LPCLK_CTRL, PHY_TXREQUESTCLKHS, 0);
+	} else {
+		dsi_update_bits(dsi, DSI_VID_MODE_CFG, LP_CMD_EN, 0);
+		dsi_update_bits(dsi, DSI_LPCLK_CTRL,
+				PHY_TXREQUESTCLKHS, PHY_TXREQUESTCLKHS);
+	}
+
 	switch (msg->type) {
 	case MIPI_DSI_SHUTDOWN_PERIPHERAL:
 		return dw_mipi_dsi_shutdown_peripheral(dsi);
 	case MIPI_DSI_TURN_ON_PERIPHERAL:
 		return dw_mipi_dsi_turn_on_peripheral(dsi);
 	case MIPI_DSI_DCS_SHORT_WRITE:
+		dsi_update_bits(dsi, DSI_CMD_MODE_CFG, DCS_SW_0P_TX,
+				dsi->mode_flags & MIPI_DSI_MODE_LPM ?
+				DCS_SW_0P_TX : 0);
+		break;
 	case MIPI_DSI_DCS_SHORT_WRITE_PARAM:
+		dsi_update_bits(dsi, DSI_CMD_MODE_CFG, DCS_SW_1P_TX,
+				dsi->mode_flags & MIPI_DSI_MODE_LPM ?
+				DCS_SW_1P_TX : 0);
+		break;
 	case MIPI_DSI_DCS_LONG_WRITE:
+		dsi_update_bits(dsi, DSI_CMD_MODE_CFG, DCS_LW_TX,
+				dsi->mode_flags & MIPI_DSI_MODE_LPM ?
+				DCS_LW_TX : 0);
+		break;
 	case MIPI_DSI_DCS_READ:
+		dsi_update_bits(dsi, DSI_CMD_MODE_CFG, DCS_SR_0P_TX,
+				dsi->mode_flags & MIPI_DSI_MODE_LPM ?
+				DCS_SR_0P_TX : 0);
+		break;
 	case MIPI_DSI_SET_MAXIMUM_RETURN_PACKET_SIZE:
+		dsi_update_bits(dsi, DSI_CMD_MODE_CFG, MAX_RD_PKT_SIZE,
+				dsi->mode_flags & MIPI_DSI_MODE_LPM ?
+				MAX_RD_PKT_SIZE : 0);
+		break;
 	case MIPI_DSI_GENERIC_SHORT_WRITE_0_PARAM:
+		dsi_update_bits(dsi, DSI_CMD_MODE_CFG, GEN_SW_0P_TX,
+				dsi->mode_flags & MIPI_DSI_MODE_LPM ?
+				GEN_SW_0P_TX : 0);
+		break;
 	case MIPI_DSI_GENERIC_SHORT_WRITE_1_PARAM:
+		dsi_update_bits(dsi, DSI_CMD_MODE_CFG, GEN_SW_1P_TX,
+				dsi->mode_flags & MIPI_DSI_MODE_LPM ?
+				GEN_SW_1P_TX : 0);
+		break;
 	case MIPI_DSI_GENERIC_SHORT_WRITE_2_PARAM:
+		dsi_update_bits(dsi, DSI_CMD_MODE_CFG, GEN_SW_2P_TX,
+				dsi->mode_flags & MIPI_DSI_MODE_LPM ?
+				GEN_SW_2P_TX : 0);
+		break;
 	case MIPI_DSI_GENERIC_LONG_WRITE:
+		dsi_update_bits(dsi, DSI_CMD_MODE_CFG, GEN_LW_TX,
+				dsi->mode_flags & MIPI_DSI_MODE_LPM ?
+				GEN_LW_TX : 0);
+		break;
 	case MIPI_DSI_GENERIC_READ_REQUEST_0_PARAM:
+		dsi_update_bits(dsi, DSI_CMD_MODE_CFG, GEN_SR_0P_TX,
+				dsi->mode_flags & MIPI_DSI_MODE_LPM ?
+				GEN_SR_0P_TX : 0);
+		break;
 	case MIPI_DSI_GENERIC_READ_REQUEST_1_PARAM:
+		dsi_update_bits(dsi, DSI_CMD_MODE_CFG, GEN_SR_1P_TX,
+				dsi->mode_flags & MIPI_DSI_MODE_LPM ?
+				GEN_SR_1P_TX : 0);
+		break;
 	case MIPI_DSI_GENERIC_READ_REQUEST_2_PARAM:
+		dsi_update_bits(dsi, DSI_CMD_MODE_CFG, GEN_SR_2P_TX,
+				dsi->mode_flags & MIPI_DSI_MODE_LPM ?
+				GEN_SR_2P_TX : 0);
 		break;
 	default:
 		return -EINVAL;
 	}
+
+	if (msg->flags & MIPI_DSI_MSG_REQ_ACK)
+		dsi_update_bits(dsi, DSI_CMD_MODE_CFG,
+				ACK_RQST_EN, ACK_RQST_EN);
 
 	/* create a packet to the DSI protocol */
 	ret = mipi_dsi_create_packet(&packet, msg);
@@ -756,8 +820,6 @@ static ssize_t dw_mipi_dsi_transfer(struct dw_mipi_dsi *dsi,
 		printf("failed to create packet: %d\n", ret);
 		return ret;
 	}
-
-	dw_mipi_dsi_set_transfer_mode(dsi, msg->flags);
 
 	/* Send payload,  */
 	while (DIV_ROUND_UP(packet.payload_length, 4)) {
@@ -830,7 +892,7 @@ static void dw_mipi_dsi_video_mode_config(struct dw_mipi_dsi *dsi)
 {
 	u32 val;
 
-	val = LP_VACT_EN | LP_VFP_EN | LP_VBP_EN | LP_VSA_EN | LP_CMD_EN;
+	val = LP_VACT_EN | LP_VFP_EN | LP_VBP_EN | LP_VSA_EN;
 
 	if (!(dsi->mode_flags & MIPI_DSI_MODE_VIDEO_HFP))
 		val |= LP_HFP_EN;
@@ -852,23 +914,26 @@ static void dw_mipi_dsi_video_mode_config(struct dw_mipi_dsi *dsi)
 				AUTO_CLKLANE_CTRL, AUTO_CLKLANE_CTRL);
 }
 
-static void dw_mipi_dsi_set_mode(struct dw_mipi_dsi *dsi,
-				 enum dw_mipi_dsi_mode mode)
-{
-	if (mode == DSI_COMMAND_MODE) {
-		dsi_write(dsi, DSI_MODE_CFG, ENABLE_CMD_MODE);
-	} else {
-		dsi_write(dsi, DSI_PWR_UP, RESET);
-		dsi_update_bits(dsi, DSI_LPCLK_CTRL,
-				PHY_TXREQUESTCLKHS, PHY_TXREQUESTCLKHS);
-		dsi_write(dsi, DSI_MODE_CFG, ENABLE_VIDEO_MODE);
-		dsi_write(dsi, DSI_PWR_UP, POWERUP);
-	}
-}
-
 static void dw_mipi_dsi_enable(struct dw_mipi_dsi *dsi)
 {
-	dw_mipi_dsi_set_mode(dsi, DSI_VIDEO_MODE);
+	const struct drm_display_mode *mode = dsi->mode;
+
+	dsi_update_bits(dsi, DSI_LPCLK_CTRL,
+			PHY_TXREQUESTCLKHS, PHY_TXREQUESTCLKHS);
+
+	dsi_write(dsi, DSI_PWR_UP, RESET);
+
+	if (dsi->mode_flags & MIPI_DSI_MODE_VIDEO) {
+		dsi_update_bits(dsi, DSI_MODE_CFG, CMD_VIDEO_MODE, VIDEO_MODE);
+	} else {
+		dsi_write(dsi, DSI_DBI_VCID, DBI_VCID(dsi->channel));
+		dsi_update_bits(dsi, DSI_CMD_MODE_CFG, DCS_LW_TX, 0);
+		dsi_write(dsi, DSI_EDPI_CMD_SIZE, mode->hdisplay);
+		dsi_update_bits(dsi, DSI_MODE_CFG,
+				CMD_VIDEO_MODE, COMMAND_MODE);
+	}
+
+	dsi_write(dsi, DSI_PWR_UP, POWERUP);
 
 	if (dsi->slave)
 		dw_mipi_dsi_enable(dsi->slave);
@@ -876,13 +941,23 @@ static void dw_mipi_dsi_enable(struct dw_mipi_dsi *dsi)
 
 static void dw_mipi_dsi_disable(struct dw_mipi_dsi *dsi)
 {
-	dw_mipi_dsi_set_mode(dsi, DSI_COMMAND_MODE);
-	dsi_write(dsi, DSI_LPCLK_CTRL, 0);
 	dsi_write(dsi, DSI_PWR_UP, RESET);
-	dsi_write(dsi, DSI_PHY_RSTZ, PHY_RSTZ);
+	dsi_write(dsi, DSI_LPCLK_CTRL, 0);
+	dsi_write(dsi, DSI_EDPI_CMD_SIZE, 0);
+	dsi_update_bits(dsi, DSI_MODE_CFG, CMD_VIDEO_MODE, COMMAND_MODE);
+	dsi_write(dsi, DSI_PWR_UP, POWERUP);
 
 	if (dsi->slave)
 		dw_mipi_dsi_disable(dsi->slave);
+}
+
+static void dw_mipi_dsi_post_disable(struct dw_mipi_dsi *dsi)
+{
+	dsi_write(dsi, DSI_PWR_UP, RESET);
+	dsi_write(dsi, DSI_PHY_RSTZ, 0);
+
+	if (dsi->slave)
+		dw_mipi_dsi_post_disable(dsi->slave);
 }
 
 static void dw_mipi_dsi_init(struct dw_mipi_dsi *dsi)
@@ -1062,9 +1137,8 @@ static int dw_mipi_dsi_dual_channel_probe(struct dw_mipi_dsi *master)
 
 	slave->blob = master->blob;
 	slave->node = node1;
-	slave->base = (void *)fdtdec_get_addr_size_auto_noparent(slave->blob,
-								 node1, "reg",
-								 0, NULL);
+	slave->base = fdtdec_get_addr_size_auto_noparent(slave->blob, node1,
+							 "reg", 0, NULL);
 	slave->pdata = master->pdata;
 	slave->id = 1;
 	slave->dphy.phy = master->dphy.phy;
@@ -1092,13 +1166,14 @@ static int dw_mipi_dsi_connector_init(struct display_state *state)
 		return -ENOMEM;
 	memset(dsi, 0, sizeof(*dsi));
 
-	dsi->base = (void *)fdtdec_get_addr_size_auto_noparent(state->blob,
-						mipi_node, "reg", 0, NULL);
+	dsi->base = fdtdec_get_addr_size_auto_noparent(state->blob, mipi_node,
+						       "reg", 0, NULL);
 	dsi->pdata = pdata;
 	dsi->id = id++;
 	dsi->blob = state->blob;
 	dsi->node = mipi_node;
 	dsi->dphy.phy = conn_state->phy;
+	dsi->state = state;
 
 	conn_state->private = dsi;
 	conn_state->output_mode = ROCKCHIP_OUT_MODE_P888;
@@ -1147,32 +1222,11 @@ static void dw_mipi_dsi_connector_deinit(struct display_state *state)
 		free(dsi->slave);
 }
 
-static void dw_mipi_dsi_pre_init(struct display_state *state,
-				 struct dw_mipi_dsi *dsi)
+static void dw_mipi_dsi_set_hs_clk(struct dw_mipi_dsi *dsi,
+				   unsigned long rate)
 {
-	struct connector_state *conn_state = &state->conn_state;
-	unsigned long bw, rate;
-
-	dsi->mode = &conn_state->mode;
-
-	if (dsi->dphy.phy) {
-		bw = dw_mipi_dsi_calc_bandwidth(dsi);
-		rate = rockchip_phy_set_pll(state, bw * USEC_PER_SEC);
-		dsi->lane_mbps = rate / USEC_PER_SEC;
-		rockchip_phy_power_on(state);
-	} else {
-		dw_mipi_dsi_get_lane_bps(dsi);
-	}
-
-	if (dsi->slave) {
-		dsi->slave->mode = dsi->mode;
-		dsi->slave->lane_mbps = dsi->lane_mbps;
-		dsi->slave->dphy.input_div = dsi->dphy.input_div;
-		dsi->slave->dphy.feedback_div = dsi->dphy.feedback_div;
-	}
-
-	printf("final DSI-Link bandwidth: %u Mbps x %d\n",
-	       dsi->lane_mbps, dsi->lanes);
+	rate = rockchip_phy_set_pll(dsi->state, rate);
+	dsi->lane_mbps = rate / USEC_PER_SEC;
 }
 
 static void dw_mipi_dsi_host_init(struct dw_mipi_dsi *dsi)
@@ -1183,7 +1237,7 @@ static void dw_mipi_dsi_host_init(struct dw_mipi_dsi *dsi)
 	dw_mipi_dsi_video_mode_config(dsi);
 	dw_mipi_dsi_video_packet_config(dsi, dsi->mode);
 	dw_mipi_dsi_command_mode_config(dsi);
-	dw_mipi_dsi_set_mode(dsi, DSI_COMMAND_MODE);
+	dsi_update_bits(dsi, DSI_MODE_CFG, CMD_VIDEO_MODE, COMMAND_MODE);
 	dw_mipi_dsi_line_timer_config(dsi);
 	dw_mipi_dsi_vertical_timing_config(dsi);
 	dw_mipi_dsi_dphy_timing_config(dsi);
@@ -1241,12 +1295,34 @@ static int dw_mipi_dsi_connector_prepare(struct display_state *state)
 	struct connector_state *conn_state = &state->conn_state;
 	struct crtc_state *crtc_state = &state->crtc_state;
 	struct dw_mipi_dsi *dsi = conn_state->private;
+	unsigned long lane_rate;
+
+	dsi->mode = &conn_state->mode;
+	if (dsi->slave)
+		dsi->slave->mode = dsi->mode;
+
+	lane_rate = dw_mipi_dsi_get_lane_rate(dsi);
+
+	if (dsi->dphy.phy)
+		dw_mipi_dsi_set_hs_clk(dsi, lane_rate);
+	else
+		dw_mipi_dsi_set_pll(dsi, lane_rate);
+
+	printf("final DSI-Link bandwidth: %u Mbps x %d\n",
+	       dsi->lane_mbps, dsi->slave ? dsi->lanes * 2 : dsi->lanes);
 
 	dw_mipi_dsi_vop_routing(dsi, crtc_state->crtc_id);
-	dw_mipi_dsi_pre_init(state, dsi);
 	dw_mipi_dsi_pre_enable(dsi);
 
 	return 0;
+}
+
+static void dw_mipi_dsi_connector_unprepare(struct display_state *state)
+{
+	struct connector_state *conn_state = &state->conn_state;
+	struct dw_mipi_dsi *dsi = conn_state->private;
+
+	dw_mipi_dsi_post_disable(dsi);
 }
 
 static int dw_mipi_dsi_connector_enable(struct display_state *state)
@@ -1384,6 +1460,7 @@ const struct rockchip_connector_funcs rockchip_dw_mipi_dsi_funcs = {
 	.init = dw_mipi_dsi_connector_init,
 	.deinit = dw_mipi_dsi_connector_deinit,
 	.prepare = dw_mipi_dsi_connector_prepare,
+	.unprepare = dw_mipi_dsi_connector_unprepare,
 	.enable = dw_mipi_dsi_connector_enable,
 	.disable = dw_mipi_dsi_connector_disable,
 	.transfer = dw_mipi_dsi_connector_transfer,
