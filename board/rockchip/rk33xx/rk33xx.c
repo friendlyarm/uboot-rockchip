@@ -72,9 +72,6 @@ int board_storage_init(void)
  *  ID : Volts : ADC value :   Bucket
  *  ==   =====   =========   ===========
  *   0 : 0.102V:        58 :    0 -   81
- *
- *  ------------------------------------
- *  Reserved
  *   1 : 0.211V:       120 :   82 -  150
  *   2 : 0.319V:       181 :  151 -  211
  *   3 : 0.427V:       242 :  212 -  274
@@ -153,8 +150,13 @@ static uint32_t get_adc_index(int chn)
  *  0b00 - NanoPC-T4
  *  0b01 - NanoPi M4
  *
- *  0b03 - Extended by ADC_IN4
- *  0b04 - NanoPi NEO4
+ * Extended by ADC_IN4
+ * Group A:
+ *  0x04 - NanoPi NEO4
+ *  0x06 - SOC-RK3399
+ *
+ * Group B:
+ *  0x21 - NanoPi M4 Ver2.0
  */
 static int pcb_rev = -1;
 
@@ -166,8 +168,18 @@ static void bd_hwrev_init(void)
 	pcb_rev  =  gpio_get_value(GPIO_BANK4 | GPIO_D0);
 	pcb_rev |= (gpio_get_value(GPIO_BANK4 | GPIO_D1) << 1);
 
-	if (pcb_rev == 0x3)
-		pcb_rev += get_adc_index(4) + 1;
+	if (pcb_rev == 0x3) {
+		/* Revision group A: 0x04 ~ 0x13 */
+		pcb_rev = 0x4 + get_adc_index(4);
+
+	} else if (pcb_rev == 0x1) {
+		int idx = get_adc_index(4);
+
+		/* Revision group B: 0x21 ~ 0x2f */
+		if (idx > 0) {
+			pcb_rev = 0x20 + idx;
+		}
+	}
 }
 
 /* To override __weak symbols */
