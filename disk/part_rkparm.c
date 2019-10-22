@@ -299,11 +299,17 @@ static int part_test_rkparm(struct blk_desc *dev_desc)
 
 	return ret;
 }
+
 /*
  * Add an 'b_' prefix so it comes before 'dos' and after 'a_efi' in the linker
  * list. We need to check EFI first, and then rkparm partition
  */
+#if defined(CONFIG_VENDOR_FRIENDLYELEC)
+/* enable 'dos' for boot from SD/TF Card */
+U_BOOT_PART_TYPE(e_rkparm) = {
+#else
 U_BOOT_PART_TYPE(b_rkparm) = {
+#endif
 	.name		= "RKPARM",
 	.part_type	= PART_TYPE_RKPARM,
 	.max_entries	= RKPARM_ENTRY_NUMBERS,
