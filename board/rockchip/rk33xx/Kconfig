@@ -12,6 +12,10 @@ if PLAT_RK33XX
 config SYS_CONFIG_NAME
 	default "rk33plat"
 
+config VENDOR_FRIENDLYELEC
+	bool "FriendlyELEC rk33xx boards"
+	default n
+
 endif
 
 endif

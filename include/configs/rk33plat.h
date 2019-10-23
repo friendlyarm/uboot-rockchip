@@ -197,6 +197,12 @@
 	#undef CONFIG_RK_KEY
 #endif
 
+/* FriendlyELEC board */
+#ifdef CONFIG_VENDOR_FRIENDLYELEC
+	#undef CONFIG_RK_KEY
+	#undef CONFIG_RK_PWM_REMOTE
+#endif
+
 /* if uboot as first level loader, no start mcu. */
 #ifndef CONFIG_SECOND_LEVEL_BOOTLOADER
 	#undef CONFIG_RK_MCU
