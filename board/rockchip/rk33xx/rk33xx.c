@@ -11,6 +11,8 @@
 #include <fdtdec.h>
 #include <fdt_support.h>
 #include <power/pmic.h>
+#include <u-boot/sha256.h>
+#include <hash.h>
 
 #include <asm/io.h>
 #include <asm/arch/rkplat.h>
@@ -18,6 +20,10 @@
 #include "../common/config.h"
 #ifdef CONFIG_OPTEE_CLIENT
 #include "../common/rkloader/attestation_key.h"
+#endif
+
+#ifndef BIT
+#define BIT(nr)			(1UL << (nr))
 #endif
 
 DECLARE_GLOBAL_DATA_PTR;
@@ -181,6 +187,144 @@ static void set_dtb_name(void)
 }
 
 
+/* RK3328 eFuse */
+#define EFUSE_A_SHIFT           16
+#define EFUSE_A_MASK            0x3ff
+#define EFUSE_NFUSES            32
+#define EFUSE_BYTES_PER_FUSE    4
+
+#define EFUSE_CPUID_OFF         0x7
+#define EFUSE_CPUID_LEN         0x10
+
+#define RK3328_INT_STATUS       0x0018
+#define RK3328_DOUT             0x0020
+#define RK3328_AUTO_CTRL        0x0024
+#define RK3328_INT_FINISH       BIT(0)
+#define RK3328_AUTO_ENB         BIT(0)
+#define RK3328_AUTO_RD          BIT(1)
+
+static int rk3328_efuse_read(unsigned long base, int offset,
+			     void *val, int size)
+{
+	unsigned int addr_start, addr_end, addr_offset, addr_len;
+	u32 out_value, status;
+	u8  buf[EFUSE_NFUSES * EFUSE_BYTES_PER_FUSE];
+	int ret = 0, i = 0, j = 0;
+
+	/* Max non-secure Byte */
+	if (size > 32)
+		size = 32;
+
+	/* 128 Byte efuse, 96 Byte for secure, 32 Byte for non-secure */
+	offset += 96;
+
+	addr_start = offset / EFUSE_BYTES_PER_FUSE;
+	addr_offset = offset % EFUSE_BYTES_PER_FUSE;
+	addr_end = DIV_ROUND_UP(offset + size, EFUSE_BYTES_PER_FUSE);
+	addr_len = addr_end - addr_start;
+
+	for (j = 0; j < addr_len; j++) {
+		writel(RK3328_AUTO_RD | RK3328_AUTO_ENB |
+		       ((addr_start++ & EFUSE_A_MASK) << EFUSE_A_SHIFT),
+		       base + RK3328_AUTO_CTRL);
+		udelay(3);
+		status = readl(base + RK3328_INT_STATUS);
+		if (!(status & RK3328_INT_FINISH)) {
+			ret = -EIO;
+			goto err;
+		}
+		out_value = readl(base + RK3328_DOUT);
+		writel(RK3328_INT_FINISH, base + RK3328_INT_STATUS);
+
+		memcpy(&buf[i], &out_value, EFUSE_BYTES_PER_FUSE);
+		i += EFUSE_BYTES_PER_FUSE;
+	}
+	memcpy(val, buf + addr_offset, size);
+
+err:
+	return ret;
+}
+
+static void setup_serial(void)
+{
+	u8 cpuid[EFUSE_CPUID_LEN];
+	u8 low[EFUSE_CPUID_LEN/2], high[EFUSE_CPUID_LEN/2];
+	char cpuid_str[EFUSE_CPUID_LEN * 2 + 1];
+	u64 serialno;
+	char serialno_str[16];
+	char *env_cpuid, *env_serial;
+	int i;
+
+	env_cpuid = getenv("cpuid#");
+	env_serial = getenv("serial#");
+	if (env_cpuid && env_serial)
+		return;
+
+	rk3328_efuse_read(RKIO_FTEFUSE_BASE, EFUSE_CPUID_OFF, cpuid, sizeof(cpuid));
+
+	memset(cpuid_str, 0, sizeof(cpuid_str));
+	for (i = 0; i < 16; i++)
+		sprintf(&cpuid_str[i * 2], "%02x", cpuid[i]);
+
+	/*
+	 * Mix the cpuid bytes using the same rules as in
+	 *   ${linux}/drivers/soc/rockchip/rockchip-cpuinfo.c
+	 */
+	for (i = 0; i < 8; i++) {
+		low[i] = cpuid[1 + (i << 1)];
+		high[i] = cpuid[i << 1];
+	}
+
+	serialno = crc32_no_comp(0, low, 8);
+	serialno |= (u64)crc32_no_comp(serialno, high, 8) << 32;
+	snprintf(serialno_str, sizeof(serialno_str), "%llx", serialno);
+
+	setenv("cpuid#", cpuid_str);
+	if (!env_serial)
+		setenv("serial#", serialno_str);
+	saveenv();
+}
+
+static void setup_macaddr(void)
+{
+	int ret;
+	const char *cpuid = getenv("cpuid#");
+	u8 hash[SHA256_SUM_LEN];
+	int size = sizeof(hash);
+	uchar mac_addr[6];
+	char buf[18];
+	int i, n;
+
+	/* Only generate a MAC address, if none is set in the environment */
+	if (getenv("ethaddr"))
+		return;
+
+	if (!cpuid) {
+		debug("%s: could not retrieve 'cpuid#'\n", __func__);
+		return;
+	}
+
+	ret = hash_block("sha256", (void *)cpuid, strlen(cpuid), hash, &size);
+	if (ret) {
+		debug("%s: failed to calculate SHA256\n", __func__);
+		return;
+	}
+
+	/* Copy 6 bytes of the hash to base the MAC address on */
+	memcpy(mac_addr, hash, 6);
+
+	/* Make this a valid MAC address and set it */
+	mac_addr[0] &= 0xfe;  /* clear multicast bit */
+	mac_addr[0] |= 0x02;  /* set local assignment bit (IEEE802) */
+
+	for (i = 0, n = 0; i < sizeof(mac_addr); i++)
+		n += sprintf(buf + n, "%02x:", mac_addr[i]);
+	buf[17] = '\0';
+
+	setenv("ethaddr", buf);
+}
+
+
 /*****************************************
  * Routine: board_init
  * Description: Early hardware init.
@@ -300,6 +444,9 @@ int board_late_init(void)
 
 	bd_hwrev_init();
 	set_dtb_name();
+
+	setup_serial();
+	setup_macaddr();
 
 	load_disk_partitions();
 
