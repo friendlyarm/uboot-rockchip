@@ -61,6 +61,126 @@ int board_storage_init(void)
 }
 
 
+/*
+ * ID info:
+ *  ID : Volts : ADC value :   Bucket
+ *  ==   =====   =========   ===========
+ *   0 : 0.102V:        58 :    0 -   81
+ *   1 : 0.211V:       120 :   82 -  150
+ *   2 : 0.319V:       181 :  151 -  211
+ *   3 : 0.427V:       242 :  212 -  274
+ *   4 : 0.542V:       307 :  275 -  342
+ *   5 : 0.666V:       378 :  343 -  411
+ *   6 : 0.781V:       444 :  412 -  477
+ *   7 : 0.900V:       511 :  478 -  545
+ *   8 : 1.023V:       581 :  546 -  613
+ *   9 : 1.137V:       646 :  614 -  675
+ *  10 : 1.240V:       704 :  676 -  733
+ *  11 : 1.343V:       763 :  734 -  795
+ *  12 : 1.457V:       828 :  796 -  861
+ *  13 : 1.576V:       895 :  862 -  925
+ *  14 : 1.684V:       956 :  926 -  989
+ *  15 : 1.800V:      1023 :  990 - 1023
+ */
+static const int id_readings[] = {
+	 81, 150, 211, 274, 342, 411, 477, 545,
+	613, 675, 733, 795, 861, 925, 989, 1023
+};
+
+static int cached_board_id = -1;
+
+#define SARADC_BASE		RKIO_SARADC_BASE
+#define SARADC_DATA		(SARADC_BASE + 0)
+#define SARADC_CTRL		(SARADC_BASE + 8)
+
+static u32 get_saradc_value(int chn)
+{
+	int timeout = 0;
+	u32 adc_value;
+
+	writel(0, SARADC_CTRL);
+	udelay(2);
+
+	writel(0x28 | chn, SARADC_CTRL);
+	udelay(50);
+
+	timeout = 0;
+	do {
+		if (readl(SARADC_CTRL) & 0x40) {
+			adc_value = readl(SARADC_DATA) & 0x3FF;
+			return adc_value;
+		}
+
+		udelay(10);
+	} while (timeout++ < 100);
+
+	return -1;
+}
+
+static uint32_t get_adc_index(int chn)
+{
+	int i;
+	int adc_reading;
+
+	if (cached_board_id != -1)
+		return cached_board_id;
+
+	adc_reading = get_saradc_value(chn);
+	for (i = 0; i < ARRAY_SIZE(id_readings); i++) {
+		if (adc_reading <= id_readings[i]) {
+			debug("ADC reading %d, ID %d\n", adc_reading, i);
+			cached_board_id = i;
+			return i;
+		}
+	}
+
+	/* should die for impossible value */
+	return 0;
+}
+
+
+/*
+ * Board revision list: <GPIO2_B4 | GPIO4_A3>
+ *  0b10 - NanoPi-R2
+ *
+ * Extended by ADC_IN1
+ */
+static int pcb_rev = -1;
+
+static void bd_hwrev_init(void)
+{
+	int idx;
+
+	gpio_direction_input(GPIO_BANK2 | GPIO_A3);
+	gpio_direction_input(GPIO_BANK2 | GPIO_B4);
+
+	pcb_rev  =  gpio_get_value(GPIO_BANK2 | GPIO_A3) << 4;
+	pcb_rev |= (gpio_get_value(GPIO_BANK2 | GPIO_B4) << 5);
+
+	idx = get_adc_index(1);
+	if (idx > 0)
+		pcb_rev += idx;
+}
+
+/* To override __weak symbols */
+u32 get_board_rev(void)
+{
+	return pcb_rev;
+}
+
+static void set_dtb_name(void)
+{
+	char info[64] = {0, };
+
+	if (getenv("dtb_name"))
+		return;
+
+	snprintf(info, ARRAY_SIZE(info),
+			"rk3328-nanopi-r2-rev%02x.dtb", get_board_rev());
+	setenv("dtb_name", info);
+}
+
+
 /*****************************************
  * Routine: board_init
  * Description: Early hardware init.
@@ -178,10 +298,13 @@ int board_late_init(void)
 
 	board_init_adjust_env();
 
+	bd_hwrev_init();
+	set_dtb_name();
+
 	load_disk_partitions();
 
 #ifdef CONFIG_RK_PWM_REMOTE
-        RemotectlInit();
+	RemotectlInit();
 #endif
 	debug("rkimage_prepare_fdt\n");
 	rkimage_prepare_fdt();
