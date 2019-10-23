@@ -491,13 +491,17 @@ static void rkusb_fixup_cbwcb(struct fsg_common *common,
 {
 	struct usb_request      *req = bh->outreq;
 	struct fsg_bulk_cb_wrap *cbw = req->buf;
+	static bool __warned;
 
 	/* FIXME cbw.DataTransferLength was not set by Upgrade Tool */
 	common->data_size = le32_to_cpu(cbw->DataTransferLength);
 	if (common->data_size == 0) {
 		common->data_size =
 		get_unaligned_be16(&common->cmnd[7]) << 9;
-		printf("Trasfer Length NOT set, please use new version tool\n");
+		if (unlikely(!__warned)) {
+			__warned = true;
+			printf("\bTrasfer Length NOT set, please use new version tool\n");
+		}
 		debug("%s %d, cmnd1 %x\n", __func__,
 		      get_unaligned_be16(&common->cmnd[7]),
 		      get_unaligned_be16(&common->cmnd[1]));
