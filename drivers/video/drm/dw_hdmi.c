@@ -180,6 +180,7 @@ struct dw_hdmi {
 	void *regs;
 	void *grf;
 	struct dw_hdmi_i2c *i2c;
+	struct udevice *i2c_dev;
 
 	struct {
 		const struct dw_hdmi_phy_ops *ops;
@@ -500,6 +501,19 @@ static int dw_hdmi_i2c_write(struct dw_hdmi *hdmi,
 	}
 
 	return 0;
+}
+
+static int rk_i2c_dev_xfer(struct ddc_adapter *adap,
+			   struct i2c_msg *msgs, int num)
+{
+	struct dw_hdmi *hdmi = container_of(adap, struct dw_hdmi, adap);
+	int ret;
+
+	ret = dm_i2c_xfer(hdmi->i2c_dev, msgs, num);
+	if (!ret)
+		ret = num;
+
+	return ret;
 }
 
 static int dw_hdmi_i2c_xfer(struct ddc_adapter *adap,
@@ -2283,6 +2297,7 @@ int rockchip_dw_hdmi_init(struct display_state *state)
 	struct dw_hdmi *hdmi;
 	struct drm_display_mode *mode_buf;
 	ofnode hdmi_node = conn_state->node;
+	u32 phandle;
 	u32 val;
 
 	hdmi = malloc(sizeof(struct dw_hdmi));
@@ -2326,23 +2341,37 @@ int rockchip_dw_hdmi_init(struct display_state *state)
 		writel(val, hdmi->grf + pdata->grf_vop_sel_reg);
 	}
 
-	hdmi->i2c = malloc(sizeof(struct dw_hdmi_i2c));
-	if (!hdmi->i2c)
-		return -ENOMEM;
-	hdmi->adap.ddc_xfer = dw_hdmi_i2c_xfer;
+	if (!ofnode_read_u32(hdmi_node, "ddc-i2c-bus", &phandle)) {
+		struct udevice *bus;
+		if (!uclass_get_device_by_phandle_id(UCLASS_I2C,
+					phandle, &bus)) {
+			if (!i2c_get_chip(bus, DDC_ADDR, 0, &hdmi->i2c_dev)) {
+				hdmi->adap.ddc_xfer = rk_i2c_dev_xfer;
+			}
+		}
+	}
 
-	/*
-	 * Read high and low time from device tree. If not available use
-	 * the default timing scl clock rate is about 99.6KHz.
-	 */
-	hdmi->i2c->scl_high_ns =
-		ofnode_read_s32_default(hdmi_node,
-					"ddc-i2c-scl-high-time-ns", 4708);
-	hdmi->i2c->scl_low_ns =
-		ofnode_read_s32_default(hdmi_node,
-					"ddc-i2c-scl-low-time-ns", 4916);
+	/* If DDC bus is not specified, try to register HDMI I2C bus */
+	if (!hdmi->adap.ddc_xfer) {
+		hdmi->i2c = malloc(sizeof(struct dw_hdmi_i2c));
+		if (!hdmi->i2c)
+			return -ENOMEM;
+		hdmi->adap.ddc_xfer = dw_hdmi_i2c_xfer;
 
-	dw_hdmi_i2c_init(hdmi);
+		/*
+		 * Read high and low time from device tree. If not available use
+		 * the default timing scl clock rate is about 99.6KHz.
+		 */
+		hdmi->i2c->scl_high_ns =
+			ofnode_read_s32_default(hdmi_node,
+						"ddc-i2c-scl-high-time-ns", 4708);
+		hdmi->i2c->scl_low_ns =
+			ofnode_read_s32_default(hdmi_node,
+						"ddc-i2c-scl-low-time-ns", 4916);
+
+		dw_hdmi_i2c_init(hdmi);
+	}
+
 	conn_state->type = DRM_MODE_CONNECTOR_HDMIA;
 	conn_state->output_mode = ROCKCHIP_OUT_MODE_AAAA;
 
