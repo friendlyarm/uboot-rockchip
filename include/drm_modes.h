@@ -19,6 +19,7 @@
 #define DRM_MODE_TYPE_DEFAULT	(1<<4)
 #define DRM_MODE_TYPE_USERDEF	(1<<5)
 #define DRM_MODE_TYPE_DRIVER	(1<<6)
+#define DRM_MODE_TYPE_NATIVE	(1<<7)
 
 /* Video mode flags */
 /* bit compatible with the xorg definitions. */

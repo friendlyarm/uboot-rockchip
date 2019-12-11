@@ -70,6 +70,8 @@
 #define EDID_QUIRK_FORCE_6BPC			BIT(10)
 /* Force 10bpc */
 #define EDID_QUIRK_FORCE_10BPC			BIT(11)
+/* Prefer the native CEA mode */
+#define EDID_QUIRK_NATIVE_CEA_PREFERRED	BIT(12)
 
 struct detailed_mode_closure {
 	struct edid *edid;
@@ -130,6 +132,9 @@ static struct edid_quirk {
 	/* Samsung SyncMaster 22[5-6]BW */
 	{ "SAM", 596, EDID_QUIRK_PREFER_LARGE_60 },
 	{ "SAM", 638, EDID_QUIRK_PREFER_LARGE_60 },
+
+	/* Skyworth */
+	{ "SKW", 1, (EDID_QUIRK_NATIVE_CEA_PREFERRED | EDID_QUIRK_PREFER_LARGE_60) },
 
 	/* Sony PVM-2541A does up to 12 bpc, but only reports max 8 bpc */
 	{ "SNY", 0x2541, EDID_QUIRK_FORCE_12BPC },
@@ -2275,6 +2280,9 @@ drm_display_mode_from_vic_index(const u8 *video_db, u8 video_len,
 
 	*newmode = edid_cea_modes[vic];
 	newmode->vrefresh = 0;
+
+	if (video_db[video_index] & 0x80)
+		newmode->type |= DRM_MODE_TYPE_NATIVE;
 
 	return newmode;
 }
@@ -4789,6 +4797,12 @@ static void edid_fixup_preferred(struct hdmi_edid_data *data,
 		if (cur_mode == preferred_mode)
 			continue;
 
+		if ((quirks & EDID_QUIRK_NATIVE_CEA_PREFERRED) &&
+		    (cur_mode->type & DRM_MODE_TYPE_NATIVE)) {
+			preferred_mode = cur_mode;
+			break;
+		}
+
 		/* Largest mode is preferred */
 		if (MODE_SIZE(cur_mode) > MODE_SIZE(preferred_mode))
 			preferred_mode = cur_mode;
@@ -4804,6 +4818,7 @@ static void edid_fixup_preferred(struct hdmi_edid_data *data,
 			preferred_mode = cur_mode;
 		}
 	}
+
 	preferred_mode->type |= DRM_MODE_TYPE_PREFERRED;
 	data->preferred_mode = preferred_mode;
 }
