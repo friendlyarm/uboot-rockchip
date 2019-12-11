@@ -460,20 +460,24 @@ int drm_mode_prune_invalid(struct hdmi_edid_data *edid_data)
  */
 void drm_rk_filter_whitelist(struct hdmi_edid_data *edid_data)
 {
+	struct drm_display_mode *dmode = edid_data->mode_buf;
 	int i, j, white_len;
 
-	if (sizeof(resolution_white)) {
-		white_len = sizeof(resolution_white) /
-			sizeof(resolution_white[0]);
-		for (i = 0; i < edid_data->modes; i++) {
+	white_len = sizeof(resolution_white);
+	if (white_len) {
+		white_len /= sizeof(resolution_white[0]);
+		for (i = 0; i < edid_data->modes; i++, dmode++) {
+			/* Keep preferred mode to match the choice of kernel */
+			if (dmode->type & DRM_MODE_TYPE_PREFERRED)
+				continue;
+
 			for (j = 0; j < white_len; j++) {
-				if (drm_mode_equal(&resolution_white[j],
-						   &edid_data->mode_buf[i]))
+				if (drm_mode_equal(&resolution_white[j], dmode))
 					break;
 			}
 
 			if (j == white_len)
-				edid_data->mode_buf[i].invalid = true;
+				dmode->invalid = true;
 		}
 	}
 }
