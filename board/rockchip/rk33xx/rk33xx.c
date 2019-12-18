@@ -285,6 +285,20 @@ static void setup_serial(void)
 	saveenv();
 }
 
+static int mac_read_from_generic_eeprom(u8 *addr)
+{
+	/* Microchip 24AA02xxx EEPROMs with EUI-48 Node Identity */
+#define EEPROM_I2C_ADDR		0x51
+
+	i2c_set_bus_num(0);
+	i2c_init(CONFIG_SYS_I2C_SPEED, CONFIG_SYS_I2C_SLAVE);
+
+	if (i2c_probe(EEPROM_I2C_ADDR))
+		return -ENODEV;
+
+	return i2c_read(EEPROM_I2C_ADDR, 0xfa, 1, addr, 6);
+}
+
 static void setup_macaddr(void)
 {
 	int ret;
@@ -294,6 +308,10 @@ static void setup_macaddr(void)
 	uchar mac_addr[6];
 	char buf[18];
 	int i, n;
+
+	ret = mac_read_from_generic_eeprom(mac_addr);
+	if (!ret)
+		goto save_to_env;
 
 	/* Only generate a MAC address, if none is set in the environment */
 	if (getenv("ethaddr"))
@@ -317,6 +335,7 @@ static void setup_macaddr(void)
 	mac_addr[0] &= 0xfe;  /* clear multicast bit */
 	mac_addr[0] |= 0x02;  /* set local assignment bit (IEEE802) */
 
+save_to_env:
 	for (i = 0, n = 0; i < sizeof(mac_addr); i++)
 		n += sprintf(buf + n, "%02x:", mac_addr[i]);
 	buf[17] = '\0';
