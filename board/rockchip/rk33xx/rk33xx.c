@@ -299,6 +299,18 @@ static int mac_read_from_generic_eeprom(u8 *addr)
 	return i2c_read(EEPROM_I2C_ADDR, 0xfa, 1, addr, 6);
 }
 
+static int setenv_macaddr(char *name, const uchar *enetaddr)
+{
+	char buf[20];
+	int i, n;
+
+	for (i = 0, n = 0; i < 6; i++)
+		n += sprintf(buf + n, "%02x:", enetaddr[i]);
+	buf[17] = '\0';
+
+	return setenv(name, buf);
+}
+
 static void setup_macaddr(void)
 {
 	int ret;
@@ -306,16 +318,10 @@ static void setup_macaddr(void)
 	u8 hash[SHA256_SUM_LEN];
 	int size = sizeof(hash);
 	uchar mac_addr[6];
-	char buf[18];
-	int i, n;
 
 	ret = mac_read_from_generic_eeprom(mac_addr);
 	if (!ret)
-		goto save_to_env;
-
-	/* Only generate a MAC address, if none is set in the environment */
-	if (getenv("ethaddr"))
-		return;
+		setenv_macaddr("ethaddr", mac_addr);
 
 	if (!cpuid) {
 		debug("%s: could not retrieve 'cpuid#'\n", __func__);
@@ -335,12 +341,17 @@ static void setup_macaddr(void)
 	mac_addr[0] &= 0xfe;  /* clear multicast bit */
 	mac_addr[0] |= 0x02;  /* set local assignment bit (IEEE802) */
 
-save_to_env:
-	for (i = 0, n = 0; i < sizeof(mac_addr); i++)
-		n += sprintf(buf + n, "%02x:", mac_addr[i]);
-	buf[17] = '\0';
+	if (getenv("ethaddr")) {
+		setenv_macaddr("eth1addr", mac_addr);
+	} else {
+		setenv_macaddr("ethaddr", mac_addr);
 
-	setenv("ethaddr", buf);
+		/* Ugly, copy another 4 bytes to generate a similar address */
+		if (!getenv("eth1addr")) {
+			memcpy(mac_addr + 2, hash + 8, 4);
+			setenv_macaddr("eth1addr", mac_addr);
+		}
+	}
 }
 
 
