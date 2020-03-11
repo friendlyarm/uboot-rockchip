@@ -131,6 +131,11 @@ static uint32_t get_adc_index(int chn)
 	if (cached_board_id != -1)
 		return cached_board_id;
 
+#if defined(CONFIG_RKCHIP_RK322XH)
+	rkclk_set_saradc_clk();
+	udelay(10);
+#endif
+
 	adc_reading = get_saradc_value(chn);
 	for (i = 0; i < ARRAY_SIZE(id_readings); i++) {
 		if (adc_reading <= id_readings[i]) {
@@ -178,7 +183,8 @@ static void set_dtb_name(void)
 {
 	char info[64] = {0, };
 
-	if (getenv("dtb_name"))
+	if (getenv("dtb_name") &&
+		getenv_yesno("lockdown") == 1)
 		return;
 
 	snprintf(info, ARRAY_SIZE(info),
@@ -253,11 +259,12 @@ static void setup_serial(void)
 	u64 serialno;
 	char serialno_str[16];
 	char *env_cpuid, *env_serial;
+	int lockdown = getenv_yesno("lockdown") == 1;
 	int i;
 
 	env_cpuid = getenv("cpuid#");
 	env_serial = getenv("serial#");
-	if (env_cpuid && env_serial)
+	if (env_cpuid && env_serial && lockdown)
 		return;
 
 	rk3328_efuse_read(RKIO_FTEFUSE_BASE, EFUSE_CPUID_OFF, cpuid, sizeof(cpuid));
