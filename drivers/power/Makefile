@@ -25,3 +25,4 @@ obj-$(CONFIG_POWER_FSL) += power_fsl.o
 obj-$(CONFIG_POWER_I2C) += power_i2c.o
 obj-$(CONFIG_POWER_SPI) += power_spi.o
 obj-$(CONFIG_POWER_PWM_REGULATOR) += rockchip_pwm_regulator.o
+obj-y += rockchip-io-domain.o
