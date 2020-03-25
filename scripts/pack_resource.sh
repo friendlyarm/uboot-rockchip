@@ -8,6 +8,7 @@
 OLD_IMAGE=$1
 IMAGE=resource.img
 TOOL=../rkbin/tools/resource_tool
+[ -x ./tools/resource_tool ] && TOOL=./tools/resource_tool
 RESOURCES=./tools/images/
 
 usage()
@@ -59,7 +60,7 @@ append_resource()
 	else
 		cp -r $RESOURCES $TMP_DIR
 	fi
-	$TOOL --pack --root=$TMP_DIR --image=$IMAGE `find $TMP_DIR -type f|sort`
+	$TOOL --pack --dtbname --root=$TMP_DIR --image=$IMAGE `find $TMP_DIR -type f|sort`
 	echo "Packed resources:"
 	$TOOL --unpack --verbose --image=$IMAGE $TMP_DIR 2>&1|grep entry|sed "s/^.*://"|xargs echo
 	rm -r $TMP_DIR 2>/dev/null
