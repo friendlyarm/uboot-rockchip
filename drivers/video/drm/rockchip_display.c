@@ -496,7 +496,10 @@ static int display_get_timing(struct display_state *state)
 		goto done;
 	}
 
+#ifndef CONFIG_VENDOR_FRIENDLYELEC
 	printf("failed to find display timing\n");
+#endif
+
 	return -ENODEV;
 done:
 	printf("Detailed mode clock %u kHz, flags[%x]\n"
@@ -523,6 +526,7 @@ static int display_init(struct display_state *state)
 	struct rockchip_crtc *crtc = crtc_state->crtc;
 	const struct rockchip_crtc_funcs *crtc_funcs = crtc->funcs;
 	struct drm_display_mode *mode = &conn_state->mode;
+	char *monitor;
 	int bpc;
 	int ret = 0;
 	static bool __print_once = false;
@@ -578,7 +582,11 @@ static int display_init(struct display_state *state)
 
 	if (panel_state->panel) {
 		ret = display_get_timing(state);
-	} else if (conn_state->bridge) {
+		if (!ret)
+			goto found;
+	}
+
+	if (conn_state->bridge) {
 		ret = video_bridge_read_edid(conn_state->bridge->dev,
 					     conn_state->edid, EDID_SIZE);
 		if (ret > 0) {
@@ -597,14 +605,19 @@ static int display_init(struct display_state *state)
 			ret = edid_get_drm_mode((void *)&conn_state->edid,
 						sizeof(conn_state->edid), mode,
 						&bpc);
-			if (!ret)
+			if (!ret) {
 				edid_print_info((void *)&conn_state->edid);
+				monitor = edid_get_monitor_name((void *)&conn_state->edid);
+				if (monitor)
+					env_set("panel", monitor);
+			}
 		}
 	}
 
 	if (ret)
 		goto deinit;
 
+found:
 	drm_mode_set_crtcinfo(mode, CRTC_INTERLACE_HALVE_V);
 
 	if (crtc_funcs->init) {
@@ -617,6 +630,8 @@ static int display_init(struct display_state *state)
 	return 0;
 
 deinit:
+	if (ret)
+		printf("failed to find display timing\n");
 	if (conn_funcs->deinit)
 		conn_funcs->deinit(state);
 	return ret;

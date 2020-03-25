@@ -58,6 +58,7 @@ static int rkparm_param_parse(char *param, struct list_head *parts_head,
 	next = strchr(blkdev_parts, ':');
 	cmdline_end = strstr(cmdline, "\n"); /* end by '\n' */
 	*cmdline_end = '\0';
+
 	/*
 	 * 1. skip "CMDLINE:"
 	 * 2. Initrd fixup: remove unused "initrd=0x...,0x...", this for

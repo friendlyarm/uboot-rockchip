@@ -256,6 +256,11 @@ static void cmdline_handle(void)
 #endif
 }
 
+__weak void set_dtb_name(void)
+{
+	/* nothing */
+}
+
 int board_late_init(void)
 {
 	rockchip_set_ethaddr();
@@ -319,6 +324,7 @@ int board_init(void)
 	soc_clk_dump();
 #endif
 
+	set_dtb_name();
 #ifdef CONFIG_USING_KERNEL_DTB
 	init_kernel_dtb();
 #endif

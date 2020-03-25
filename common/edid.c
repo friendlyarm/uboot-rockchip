@@ -5443,7 +5443,7 @@ int drm_do_get_edid(struct ddc_adapter *adap, u8 *edid)
 					 &edid_corrupt))
 			break;
 		if (i == 0 && drm_edid_is_zero(edid, HDMI_EDID_BLOCK_SIZE)) {
-			printf("edid base block is 0, get edid failed\n");
+			debug("edid base block is 0, get edid failed\n");
 			goto err;
 		}
 	}
@@ -5486,7 +5486,7 @@ int drm_do_get_edid(struct ddc_adapter *adap, u8 *edid)
 	return 0;
 
 err:
-	printf("can't get edid block:%d\n", block);
+	printf("can't get edid block: %d\n", block);
 	/* clear all read edid block, include invalid block */
 	memset(edid, 0, HDMI_EDID_BLOCK_SIZE * (block + 1));
 	return -EFAULT;
@@ -5578,3 +5578,24 @@ u8 drm_scdc_writeb(struct ddc_adapter *adap, u8 offset,
 			      sizeof(value));
 }
 
+char *edid_get_monitor_name(struct edid1_info *edid_info)
+{
+	struct edid_monitor_descriptor *monitor;
+	unsigned char *bytes;
+	char *name;
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(edid_info->monitor_details.descriptor);
+			i++) {
+		monitor = &edid_info->monitor_details.descriptor[i];
+		bytes = (unsigned char *)monitor;
+
+		if (bytes[0] == 0 && bytes[1] == 0) {
+			name = snip(monitor->data.string);
+			if (strlen(name) > 0)
+				return name;
+		}
+	}
+
+	return NULL;
+}

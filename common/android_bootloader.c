@@ -581,6 +581,13 @@ static char *strjoin(const char **chunks, char separator)
 	return ret;
 }
 
+#ifdef CONFIG_VENDOR_FRIENDLYELEC
+__weak char *board_get_panel_name(void)
+{
+	return NULL;
+}
+#endif
+
 /** android_assemble_cmdline - Assemble the command line to pass to the kernel
  * @return a newly allocated string
  */
@@ -638,6 +645,16 @@ char *android_assemble_cmdline(const char *slot_suffix,
 		allocated_rootdev[rootdev_len - 1] = '\0';
 		*(current_chunk++) = allocated_rootdev;
 	}
+
+#ifdef CONFIG_VENDOR_FRIENDLYELEC
+	char *panel = board_get_panel_name();
+	if (panel) {
+		char *allocated_panel = malloc(strlen(panel) + 6);
+		strcpy(allocated_panel, "lcd=");
+		strcat(allocated_panel, panel);
+		*(current_chunk++) = allocated_panel;
+	}
+#endif
 
 	if (extra_args)
 		*(current_chunk++) = extra_args;

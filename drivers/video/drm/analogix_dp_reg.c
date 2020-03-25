@@ -536,7 +536,9 @@ int analogix_dp_start_aux_transaction(struct analogix_dp_device *dp)
 	while (!(reg & RPLY_RECEIV)) {
 		timeout_loop++;
 		if (DP_TIMEOUT_LOOP_COUNT < timeout_loop) {
+#ifndef CONFIG_VENDOR_FRIENDLYELEC
 			dev_err(dp->dev, "AUX CH command reply failed!\n");
+#endif
 			return -ETIMEDOUT;
 		}
 

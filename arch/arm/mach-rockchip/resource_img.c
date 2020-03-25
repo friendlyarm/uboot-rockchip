@@ -847,9 +847,14 @@ static struct resource_file *rockchip_read_hwid_dtb(void)
 int rockchip_read_resource_dtb(void *fdt_addr, char **hash, int *hash_size)
 {
 	struct resource_file *file;
+	char *def_dtb;
 	int ret;
 
-	file = get_file_info(DTB_FILE);
+	def_dtb = env_get("dtb_name");
+	if (!def_dtb)
+		def_dtb = DTB_FILE;
+
+	file = get_file_info(def_dtb);
 #ifdef CONFIG_ROCKCHIP_HWID_DTB
 	if (!file)
 		file = rockchip_read_hwid_dtb();
@@ -866,7 +871,7 @@ int rockchip_read_resource_dtb(void *fdt_addr, char **hash, int *hash_size)
 
 	*hash = file->hash;
 	*hash_size = file->hash_size;
-	printf("DTB: %s\n", file->name);
+	printf("DTB: %s (%d)\n", file->name, file->f_size);
 
 	return 0;
 }

@@ -853,5 +853,6 @@ u8 drm_scdc_readb(struct ddc_adapter *adap, u8 offset,
 		  u8 *value);
 u8 drm_scdc_writeb(struct ddc_adapter *adap, u8 offset,
 		   u8 value);
+char *edid_get_monitor_name(struct edid1_info *edid_info);
 
 #endif /* __EDID_H_ */

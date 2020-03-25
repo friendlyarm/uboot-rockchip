@@ -1397,6 +1397,10 @@ static void rkclk_init(struct rk3399_cru *cru)
 
 	rk3399_configure_cpu(cru, APLL_816_MHZ, CPU_CLUSTER_LITTLE);
 	rk3399_configure_cpu(cru, APLL_816_MHZ, CPU_CLUSTER_BIG);
+#ifdef CONFIG_VENDOR_FRIENDLYELEC
+	rk3399_saradc_set_clk(cru, 1000000);
+	rk3399_i2c_set_clk(cru, SCLK_I2C7, 50000000);
+#endif
 
 	/*
 	 * some cru registers changed by bootrom, we'd better reset them to

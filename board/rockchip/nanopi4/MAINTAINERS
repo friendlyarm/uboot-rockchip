@@ -1,0 +1,6 @@
+NanoPi 4 Series
+M:      <support@friendlyarm.com>
+S:      Maintained
+F:      board/friendlyelec/nanopi4/
+F:      include/configs/nanopi4.h
+F:      configs/nanopi4_defconfig

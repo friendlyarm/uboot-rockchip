@@ -1,0 +1,15 @@
+if TARGET_NANOPI4
+
+config SYS_BOARD
+	default "nanopi4"
+
+config SYS_VENDOR
+	default "rockchip"
+
+config SYS_CONFIG_NAME
+	default "nanopi4"
+
+config BOARD_SPECIFIC_OPTIONS
+	def_bool y
+
+endif

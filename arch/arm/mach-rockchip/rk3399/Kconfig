@@ -29,6 +29,13 @@ config TARGET_PUMA_RK3399
 	   * HDMI, eDP, MIPI-DSI, MIPI-DSI/CSI and MIPI-CSI
 	   * SPI, I2C, I2S, UART, GPIO, ...
 
+config TARGET_NANOPI4
+	bool "FriendlyElec NanoPi 4 Series"
+	select BOARD_LATE_INIT
+	select VENDOR_FRIENDLYELEC
+	help
+	  Support for FriendlyElec boards based on RK3399.
+
 endchoice
 
 config SYS_SOC
@@ -41,6 +48,7 @@ config SPL_STACK_R_ADDR
 	default 0x04000000
 
 source "board/rockchip/evb_rk3399/Kconfig"
+source "board/rockchip/nanopi4/Kconfig"
 source "board/theobroma-systems/puma_rk3399/Kconfig"
 
 endif
