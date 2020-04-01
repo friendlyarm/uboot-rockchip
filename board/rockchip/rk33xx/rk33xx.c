@@ -324,11 +324,18 @@ static void setup_macaddr(void)
 	const char *cpuid = getenv("cpuid#");
 	u8 hash[SHA256_SUM_LEN];
 	int size = sizeof(hash);
+	int from_eeprom = 0;
+	int lockdown = getenv_yesno("lockdown") == 1;
 	uchar mac_addr[6];
 
+	if (getenv("ethaddr") && lockdown)
+		return;
+
 	ret = mac_read_from_generic_eeprom(mac_addr);
-	if (!ret)
+	if (!ret) {
 		setenv_macaddr("ethaddr", mac_addr);
+		from_eeprom = 1;
+	}
 
 	if (!cpuid) {
 		debug("%s: could not retrieve 'cpuid#'\n", __func__);
@@ -348,16 +355,20 @@ static void setup_macaddr(void)
 	mac_addr[0] &= 0xfe;  /* clear multicast bit */
 	mac_addr[0] |= 0x02;  /* set local assignment bit (IEEE802) */
 
-	if (getenv("ethaddr")) {
+	if (from_eeprom) {
 		setenv_macaddr("eth1addr", mac_addr);
 	} else {
 		setenv_macaddr("ethaddr", mac_addr);
 
+		if (getenv("eth1addr") && lockdown)
+			return;
+
 		/* Ugly, copy another 4 bytes to generate a similar address */
-		if (!getenv("eth1addr")) {
-			memcpy(mac_addr + 2, hash + 8, 4);
-			setenv_macaddr("eth1addr", mac_addr);
-		}
+		memcpy(mac_addr + 2, hash + 8, 4);
+		if (!memcmp(hash + 2, hash + 8, 4))
+			mac_addr[5] ^= 0xff;
+
+		setenv_macaddr("eth1addr", mac_addr);
 	}
 }
 
