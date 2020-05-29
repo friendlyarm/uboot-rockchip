@@ -191,6 +191,7 @@ enum {
 	IH_ARCH_ARC,			/* Synopsys DesignWare ARC */
 	IH_ARCH_X86_64,			/* AMD x86_64, Intel and Via */
 	IH_ARCH_XTENSA,			/* Xtensa	*/
+	IH_ARCH_RISCV,			/* RISC-V */
 
 	IH_ARCH_COUNT,
 };
@@ -395,6 +396,10 @@ typedef struct bootm_headers {
 
 #ifdef CONFIG_LMB
 	struct lmb	lmb;		/* for memory mgmt */
+#endif
+
+#ifdef CONFIG_FIT_ROLLBACK_PROTECT
+	u32 rollback_index;
 #endif
 } bootm_headers_t;
 
@@ -656,6 +661,11 @@ int fit_image_load(bootm_headers_t *images, ulong addr,
 		   int arch, int image_type, int bootstage_id,
 		   enum fit_load_op load_op, ulong *datap, ulong *lenp);
 
+int fit_image_load_index(bootm_headers_t *images, ulong addr,
+		   const char **fit_unamep, const char **fit_uname_configp,
+		   int arch, int image_type, int image_index, int bootstage_id,
+		   enum fit_load_op load_op, ulong *datap, ulong *lenp);
+
 #ifndef USE_HOSTCC
 /**
  * fit_get_node_from_config() - Look up an image a FIT by type
@@ -709,6 +719,8 @@ int boot_get_kbd(struct lmb *lmb, bd_t **kbd);
 /*******************************************************************/
 /* Legacy format specific code (prefixed with image_) */
 /*******************************************************************/
+#define IMAGE_PARAM_INVAL	0xffffffff
+
 static inline uint32_t image_get_header_size(void)
 {
 	return (sizeof(image_header_t));
@@ -723,9 +735,17 @@ image_get_hdr_l(magic)		/* image_get_magic */
 image_get_hdr_l(hcrc)		/* image_get_hcrc */
 image_get_hdr_l(time)		/* image_get_time */
 image_get_hdr_l(size)		/* image_get_size */
+image_get_hdr_l(dcrc)		/* image_get_dcrc */
+#ifdef USE_HOSTCC
 image_get_hdr_l(load)		/* image_get_load */
 image_get_hdr_l(ep)		/* image_get_ep */
-image_get_hdr_l(dcrc)		/* image_get_dcrc */
+#elif defined(CONFIG_SPL_BUILD)
+image_get_hdr_l(load)		/* image_get_load */
+image_get_hdr_l(ep)		/* image_get_ep */
+#else
+uint32_t image_get_load(const image_header_t *hdr);
+uint32_t image_get_ep(const image_header_t *hdr);
+#endif
 
 #define image_get_hdr_b(f) \
 	static inline uint8_t image_get_##f(const image_header_t *hdr) \
@@ -906,6 +926,7 @@ int bootz_setup(ulong image, ulong *start, ulong *end);
 #define FIT_COMP_PROP		"compression"
 #define FIT_ENTRY_PROP		"entry"
 #define FIT_LOAD_PROP		"load"
+#define FIT_ROLLBACK_PROP	"rollback-index"
 
 /* configuration node */
 #define FIT_KERNEL_PROP		"kernel"
@@ -917,6 +938,7 @@ int bootz_setup(ulong image, ulong *start, ulong *end);
 #define FIT_SETUP_PROP		"setup"
 #define FIT_FPGA_PROP		"fpga"
 #define FIT_FIRMWARE_PROP	"firmware"
+#define FIT_STANDALONE_PROP	"standalone"
 
 #define FIT_MAX_HASH_LEN	HASH_MAX_DIGEST_SIZE
 
@@ -926,6 +948,10 @@ int bootz_setup(ulong image, ulong *start, ulong *end);
 #define IMAGE_ALIGN_SIZE	512
 #endif
 #define FIT_ALIGN(x)		(((x)+IMAGE_ALIGN_SIZE-1)&~(IMAGE_ALIGN_SIZE-1))
+
+/* fit rollback index file description magic */
+#define FIT_ROLLBACK_INDEX	0xf1de0001
+#define FIT_ROLLBACK_INDEX_SPL	0xf1de8002
 
 /* cmdline argument format parsing */
 int fit_parse_conf(const char *spec, ulong addr_curr,
@@ -990,12 +1016,16 @@ int fit_image_get_data_offset(const void *fit, int noffset, int *data_offset);
 int fit_image_get_data_position(const void *fit, int noffset,
 				int *data_position);
 int fit_image_get_data_size(const void *fit, int noffset, int *data_size);
+int fit_image_get_rollback_index(const void *fit, int noffset, uint32_t *index);
 
 int fit_image_hash_get_algo(const void *fit, int noffset, char **algo);
 int fit_image_hash_get_value(const void *fit, int noffset, uint8_t **value,
 				int *value_len);
 
 int fit_set_timestamp(void *fit, int noffset, time_t timestamp);
+
+int fit_get_image_defconf_node(const void *fit,
+			       int *images_noffset, int *def_noffset);
 
 /**
  * fit_add_verification_data() - add verification data to FIT image nodes
@@ -1026,6 +1056,8 @@ int fit_image_verify_with_data(const void *fit, int image_noffset,
 int fit_image_verify(const void *fit, int noffset);
 int fit_config_verify(const void *fit, int conf_noffset);
 int fit_all_image_verify(const void *fit);
+int fit_board_verify_required_sigs(void);
+
 int fit_image_check_os(const void *fit, int noffset, uint8_t os);
 int fit_image_check_arch(const void *fit, int noffset, uint8_t arch);
 int fit_image_check_type(const void *fit, int noffset, uint8_t type);
@@ -1034,6 +1066,8 @@ int fit_check_format(const void *fit);
 
 int fit_conf_find_compat(const void *fit, const void *fdt);
 int fit_conf_get_node(const void *fit, const char *conf_uname);
+int fit_rollback_index_verify(const void *fit, uint32_t rollback_fd,
+			      uint32_t *this_index, uint32_t *min_index);
 
 /**
  * fit_conf_get_prop_node() - Get node refered to by a configuration

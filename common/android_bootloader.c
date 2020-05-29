@@ -10,6 +10,7 @@
 #include <android_avb/avb_ops_user.h>
 #include <android_avb/rk_avb_ops_user.h>
 #include <android_image.h>
+#include <bootm.h>
 #include <asm/arch/hotkey.h>
 #include <cli.h>
 #include <common.h>
@@ -121,18 +122,6 @@ static int get_partition_unique_uuid(char *partition,
 	return 0;
 }
 
-static void reset_cpu_if_android_ab(void)
-{
-	printf("Reset in AB system.\n");
-	flushc();
-	/*
-	 * Since we use the retry-count in ab system, then can
-	 * try reboot if verify fail until the retry-count is
-	 * equal to zero.
-	 */
-	reset_cpu(0);
-}
-
 static void update_root_uuid_if_android_ab(void)
 {
 	/*
@@ -225,9 +214,24 @@ static int decrease_tries_if_android_ab(char *slot_suffix)
 	return 0;
 }
 #else
-static inline void reset_cpu_if_android_ab(void) {}
 static inline void update_root_uuid_if_android_ab(void) {}
 static inline int decrease_tries_if_android_ab(char *slot_suffix) { return 0; }
+#endif
+
+#if defined(CONFIG_ANDROID_AB) && defined(CONFIG_ANDROID_AVB)
+static void reset_cpu_if_android_ab(void)
+{
+	printf("Reset in AB system.\n");
+	flushc();
+	/*
+	 * Since we use the retry-count in ab system, then can
+	 * try reboot if verify fail until the retry-count is
+	 * equal to zero.
+	 */
+	reset_cpu(0);
+}
+#else
+static inline void reset_cpu_if_android_ab(void) {}
 #endif
 
 int android_bootloader_message_load(
@@ -483,8 +487,6 @@ static int sysmem_alloc_uncomp_kernel(ulong andr_hdr,
 		if (!sysmem_alloc_base(MEM_UNCOMP_KERNEL,
 				       (phys_addr_t)kaddr, ksize))
 			return -ENOMEM;
-
-		hotkey_run(HK_SYSMEM);
 	}
 
 	return 0;
@@ -494,7 +496,7 @@ int android_bootloader_boot_kernel(unsigned long kernel_address)
 {
 	char *kernel_addr_r = env_get("kernel_addr_r");
 	char *kernel_addr_c = env_get("kernel_addr_c");
-	char *fdt_addr = env_get("fdt_addr");
+	char *fdt_addr = env_get("fdt_addr_r");
 	char kernel_addr_str[12];
 	char comp_str[32] = {0};
 	ulong comp_type;
@@ -508,7 +510,7 @@ int android_bootloader_boot_kernel(unsigned long kernel_address)
 		[IH_COMP_ZIMAGE]= "ZIMAGE",
 	};
 	char *bootm_args[] = {
-		"bootm", kernel_addr_str, kernel_addr_str, fdt_addr, NULL };
+		kernel_addr_str, kernel_addr_str, fdt_addr, NULL };
 
 	comp_type = env_get_ulong("os_comp", 10, 0);
 	sprintf(kernel_addr_str, "0x%08lx", kernel_address);
@@ -540,12 +542,15 @@ int android_bootloader_boot_kernel(unsigned long kernel_address)
 				       comp_type))
 		return -1;
 
-	/* Check sysmem overflow */
-	sysmem_overflow_check();
-
-	do_bootm(NULL, 0, 4, bootm_args);
-
-	return -1;
+	return do_bootm_states(NULL, 0, ARRAY_SIZE(bootm_args), bootm_args,
+		BOOTM_STATE_START |
+		BOOTM_STATE_FINDOS | BOOTM_STATE_FINDOTHER |
+		BOOTM_STATE_LOADOS |
+#ifdef CONFIG_SYS_BOOT_RAMDISK_HIGH
+		BOOTM_STATE_RAMDISK |
+#endif
+		BOOTM_STATE_OS_PREP | BOOTM_STATE_OS_FAKE_GO |
+		BOOTM_STATE_OS_GO, &images, 1);
 }
 
 static char *strjoin(const char **chunks, char separator)
@@ -1100,12 +1105,10 @@ int android_bootloader_boot_flow(struct blk_desc *dev_desc,
 	enum android_boot_mode mode = ANDROID_BOOT_MODE_NORMAL;
 	disk_partition_t misc_part_info;
 	int part_num;
-	int ret;
 	char *command_line;
 	char slot_suffix[3] = {0};
 	const char *mode_cmdline = NULL;
 	char *boot_partname = ANDROID_PARTITION_BOOT;
-	ulong fdt_addr;
 
 	/*
 	 * 1. Load MISC partition and determine the boot mode
@@ -1262,10 +1265,6 @@ int android_bootloader_boot_flow(struct blk_desc *dev_desc,
 				       ANDROID_ARG_FDT_FILENAME)) {
 		printf("Can not get the fdt data from oem!\n");
 	}
-#else
-	ret = android_image_get_fdt((void *)load_address, &fdt_addr);
-	if (!ret)
-		env_set_hex("fdt_addr", fdt_addr);
 #endif
 #ifdef CONFIG_OPTEE_CLIENT
 	if (trusty_notify_optee_uboot_end())

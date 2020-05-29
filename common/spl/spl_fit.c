@@ -11,6 +11,7 @@
 #include <linux/libfdt.h>
 #include <spl.h>
 #include <malloc.h>
+#include <optee_include/OpteeClientInterface.h>
 
 #ifndef CONFIG_SYS_BOOTM_LEN
 #define CONFIG_SYS_BOOTM_LEN	(64 << 20)
@@ -233,8 +234,8 @@ static int spl_load_fit_image(struct spl_load_info *info, ulong sector,
 		src = (void *)data;
 	}
 
-#ifdef CONFIG_SPL_FIT_SIGNATURE
-	printf("## Checking hash(es) for Image %s ... ",
+	/* Check hashes and signature */
+	printf("## Checking %s ... ",
 	       fit_get_name(fit, node, NULL));
 #ifdef CONFIG_FIT_SPL_PRINT
 	printf("\n");
@@ -244,7 +245,6 @@ static int spl_load_fit_image(struct spl_load_info *info, ulong sector,
 					 src, length))
 		return -EPERM;
 	puts("OK\n");
-#endif
 
 #ifdef CONFIG_SPL_FIT_IMAGE_POST_PROCESS
 	board_fit_image_post_process(&src, &length);
@@ -341,8 +341,14 @@ static int spl_fit_image_get_os(const void *fit, int noffset, uint8_t *os)
 #endif
 }
 
-int spl_load_simple_fit(struct spl_image_info *spl_image,
-			struct spl_load_info *info, ulong sector, void *fit)
+__weak int spl_fit_standalone_release(void)
+{
+	return 0;
+}
+
+static int spl_internal_load_simple_fit(struct spl_image_info *spl_image,
+					struct spl_load_info *info,
+					ulong sector, void *fit)
 {
 	int sectors;
 	ulong size;
@@ -395,6 +401,13 @@ int spl_load_simple_fit(struct spl_image_info *spl_image,
 		return -1;
 	}
 
+	/* if board sigs verify required, check self */
+	if (fit_board_verify_required_sigs() &&
+	    !IS_ENABLED(CONFIG_SPL_FIT_SIGNATURE)) {
+		printf("Verified-boot requires CONFIG_SPL_FIT_SIGNATURE enabled\n");
+		hang();
+	}
+
 	/* verify the configure node by keys, if required */
 #ifdef CONFIG_SPL_FIT_SIGNATURE
 	int conf_noffset;
@@ -408,7 +421,49 @@ int spl_load_simple_fit(struct spl_image_info *spl_image,
 		}
 		printf("\n");
 	}
+
+#ifdef CONFIG_SPL_FIT_ROLLBACK_PROTECT
+	uint32_t this_index, min_index;
+
+	ret = fit_rollback_index_verify(fit, FIT_ROLLBACK_INDEX_SPL,
+					&this_index, &min_index);
+	if (ret) {
+		printf("fit failed to get rollback index, ret=%d\n", ret);
+		return ret;
+	} else if (this_index < min_index) {
+		printf("fit reject rollback: %d < %d(min)\n",
+		       this_index, min_index);
+		return -EINVAL;
+	}
+
+	spl_image->rollback_index = this_index;
+	printf("rollback index: %d >= %d, OK\n", this_index, min_index);
 #endif
+#endif
+
+	/*
+	 * If required to start the other core before load "loadables"
+	 * firmwares, use the config "standalone" to load the other core's
+	 * firmware, then start it.
+	 * Normally, different cores' firmware is attach to the config
+	 * "loadables" and load them together.
+	 */
+	if (node < 0)
+		node = spl_fit_get_image_node(fit, images, FIT_STANDALONE_PROP,
+					      0);
+	if (node > 0) {
+		/* Load the image and set up the spl_image structure */
+		ret = spl_load_fit_image(info, sector, fit, base_offset, node,
+					 spl_image);
+		if (!ret) {
+			ret = spl_fit_standalone_release();
+			if (ret)
+				printf("Start standalone fail, ret = %d\n",
+				       ret);
+		}
+
+		node = -1;
+	}
 
 	/*
 	 * Find the U-Boot image using the following search order:
@@ -510,3 +565,34 @@ int spl_load_simple_fit(struct spl_image_info *spl_image,
 
 	return 0;
 }
+
+int spl_load_simple_fit(struct spl_image_info *spl_image,
+			struct spl_load_info *info, ulong sector, void *fit)
+{
+	ulong sector_offs = sector;
+	int i;
+
+	for (i = 0; i < CONFIG_SPL_FIT_IMAGE_MULTIPLE; i++) {
+		if (i > 0) {
+			sector_offs +=
+			   i * ((CONFIG_SPL_FIT_IMAGE_KB << 10) / info->bl_len);
+			printf("Trying fit image at 0x%lx sector\n", sector_offs);
+			if (info->read(info, sector_offs, 1, fit) != 1) {
+				printf("IO error\n");
+				continue;
+			}
+		}
+
+		if (image_get_magic(fit) != FDT_MAGIC) {
+			printf("Bad fit magic\n");
+			continue;
+		}
+
+		if (!spl_internal_load_simple_fit(spl_image, info,
+						  sector_offs, fit))
+			return 0;
+	}
+
+	return -EINVAL;
+}
+

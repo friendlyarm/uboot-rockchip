@@ -18,6 +18,12 @@ config SPL
 
 if SPL
 
+config SPL_ADC_SUPPORT
+	bool "Support ADC driver in SPL"
+	depends on SPL
+	help
+	  The adc drive can be used to measure voltage in spl if need.
+
 config SPL_LDSCRIPT
 	string "Linker script for the SPL stage"
 	default "arch/$(ARCH)/cpu/u-boot-spl.lds"
@@ -569,6 +575,13 @@ config SPL_POWER_SUPPORT
 	  in drivers/power, drivers/power/pmic and drivers/power/regulator
 	  as part of an SPL build.
 
+config SPL_PWM_SUPPORT
+	bool "Support PWM driver"
+	depends on SPL
+	help
+	  Enable support for pwm in SPL. This allows use pwm to control
+	  somethings, for example control voltage.
+
 config SPL_RAM_SUPPORT
 	bool "Support booting from RAM"
 	default y if MICROBLAZE || ARCH_SOCFPGA || TEGRA || ARCH_ZYNQ
@@ -787,7 +800,7 @@ config SPL_OPTEE
 
 config SPL_AB
 	bool "Support AB system boot"
-	depends on SPL
+	depends on SPL && SPL_EFI_PARTITION
 	help
 	  Enable this config to support AB system boot.
 
@@ -809,6 +822,11 @@ config RKFW_U_BOOT_SECTOR
 	depends on SPL_LOAD_RKFW
 	default 0x4000
 
+config RKFW_BOOT_SECTOR
+        hex "rockchip boot image load sector"
+        depends on SPL_LOAD_RKFW
+        default 0xa000
+
 config SPL_KERNEL_ADDR
 	hex "Kernel load address in spl"
 	depends on SPL
@@ -816,6 +834,13 @@ config SPL_KERNEL_ADDR
 	help
 	  Define the kernel address where load kernel image to.
 	  This is used to boot kernel in spl.
+
+config SPL_KERNEL_COMPRESS_ADDR
+	hex "The compressed kernel in spl"
+	depends on SPL && SPL_ROCKCHIP_HW_DECOMPRESS
+	help
+	  Load compressed kernel in this address, then call the
+	  decompress process to decompress the firmware.
 
 config SPL_FDT_ADDR
 	hex "Device tree blob load address in spl"
@@ -832,6 +857,13 @@ config SPL_RAMDISK_ADDR
 	help
 	  Define the ramdisk address where load ramdisk image to.
 	  This is used to boot kernel in spl.
+
+config SPL_RAMDISK_COMPRESS_ADDR
+	hex "The compressed ramdisk in spl"
+	depends on SPL && SPL_ROCKCHIP_HW_DECOMPRESS
+	help
+	  Load compressed ramdisk in this address, then call the
+	  decompress process to decompress the firmware.
 
 config SPL_KERNEL_BOOT
 	bool "Enable boot kernel in SPL"

@@ -20,6 +20,10 @@
 #define MMCSD_MODE_FS		2
 #define MMCSD_MODE_EMMCBOOT	3
 
+#define SPL_NEXT_STAGE_UNDEFINED	0
+#define SPL_NEXT_STAGE_UBOOT		1
+#define SPL_NEXT_STAGE_KERNEL		2
+
 struct spl_image_info {
 	const char *name;
 	u8 os;
@@ -29,10 +33,15 @@ struct spl_image_info {
 	uintptr_t entry_point_bl32;
 	uintptr_t entry_point_bl33;
 #endif
-#if CONFIG_IS_ENABLED(LOAD_FIT)
+#if CONFIG_IS_ENABLED(OPTEE)
+	uintptr_t entry_point_os;	/* point to uboot or kernel */
+#endif
 	void *fdt_addr;
+#if CONFIG_IS_ENABLED(FIT_ROLLBACK_PROTECT)
+	u32 rollback_index;
 #endif
 	u32 boot_device;
+	u32 next_stage;
 	u32 size;
 	u32 flags;
 	void *arg;
@@ -76,6 +85,7 @@ int spl_load_simple_fit(struct spl_image_info *spl_image,
 void preloader_console_init(void);
 u32 spl_boot_device(void);
 u32 spl_boot_mode(const u32 boot_device);
+void spl_next_stage(struct spl_image_info *spl);
 void spl_set_bd(void);
 
 /**
@@ -311,9 +321,21 @@ void spl_optee_entry(void *arg0, void *arg1, void *arg2, void *arg3);
 void board_return_to_bootrom(void);
 
 /**
+ * spl_cleanup_before_jump() - cleanup cache/mmu/interrupt, etc before jump
+ *			       to next stage.
+ */
+void spl_cleanup_before_jump(struct spl_image_info *spl_image);
+
+/**
  * spl_perform_fixups() - arch/board-specific callback before processing
  *                        the boot-payload
  */
 void spl_perform_fixups(struct spl_image_info *spl_image);
+
+/**
+ * spl_board_prepare_for_jump() - arch/board-specific callback exactly before
+ *				  jumping to next stage
+ */
+int spl_board_prepare_for_jump(struct spl_image_info *spl_image);
 
 #endif

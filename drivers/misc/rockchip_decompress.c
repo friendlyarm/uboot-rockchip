@@ -62,6 +62,7 @@ DECLARE_GLOBAL_DATA_PTR;
 #define DECOM_GZIP_MODE		BIT(4)
 #define DECOM_ZLIB_MODE		BIT(5)
 #define DECOM_DEFLATE_MODE	BIT(0)
+#define DECOM_LZ4_MODE		0
 
 #define DECOM_ENABLE		0x1
 #define DECOM_DISABLE		0x0
@@ -75,42 +76,33 @@ DECLARE_GLOBAL_DATA_PTR;
 	DISEIEN | LENEIEN | LITEIEN | SQMEIEN | SLCIEN | \
 	HDEIEN | DSIEN)
 
-enum decom_mod {
-	LZ4_MOD,
-	GZIP_MOD,
-	ZLIB_MOD,
-};
-
-struct rockchip_decom_param {
-	unsigned long addr_src;
-	unsigned long addr_dst;
-	unsigned long size;
-	enum decom_mod mode;
-};
-
 struct rockchip_decom_priv {
 	void __iomem *base;
+	unsigned long soft_reset_base;
 	bool done;
 };
 
 static int rockchip_decom_start(struct udevice *dev, void *buf)
 {
 	struct rockchip_decom_priv *priv = dev_get_priv(dev);
-	struct rockchip_decom_param *param = (struct rockchip_decom_param *)buf;
+	struct decom_param *param = (struct decom_param *)buf;
 
 	priv->done = false;
 
-	if (param->mode == LZ4_MOD)
+	writel(0x00800080, priv->soft_reset_base);
+	writel(0x00800000, priv->soft_reset_base);
+
+	if (param->mode == DECOM_LZ4)
 		writel(LZ4_CONT_CSUM_CHECK_EN |
 		       LZ4_HEAD_CSUM_CHECK_EN |
 		       LZ4_BLOCK_CSUM_CHECK_EN |
-		       LZ4_MOD, priv->base + DECOM_CTRL);
+		       DECOM_LZ4_MODE, priv->base + DECOM_CTRL);
 
-	if (param->mode == GZIP_MOD)
+	if (param->mode == DECOM_GZIP)
 		writel(DECOM_DEFLATE_MODE | DECOM_GZIP_MODE,
 		       priv->base + DECOM_CTRL);
 
-	if (param->mode == ZLIB_MOD)
+	if (param->mode == DECOM_ZLIB)
 		writel(DECOM_DEFLATE_MODE | DECOM_ZLIB_MODE,
 		       priv->base + DECOM_CTRL);
 
@@ -151,7 +143,14 @@ static int rockchip_decom_done_poll(struct udevice *dev)
 	return -EINVAL;
 }
 
-/* Caller must fill in param @buf which represent struct rockchip_decom_param */
+static int rockchip_decom_capability(u32 *buf)
+{
+	*buf = DECOM_GZIP;
+
+	return 0;
+}
+
+/* Caller must fill in param @buf which represent struct decom_param */
 static int rockchip_decom_ioctl(struct udevice *dev, unsigned long request,
 				void *buf)
 {
@@ -167,6 +166,8 @@ static int rockchip_decom_ioctl(struct udevice *dev, unsigned long request,
 	case IOCTL_REQ_STOP:
 		ret = rockchip_decom_stop(dev);
 		break;
+	case IOCTL_REQ_CAPABILITY:
+		ret = rockchip_decom_capability(buf);
 	}
 
 	return ret;
@@ -183,6 +184,9 @@ static int rockchip_decom_ofdata_to_platdata(struct udevice *dev)
 	priv->base = dev_read_addr_ptr(dev);
 	if (!priv->base)
 		return -ENOENT;
+
+	priv->soft_reset_base = dev_read_u32_default(dev, "soft-reset-addr", 0)
+					& 0xffffffff;
 
 	return 0;
 }

@@ -86,6 +86,7 @@ static const table_entry_t uimage_arch[] = {
 	{	IH_ARCH_ARC,		"arc",		"ARC",		},
 	{	IH_ARCH_X86_64,		"x86_64",	"AMD x86_64",	},
 	{	IH_ARCH_XTENSA,		"xtensa",	"Xtensa",	},
+	{	IH_ARCH_RISCV,		"riscv",	"RISC-V",	},
 	{	-1,			"",		"",		},
 };
 
@@ -192,6 +193,26 @@ static const struct table_info table_info[IH_COUNT] = {
 /*****************************************************************************/
 /* Legacy format routines */
 /*****************************************************************************/
+#ifndef USE_HOSTCC
+#ifndef CONFIG_SPL_BUILD
+uint32_t image_get_load(const image_header_t *hdr)
+{
+	uint32_t load = uimage_to_cpu(hdr->ih_load);
+
+	return (load == IMAGE_PARAM_INVAL) ?
+		env_get_ulong("kernel_addr_r", 16, 0) : load;
+}
+
+uint32_t image_get_ep(const image_header_t *hdr)
+{
+	uint32_t ep = uimage_to_cpu(hdr->ih_ep);
+
+	return (ep == IMAGE_PARAM_INVAL) ?
+		env_get_ulong("kernel_addr_r", 16, 0) : ep;
+}
+#endif
+#endif
+
 int image_check_hcrc(const image_header_t *hdr)
 {
 	ulong hcrc;
@@ -239,7 +260,7 @@ ulong image_multi_count(const image_header_t *hdr)
 	size = (uint32_t *)image_get_data(hdr);
 
 	/* count non empty slots */
-	for (i = 0; size[i]; ++i)
+	for (i = 0; size[i] != IMAGE_PARAM_INVAL; ++i)
 		count++;
 
 	return count;

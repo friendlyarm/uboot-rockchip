@@ -250,10 +250,11 @@ config CONSOLE_RECORD_IN_SIZE
 	  The buffer is allocated immediately after the malloc() region is
 	  ready.
 
-config CONSOLE_DISABLE_CTRLC
+config CONSOLE_DISABLE_CLI
 	bool "disable ctrlc"
+	default n
 	help
-	  This disable ctrl+c when CONFIG_BOOTDELAY is 0.
+	  This disable CLI interactive in verified-boot.
 
 config DISABLE_CONSOLE
 	bool "disable console in & out"

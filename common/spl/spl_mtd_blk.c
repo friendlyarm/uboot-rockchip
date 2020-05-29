@@ -66,7 +66,6 @@ struct blk_desc *find_mtd_device(int dev_num)
 	return desc;
 }
 
-#ifdef CONFIG_SPL_LOAD_RKFW
 static ulong mtd_spl_load_read(struct spl_load_info *load, ulong sector,
 			       ulong count, void *buf)
 {
@@ -75,12 +74,14 @@ static ulong mtd_spl_load_read(struct spl_load_info *load, ulong sector,
 	return blk_dread(desc, sector, count, buf);
 }
 
+#ifdef CONFIG_SPL_LOAD_RKFW
 int spl_mtd_load_rkfw(struct spl_image_info *spl_image, struct blk_desc *desc)
 {
 	int ret = -1;
 
 	u32 trust_sectors = CONFIG_RKFW_TRUST_SECTOR;
 	u32 uboot_sectors = CONFIG_RKFW_U_BOOT_SECTOR;
+	u32 boot_sectors = CONFIG_RKFW_BOOT_SECTOR;
 	struct spl_load_info load;
 
 	load.dev = desc;
@@ -101,7 +102,8 @@ int spl_mtd_load_rkfw(struct spl_image_info *spl_image, struct blk_desc *desc)
 
 	ret = spl_load_rkfw_image(spl_image, &load,
 				  trust_sectors,
-				  uboot_sectors);
+				  uboot_sectors,
+				  boot_sectors);
 	if (ret) {
 #ifdef CONFIG_SPL_LIBCOMMON_SUPPORT
 		puts("spl_mtd_load_rkfw: mtd block read error\n");
@@ -116,15 +118,46 @@ int spl_mtd_load_rkfw(struct spl_image_info *spl_image, struct blk_desc *desc)
 int spl_mtd_load_image(struct spl_image_info *spl_image,
 		       struct spl_boot_device *bootdev)
 {
+	struct image_header *header;
 	struct blk_desc *desc;
-	int ret = 0;
+	int ret = -1;
 
 	desc = find_mtd_device(spl_mtd_get_device_index(bootdev->boot_device));
 	if (!desc)
 		return -ENODEV;
-#ifdef CONFIG_SPL_LOAD_RKFW
-	ret = spl_mtd_load_rkfw(spl_image, desc);
+
+	if (IS_ENABLED(CONFIG_SPL_LOAD_FIT)) {
+		header = (struct image_header *)(CONFIG_SYS_TEXT_BASE -
+					 sizeof(struct image_header));
+		ret = blk_dread(desc, CONFIG_SYS_NAND_U_BOOT_OFFS, 1, header);
+		if (ret != 1)
+			return -ENODEV;
+
+#ifdef CONFIG_SPL_FIT_IMAGE_MULTIPLE
+		if (image_get_magic(header) == FDT_MAGIC ||
+		    CONFIG_SPL_FIT_IMAGE_MULTIPLE > 1) {
+#else
+		if (image_get_magic(header) == FDT_MAGIC) {
 #endif
+			struct spl_load_info load;
+
+			load.dev = desc;
+			load.priv = NULL;
+			load.filename = NULL;
+			load.bl_len = desc->blksz;
+			load.read = mtd_spl_load_read;
+
+			ret = spl_load_simple_fit(spl_image, &load,
+						  CONFIG_SYS_NAND_U_BOOT_OFFS,
+						  header);
+		}
+
+	} else if (IS_ENABLED(CONFIG_SPL_LOAD_RKFW)) {
+#ifdef CONFIG_SPL_LOAD_RKFW
+		ret = spl_mtd_load_rkfw(spl_image, desc);
+#endif
+	}
+
 	return ret;
 }
 

@@ -7,13 +7,17 @@
 #include <common.h>
 #include <debug_uart.h>
 #include <dm.h>
+#include <key.h>
+#include <misc.h>
 #include <ram.h>
 #include <spl.h>
+#include <optee_include/OpteeClientInterface.h>
 #include <asm/arch/bootrom.h>
 #ifdef CONFIG_ROCKCHIP_PRELOADER_ATAGS
 #include <asm/arch/rk_atags.h>
 #endif
 #include <asm/arch/sdram.h>
+#include <asm/arch/boot_mode.h>
 #include <asm/arch-rockchip/sys_proto.h>
 #include <asm/io.h>
 
@@ -259,3 +263,70 @@ void spl_perform_fixups(struct spl_image_info *spl_image)
 	return;
 }
 
+#ifdef CONFIG_SPL_KERNEL_BOOT
+static int spl_rockchip_dnl_key_pressed(void)
+{
+#if defined(CONFIG_SPL_INPUT)
+	return key_read(KEY_VOLUMEUP);
+#else
+	return 0;
+#endif
+}
+
+void spl_next_stage(struct spl_image_info *spl)
+{
+	uint32_t reg_boot_mode;
+
+	if (spl_rockchip_dnl_key_pressed()) {
+		spl->next_stage = SPL_NEXT_STAGE_UBOOT;
+		return;
+	}
+
+	reg_boot_mode = readl((void *)CONFIG_ROCKCHIP_BOOT_MODE_REG);
+	switch (reg_boot_mode) {
+	case BOOT_PANIC:
+	case BOOT_WATCHDOG:
+	case BOOT_NORMAL:
+		spl->next_stage = SPL_NEXT_STAGE_KERNEL;
+		break;
+	default:
+		spl->next_stage = SPL_NEXT_STAGE_UBOOT;
+	}
+}
+#endif
+
+int spl_board_prepare_for_jump(struct spl_image_info *spl_image)
+{
+#if CONFIG_SPL_FIT_ROLLBACK_PROTECT
+	/* TODO */
+	printf("spl fit: rollback protect not implement\n");
+#endif
+	return 0;
+}
+
+void spl_hang_reset(void)
+{
+	printf("# Reset the board to bootrom #\n");
+#if defined(CONFIG_SPL_SYSRESET) && defined(CONFIG_SPL_DRIVERS_MISC_SUPPORT)
+	writel(BOOT_BROM_DOWNLOAD, CONFIG_ROCKCHIP_BOOT_MODE_REG);
+	do_reset(NULL, 0, 0, NULL);
+#endif
+}
+
+int fit_board_verify_required_sigs(void)
+{
+	uint8_t vboot = 0;
+#if defined(CONFIG_SPL_ROCKCHIP_SECURE_OTP) || defined(CONFIG_SPL_ROCKCHIP_SECURE_OTP_v2)
+	struct udevice *dev;
+
+	dev = misc_otp_get_device(OTP_S);
+	if (!dev)
+		return 1;
+
+	if (misc_otp_read(dev, 0, &vboot, 1)) {
+		printf("Can't read verified-boot flag\n");
+		return 1;
+	}
+#endif
+	return vboot;
+}

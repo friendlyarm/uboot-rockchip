@@ -20,6 +20,8 @@
 #include <mapmem.h>
 #include <asm/io.h>
 #include <malloc.h>
+#include <crypto.h>
+
 DECLARE_GLOBAL_DATA_PTR;
 #endif /* !USE_HOSTCC*/
 
@@ -948,6 +950,30 @@ int fit_image_get_data_size(const void *fit, int noffset, int *data_size)
 }
 
 /**
+ * Get 'rollback-index' property from a given image node.
+ *
+ * @fit: pointer to the FIT image header
+ * @noffset: component image node offset
+ * @index: holds the rollback-index property
+ *
+ * returns:
+ *     0, on success
+ *     -ENOENT if the property could not be found
+ */
+int fit_image_get_rollback_index(const void *fit, int noffset, uint32_t *index)
+{
+	const fdt32_t *val;
+
+	val = fdt_getprop(fit, noffset, FIT_ROLLBACK_PROP, NULL);
+	if (!val)
+		return -ENOENT;
+
+	*index = fdt32_to_cpu(*val);
+
+	return 0;
+}
+
+/**
  * fit_image_hash_get_algo - get hash algorithm name
  * @fit: pointer to the FIT format image header
  * @noffset: hash node offset
@@ -1068,6 +1094,33 @@ int fit_set_timestamp(void *fit, int noffset, time_t timestamp)
 	return 0;
 }
 
+int fit_get_image_defconf_node(const void *fit, int *images_noffset, int *def_noffset)
+{
+	int images_node, confs_node, defconf_node;
+	const char *def_name;
+
+	images_node = fdt_path_offset(fit, FIT_IMAGES_PATH);
+	if (images_node < 0)
+		return images_node;
+
+	confs_node = fdt_path_offset(fit, FIT_CONFS_PATH);
+	if (confs_node < 0)
+		return confs_node;
+
+	def_name = fdt_getprop(fit, confs_node, FIT_DEFAULT_PROP, NULL);
+	if (!def_name)
+		return -ENOENT;
+
+	defconf_node = fdt_subnode_offset(fit, confs_node, def_name);
+	if (defconf_node < 0)
+		return defconf_node;
+
+	*images_noffset = images_node;
+	*def_noffset = defconf_node;
+
+	return 0;
+}
+
 /**
  * calculate_hash - calculate and return hash for provided input data
  * @data: pointer to the input data
@@ -1086,8 +1139,9 @@ int fit_set_timestamp(void *fit, int noffset, time_t timestamp)
  *     0, on success
  *    -1, when algo is unsupported
  */
-int calculate_hash(const void *data, int data_len, const char *algo,
-			uint8_t *value, int *value_len)
+int calculate_hash_software(const void *data, int data_len,
+			    const char *algo, uint8_t *value,
+			    int *value_len)
 {
 	if (IMAGE_ENABLE_CRC32 && strcmp(algo, "crc32") == 0) {
 		*((uint32_t *)value) = crc32_wd(0, data, data_len,
@@ -1111,6 +1165,63 @@ int calculate_hash(const void *data, int data_len, const char *algo,
 	}
 	return 0;
 }
+
+#ifdef USE_HOSTCC
+int calculate_hash(const void *data, int data_len, const char *algo,
+		   uint8_t *value, int *value_len)
+{
+	return calculate_hash_software(data, data_len, algo, value, value_len);
+}
+#else
+#if CONFIG_IS_ENABLED(FIT_HW_CRYPTO)
+static int crypto_csum(u32 cap, const char *data, int len, u8 *output)
+{
+	struct udevice *dev;
+	sha_context csha_ctx;
+
+	dev = crypto_get_device(cap);
+	if (!dev) {
+		printf("Can't find expected crypto device\n");
+		return -ENODEV;
+	}
+
+	csha_ctx.algo = cap;
+	csha_ctx.length = len;
+
+	return crypto_sha_csum(dev, &csha_ctx, (char *)data, len, output);
+}
+
+int calculate_hash(const void *data, int data_len, const char *algo,
+		   uint8_t *value, int *value_len)
+{
+	if (IMAGE_ENABLE_CRC32 && strcmp(algo, "crc32") == 0) {
+		*((uint32_t *)value) = crc32_wd(0, data, data_len,
+							CHUNKSZ_CRC32);
+		*((uint32_t *)value) = cpu_to_uimage(*((uint32_t *)value));
+		*value_len = 4;
+	} else if (IMAGE_ENABLE_SHA1 && strcmp(algo, "sha1") == 0) {
+		crypto_csum(CRYPTO_SHA1, data, data_len, value);
+		*value_len = 20;
+	} else if (IMAGE_ENABLE_SHA256 && strcmp(algo, "sha256") == 0) {
+		crypto_csum(CRYPTO_SHA256, data, data_len, value);
+		*value_len = SHA256_SUM_LEN;
+	} else if (IMAGE_ENABLE_MD5 && strcmp(algo, "md5") == 0) {
+		crypto_csum(CRYPTO_MD5, data, data_len, value);
+		*value_len = 16;
+	} else {
+		debug("Unsupported hash alogrithm\n");
+		return -1;
+	}
+	return 0;
+}
+#else
+int calculate_hash(const void *data, int data_len, const char *algo,
+		   uint8_t *value, int *value_len)
+{
+	return calculate_hash_software(data, data_len, algo, value, value_len);
+}
+#endif
+#endif
 
 static int fit_image_check_hash(const void *fit, int noffset, const void *data,
 				size_t size, char **err_msgp)
@@ -1215,7 +1326,7 @@ int fit_image_verify_with_data(const void *fit, int image_noffset,
 		goto error;
 	}
 
-	return 1;
+	return 1; /* success */
 
 error:
 	printf(" error!\n%s for '%s' hash node in '%s' image node\n",
@@ -1799,21 +1910,32 @@ static const char *fit_get_image_type_property(int type)
 		return FIT_KERNEL_PROP;
 	case IH_TYPE_RAMDISK:
 		return FIT_RAMDISK_PROP;
+	case IH_TYPE_FIRMWARE:
+		return FIT_FIRMWARE_PROP;
 	case IH_TYPE_X86_SETUP:
 		return FIT_SETUP_PROP;
 	case IH_TYPE_LOADABLE:
 		return FIT_LOADABLE_PROP;
 	case IH_TYPE_FPGA:
 		return FIT_FPGA_PROP;
+	case IH_TYPE_STANDALONE:
+		return FIT_STANDALONE_PROP;
 	}
 
 	return "unknown";
 }
 
-int fit_image_load(bootm_headers_t *images, ulong addr,
-		   const char **fit_unamep, const char **fit_uname_configp,
-		   int arch, int image_type, int bootstage_id,
-		   enum fit_load_op load_op, ulong *datap, ulong *lenp)
+#ifndef USE_HOSTCC
+__weak int fit_board_verify_required_sigs(void)
+{
+	return 0;
+}
+#endif
+
+int fit_image_load_index(bootm_headers_t *images, ulong addr,
+			 const char **fit_unamep, const char **fit_uname_configp,
+			 int arch, int image_type, int image_index, int bootstage_id,
+			 enum fit_load_op load_op, ulong *datap, ulong *lenp)
 {
 	int cfg_noffset, noffset;
 	const char *fit_uname;
@@ -1830,6 +1952,15 @@ int fit_image_load(bootm_headers_t *images, ulong addr,
 #endif
 	const char *prop_name;
 	int ret;
+
+#ifndef USE_HOSTCC
+	/* If board required sigs, check self */
+	if (fit_board_verify_required_sigs() &&
+	    !IS_ENABLED(CONFIG_FIT_SIGNATURE)) {
+		printf("Verified-boot requires CONFIG_FIT_SIGNATURE enabled\n");
+		hang();
+	}
+#endif
 
 	fit = map_sysmem(addr, 0);
 	fit_uname = fit_unamep ? *fit_unamep : NULL;
@@ -1873,7 +2004,7 @@ int fit_image_load(bootm_headers_t *images, ulong addr,
 		if (image_type == IH_TYPE_KERNEL) {
 			/* Remember (and possibly verify) this config */
 			images->fit_uname_cfg = fit_base_uname_config;
-			if (IMAGE_ENABLE_VERIFY && images->verify) {
+			if (IMAGE_ENABLE_VERIFY) {
 				puts("   Verifying Hash Integrity ... ");
 				if (fit_config_verify(fit, cfg_noffset)) {
 					puts("Bad Data Hash\n");
@@ -1882,12 +2013,30 @@ int fit_image_load(bootm_headers_t *images, ulong addr,
 					return -EACCES;
 				}
 				puts("OK\n");
+
+#ifdef CONFIG_FIT_ROLLBACK_PROTECT
+				uint32_t this_index, min_index;
+
+				puts("   Verifying Rollback-index ... ");
+				if (fit_rollback_index_verify(fit,
+						FIT_ROLLBACK_INDEX,
+						&this_index, &min_index)) {
+					puts("Failed to get index\n");
+					return ret;
+				} else if (this_index < min_index) {
+					printf("Reject index %d < %d(min)\n",
+					       this_index, min_index);
+					return -EINVAL;
+				}
+
+				printf("%d >= %d, OK\n", this_index, min_index);
+#endif
 			}
 			bootstage_mark(BOOTSTAGE_ID_FIT_CONFIG);
 		}
 
-		noffset = fit_conf_get_prop_node(fit, cfg_noffset,
-						 prop_name);
+		noffset = fit_conf_get_prop_node_index(fit, cfg_noffset,
+						       prop_name, image_index);
 		fit_uname = fit_get_name(fit, noffset, NULL);
 	}
 	if (noffset < 0) {
@@ -1933,6 +2082,8 @@ int fit_image_load(bootm_headers_t *images, ulong addr,
 	os_ok = image_type == IH_TYPE_FLATDT ||
 		image_type == IH_TYPE_FPGA ||
 		fit_image_check_os(fit, noffset, IH_OS_LINUX) ||
+		fit_image_check_os(fit, noffset, IH_OS_ARM_TRUSTED_FIRMWARE) ||
+		fit_image_check_os(fit, noffset, IH_OS_OP_TEE) ||
 		fit_image_check_os(fit, noffset, IH_OS_U_BOOT) ||
 		fit_image_check_os(fit, noffset, IH_OS_OPENRTOS);
 
@@ -2032,6 +2183,16 @@ int fit_image_load(bootm_headers_t *images, ulong addr,
 					      fit_base_uname_config);
 
 	return noffset;
+}
+
+int fit_image_load(bootm_headers_t *images, ulong addr,
+		   const char **fit_unamep, const char **fit_uname_configp,
+		   int arch, int image_type, int bootstage_id,
+		   enum fit_load_op load_op, ulong *datap, ulong *lenp)
+{
+	return fit_image_load_index(images, addr,fit_unamep, fit_uname_configp,
+				    arch, image_type, 0, bootstage_id,
+				    load_op, datap, lenp);
 }
 
 int boot_get_setup_fit(bootm_headers_t *images, uint8_t arch,

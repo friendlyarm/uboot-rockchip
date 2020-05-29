@@ -209,6 +209,7 @@ config FIT_SIGNATURE
 	bool "Enable signature verification of FIT uImages"
 	depends on DM
 	select RSA
+	select CONSOLE_DISABLE_CLI
 	help
 	  This option enables signature verification of FIT uImages,
 	  using a hash signed and verified using RSA. If
@@ -221,6 +222,12 @@ config FIT_SIGNATURE
 	  unsigned images cannot be loaded. If a board needs the legacy image
 	  format support in this case, enable it using
 	  CONFIG_IMAGE_FORMAT_LEGACY.
+
+config FIT_ROLLBACK_PROTECT
+	bool "Enable rollback-index protection for FIT image"
+	depends on FIT_SIGNATURE
+	help
+	  Enable rollback-index protection for FIT image
 
 config FIT_VERBOSE
 	bool "Show verbose messages when FIT images fail"
@@ -253,6 +260,12 @@ config FIT_IMAGE_POST_PROCESS
 	  injected into the FIT creation (i.e. the blobs would have been pre-
 	  processed before being added to the FIT image).
 
+config FIT_HW_CRYPTO
+	bool "Enable hardware crypto for FIT image checksum and rsa verify"
+	depends on DM_CRYPTO
+	help
+	  Enable hardware crypto for FIT image checksum and rsa verify.
+
 if SPL
 
 config SPL_FIT
@@ -265,6 +278,12 @@ config SPL_FIT_SIGNATURE
 	depends on SPL_DM
 	select SPL_FIT
 	select SPL_RSA
+
+config SPL_FIT_ROLLBACK_PROTECT
+	bool "Enable SPL rollback-index protection for FIT image"
+	depends on SPL_FIT_SIGNATURE
+	help
+	  Enable SPL rollback-index protection for FIT image
 
 config SPL_LOAD_FIT
 	bool "Enable SPL loading U-Boot as a FIT"
@@ -308,6 +327,33 @@ config SPL_FIT_GENERATOR
 	  source file used to build the U-Boot FIT image file. This gets
 	  passed a list of supported device tree file stub names to
 	  include in the generated image.
+
+config SPL_FIT_HW_CRYPTO
+	bool "Enable SPL hardware crypto for FIT image checksum and rsa verify"
+	depends on SPL_DM_CRYPTO
+	help
+	  Enable SPL hardware crypto for FIT image checksum and rsa verify.
+
+config SPL_FIT_IMAGE_KB
+	int "SPL FIT image size in KiB"
+	depends on SPL_FIT
+	default 2048
+	help
+	  SPL FIT image size in KiB, default 2048KB = 1024KB(u-boot) + 1024KB(tee/atf + others).
+
+config SPL_FIT_IMAGE_MULTIPLE
+	int "SPL FIT image multiple number"
+	depends on SPL_FIT
+	default 2
+	help
+	  SPL FIT image multiple number.
+
+config SPL_SYS_DCACHE_OFF
+	bool "Disable SPL dcache"
+	default y
+	help
+	  Disable SPL dcache. Please make sure CONFIG_SPL_SYS_MALLOC_F_LEN
+	  is large enough to malloc TLB and bd_t buffer while enabling dcache.
 
 endif # SPL
 

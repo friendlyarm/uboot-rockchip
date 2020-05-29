@@ -383,6 +383,32 @@ static void rsa_engine_remove(ENGINE *e)
 	}
 }
 
+/*
+ * With this data2sign.bin, we can provide it to who real holds the RAS-private
+ * key to sign current fit image. Then we replace the signature in fit image
+ * with a valid one.
+ */
+static int gen_data2sign(const struct image_region region[], int region_count)
+{
+	char *file = "data2sign.bin";
+	FILE *fd;
+	int i;
+
+	fd = fopen(file, "wb");
+	if (!fd) {
+		fprintf(stderr, "Failed to create %s: %s\n",
+			file, strerror(errno));
+		return -ENOENT;
+	}
+
+	for (i = 0; i < region_count; i++)
+		fwrite(region[i].data, region[i].size, 1, fd);
+
+	fclose(fd);
+
+	return 0;
+}
+
 static int rsa_sign_with_key(RSA *rsa, struct checksum_algo *checksum_algo,
 		const struct image_region region[], int region_count,
 		uint8_t **sigp, uint *sig_size)
@@ -444,6 +470,8 @@ static int rsa_sign_with_key(RSA *rsa, struct checksum_algo *checksum_algo,
 	debug("Got signature: %d bytes, expected %d\n", *sig_size, size);
 	*sigp = sig;
 	*sig_size = size;
+
+	gen_data2sign(region, region_count);
 
 	return 0;
 
@@ -553,11 +581,12 @@ cleanup:
  * rsa_get_params(): - Get the important parameters of an RSA public key
  */
 int rsa_get_params(RSA *key, uint64_t *exponent, uint32_t *n0_invp,
-		   BIGNUM **modulusp, BIGNUM **r_squaredp)
+		   BIGNUM **modulusp, BIGNUM **exponent_BN, BIGNUM **r_squaredp,
+		   BIGNUM **c_factorp, BIGNUM **np_factorp)
 {
-	BIGNUM *big1, *big2, *big32, *big2_32;
-	BIGNUM *n, *r, *r_squared, *tmp;
-	const BIGNUM *key_n;
+	BIGNUM *big1, *big2, *big32, *big2_32, *big4100, *big2180;
+	BIGNUM *n, *e, *r, *r_squared, *tmp, *c_factor, *np_factor;
+	const BIGNUM *key_n, *key_e;
 	BN_CTX *bn_ctx = BN_CTX_new();
 	int ret = 0;
 
@@ -565,13 +594,20 @@ int rsa_get_params(RSA *key, uint64_t *exponent, uint32_t *n0_invp,
 	big1 = BN_new();
 	big2 = BN_new();
 	big32 = BN_new();
+	big4100 = BN_new();
+	big2180 = BN_new();
+
 	r = BN_new();
 	r_squared = BN_new();
+	c_factor = BN_new();
+	np_factor = BN_new();
 	tmp = BN_new();
 	big2_32 = BN_new();
 	n = BN_new();
-	if (!big1 || !big2 || !big32 || !r || !r_squared || !tmp || !big2_32 ||
-	    !n) {
+	e = BN_new();
+	if (!big1 || !big2 || !big32 || !big4100 || !big2180 || !r ||
+	    !r_squared || !tmp || !big2_32 || !n || !e ||
+	    !c_factor || !np_factor) {
 		fprintf(stderr, "Out of memory (bignum)\n");
 		return -ENOMEM;
 	}
@@ -579,9 +615,11 @@ int rsa_get_params(RSA *key, uint64_t *exponent, uint32_t *n0_invp,
 	if (0 != rsa_get_exponent(key, exponent))
 		ret = -1;
 
-	RSA_get0_key(key, &key_n, NULL, NULL);
-	if (!BN_copy(n, key_n) || !BN_set_word(big1, 1L) ||
-	    !BN_set_word(big2, 2L) || !BN_set_word(big32, 32L))
+	RSA_get0_key(key, &key_n, &key_e, NULL);
+	if (!BN_copy(n, key_n) || !BN_copy(e, key_e) ||
+	    !BN_set_word(big1, 1L) ||
+	    !BN_set_word(big2, 2L) || !BN_set_word(big32, 32L) ||
+	    !BN_set_word(big4100, 4100L) || !BN_set_word(big2180, 2180L))
 		ret = -1;
 
 	/* big2_32 = 2^32 */
@@ -605,12 +643,27 @@ int rsa_get_params(RSA *key, uint64_t *exponent, uint32_t *n0_invp,
 	    !BN_mod(r_squared, tmp, n, bn_ctx))
 		ret = -1;
 
+	/* Calculate c_factor = 2^4100 mod n */
+	if (!BN_exp(tmp, big2, big4100, bn_ctx) ||
+	    !BN_mod(c_factor, tmp, n, bn_ctx))
+		ret = -1;
+
+	/* Calculate np_factor = 2^2180 div n */
+	if (!BN_exp(tmp, big2, big2180, bn_ctx) ||
+	    !BN_div(np_factor, NULL, tmp, n, bn_ctx))
+		ret = -1;
+
 	*modulusp = n;
+	*exponent_BN = e;
 	*r_squaredp = r_squared;
+	*c_factorp = c_factor;
+	*np_factorp = np_factor;
 
 	BN_free(big1);
 	BN_free(big2);
 	BN_free(big32);
+	BN_free(big4100);
+	BN_free(big2180);
 	BN_free(r);
 	BN_free(tmp);
 	BN_free(big2_32);
@@ -681,7 +734,7 @@ static int fdt_add_bignum(void *blob, int noffset, const char *prop_name,
 
 int rsa_add_verify_data(struct image_sign_info *info, void *keydest)
 {
-	BIGNUM *modulus, *r_squared;
+	BIGNUM *modulus, *exponent_BN, *r_squared, *c_factor, *np_factor;
 	uint64_t exponent;
 	uint32_t n0_inv;
 	int parent, node;
@@ -700,7 +753,8 @@ int rsa_add_verify_data(struct image_sign_info *info, void *keydest)
 	ret = rsa_get_pub_key(info->keydir, info->keyname, e, &rsa);
 	if (ret)
 		goto err_get_pub_key;
-	ret = rsa_get_params(rsa, &exponent, &n0_inv, &modulus, &r_squared);
+	ret = rsa_get_params(rsa, &exponent, &n0_inv, &modulus,
+			     &exponent_BN, &r_squared, &c_factor, &np_factor);
 	if (ret)
 		goto err_get_params;
 	bits = BN_num_bits(modulus);
@@ -748,11 +802,23 @@ int rsa_add_verify_data(struct image_sign_info *info, void *keydest)
 		ret = fdt_setprop_u64(keydest, node, "rsa,exponent", exponent);
 	}
 	if (!ret) {
+		ret = fdt_add_bignum(keydest, node, "rsa,exponent-BN",
+				     exponent_BN, bits);
+	}
+	if (!ret) {
 		ret = fdt_add_bignum(keydest, node, "rsa,modulus", modulus,
 				     bits);
 	}
 	if (!ret) {
 		ret = fdt_add_bignum(keydest, node, "rsa,r-squared", r_squared,
+				     bits);
+	}
+	if (!ret) {
+		ret = fdt_add_bignum(keydest, node, "rsa,c", c_factor,
+				     bits);
+	}
+	if (!ret) {
+		ret = fdt_add_bignum(keydest, node, "rsa,np", np_factor,
 				     bits);
 	}
 	if (!ret) {

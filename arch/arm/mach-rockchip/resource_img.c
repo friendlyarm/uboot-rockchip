@@ -824,6 +824,11 @@ static struct resource_file *rockchip_read_hwid_dtb(void)
 	struct resource_file *file;
 	struct list_head *node;
 
+	if (list_empty(&entrys_head)) {
+		if (init_resource_list())
+			return NULL;
+	}
+
 	/* Find dtb file according to hardware id(GPIO/ADC) */
 	list_for_each(node, &entrys_head) {
 		file = list_entry(node, struct resource_file, link);
@@ -854,10 +859,13 @@ int rockchip_read_resource_dtb(void *fdt_addr, char **hash, int *hash_size)
 	if (!def_dtb)
 		def_dtb = DTB_FILE;
 
-	file = get_file_info(def_dtb);
 #ifdef CONFIG_ROCKCHIP_HWID_DTB
+	file = rockchip_read_hwid_dtb();
+	/* If dtbs matched hardware id(GPIO/ADC) not found, try the default */
 	if (!file)
-		file = rockchip_read_hwid_dtb();
+		file = get_file_info(def_dtb);
+#else
+	file = get_file_info(def_dtb);
 #endif
 	if (!file)
 		return -ENODEV;

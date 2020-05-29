@@ -584,6 +584,22 @@ config ROCKCHIP_USB_BOOT
 	help
 	  This enables support for rockchip U-disk boot.
 
+config ROCKCHIP_FIT_IMAGE
+	bool "Enable support for FIT image"
+	depends on FIT && USING_KERNEL_DTB
+	select CMD_BOOT_FIT
+	default n
+	help
+	  This enables loading dtb from fit image.
+
+config ROCKCHIP_UIMAGE
+	bool "Enable support for legacy uImage"
+	depends on !FIT_SIGNATURE && USING_KERNEL_DTB
+	select CMD_BOOT_UIMAGE
+	default n
+	help
+	  This enables loading dtb from uImage image.
+
 config ROCKCHIP_EARLY_DISTRO_DTB
 	bool "Enable support for distro dtb early"
 	depends on DISTRO_DEFAULTS && USING_KERNEL_DTB && CMD_FS_GENERIC
@@ -664,6 +680,12 @@ config ROCKCHIP_PRELOADER_SERIAL
 	help
 	  This enable U-Boot using pre-loader atags serial configure to initialize console.
 	  It denpends on serial aliases to find pre-loader serial number.
+
+config ROCKCHIP_FIT_IMAGE_PACK
+	bool "Rockchip fit image pack of U-Boot and TEE"
+	default n
+	help
+	  This enable fit image pack of U-Boot and TEE, it's used for make.sh script.
 
 config GICV2
 	bool "ARM GICv2"
