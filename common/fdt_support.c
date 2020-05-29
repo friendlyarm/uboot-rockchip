@@ -276,6 +276,13 @@ int fdt_initrd(void *fdt, ulong initrd_start, ulong initrd_end)
 	return 0;
 }
 
+#ifdef CONFIG_VENDOR_FRIENDLYELEC
+__weak char *board_get_panel_name(void)
+{
+    return NULL;
+}
+#endif
+
 int fdt_chosen(void *fdt)
 {
 	/*
@@ -343,8 +350,18 @@ int fdt_chosen(void *fdt)
 				 */
 				env_delete("bootargs", "initrd=", 0);
 			}
-#endif
 		}
+#endif
+
+#ifdef CONFIG_VENDOR_FRIENDLYELEC
+		char *panel = board_get_panel_name();
+		if (panel) {
+			char lcdinfo[128] = { 0 };
+			strcpy(lcdinfo, "lcd=");
+			strncat(lcdinfo, panel, sizeof(lcdinfo) - 5);
+			env_update("bootargs", lcdinfo);
+		}
+#endif
 
 		str = env_get("bootargs");
 		err = fdt_setprop(fdt, nodeoffset, "bootargs", str,

@@ -179,7 +179,7 @@ static int get_bootdev_type(void)
 		else
 			snprintf(boot_options, sizeof(boot_options),
 				 "storagemedia=%s androidboot.storagemedia=%s "
-				 "androidboot.mode=normal ",
+				 "androidboot.mode=normal",
 				 boot_media, boot_media);
 #endif
 		env_update("bootargs", boot_options);
