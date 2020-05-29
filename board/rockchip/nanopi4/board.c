@@ -22,6 +22,7 @@
 #include <dwc3-uboot.h>
 #include <spl.h>
 #include <i2c.h>
+#include <dt_table.h>
 
 #include "hwrev.h"
 
@@ -80,6 +81,11 @@ int board_set_panel_name(const char *name)
 		env_set("panel", name);
 
 	return 0;
+}
+
+int board_select_fdt_index(ulong dt_table_hdr, struct blk_desc *dev_desc)
+{
+	return (dev_desc ? dev_desc->devnum : 0);
 }
 
 int rk_board_init(void)
