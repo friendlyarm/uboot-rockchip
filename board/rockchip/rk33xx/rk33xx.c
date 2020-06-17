@@ -11,6 +11,7 @@
 #include <fdtdec.h>
 #include <fdt_support.h>
 #include <power/pmic.h>
+#include <io-domain.h>
 #include <u-boot/sha256.h>
 #include <hash.h>
 
@@ -517,6 +518,8 @@ int board_late_init(void)
 #endif
 	debug("rkimage_prepare_fdt\n");
 	rkimage_prepare_fdt();
+
+	board_io_domain_init();
 
 #ifdef CONFIG_RK_KEY
 	debug("key_init\n");
