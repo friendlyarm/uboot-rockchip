@@ -571,6 +571,10 @@ static int display_get_timing(struct display_state *state)
 	}
 
 	if (!display_get_timing_from_dts(panel, blob, mode)) {
+		char *str = fdt_getprop(blob, panel, "panel-name", NULL);
+		if (str)
+			setenv("panel", str);
+
 		printf("Using display timing dts\n");
 		goto done;
 	}
