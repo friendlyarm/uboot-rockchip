@@ -474,25 +474,17 @@ int fit_config_verify(const void *fit, int conf_noffset)
 
 #ifndef USE_HOSTCC
 #if CONFIG_IS_ENABLED(FIT_ROLLBACK_PROTECT)
-int fit_rollback_index_verify(const void *fit, uint32_t rollback_fd,
-			      uint32_t *this_index, uint32_t *min_index)
+__weak int fit_read_otp_rollback_index(uint32_t fit_index, uint32_t *otp_index)
 {
-	uint32_t tmp_this;
-	uint64_t tmp_min;
-	int images_noffset;
-	int def_noffset;
+	*otp_index = 0;
 
-	if (fit_get_image_defconf_node(fit, &images_noffset, &def_noffset))
-		return -ENOENT;
-
-	if (fit_image_get_rollback_index(fit, def_noffset, &tmp_this))
-		return -ENODEV;
-
-	/* TODO */
-	tmp_min = tmp_this;
-
-	*this_index = tmp_this;
-	*min_index = tmp_min;
+	return 0;
+}
+__weak int fit_rollback_index_verify(const void *fit, uint32_t rollback_fd,
+				     uint32_t *this_index, uint32_t *min_index)
+{
+	*this_index = 0;
+	*min_index = 0;
 
 	return 0;
 }

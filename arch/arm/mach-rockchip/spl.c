@@ -284,6 +284,7 @@ void spl_next_stage(struct spl_image_info *spl)
 
 	reg_boot_mode = readl((void *)CONFIG_ROCKCHIP_BOOT_MODE_REG);
 	switch (reg_boot_mode) {
+	case BOOT_COLD:
 	case BOOT_PANIC:
 	case BOOT_WATCHDOG:
 	case BOOT_NORMAL:
@@ -295,15 +296,6 @@ void spl_next_stage(struct spl_image_info *spl)
 }
 #endif
 
-int spl_board_prepare_for_jump(struct spl_image_info *spl_image)
-{
-#if CONFIG_SPL_FIT_ROLLBACK_PROTECT
-	/* TODO */
-	printf("spl fit: rollback protect not implement\n");
-#endif
-	return 0;
-}
-
 void spl_hang_reset(void)
 {
 	printf("# Reset the board to bootrom #\n");
@@ -313,20 +305,84 @@ void spl_hang_reset(void)
 #endif
 }
 
-int fit_board_verify_required_sigs(void)
+#ifdef CONFIG_SPL_FIT_ROLLBACK_PROTECT
+int fit_read_otp_rollback_index(uint32_t fit_index, uint32_t *otp_index)
 {
-	uint8_t vboot = 0;
-#if defined(CONFIG_SPL_ROCKCHIP_SECURE_OTP) || defined(CONFIG_SPL_ROCKCHIP_SECURE_OTP_v2)
+	int ret = 0;
+
+	*otp_index = 0;
+#if defined(CONFIG_SPL_ROCKCHIP_SECURE_OTP_V2)
 	struct udevice *dev;
+	u32 index, i, otp_version;
+	u32 bit_count;
 
 	dev = misc_otp_get_device(OTP_S);
 	if (!dev)
-		return 1;
+		return -ENODEV;
 
-	if (misc_otp_read(dev, 0, &vboot, 1)) {
-		printf("Can't read verified-boot flag\n");
-		return 1;
+	otp_version = 0;
+	for (i = 0; i < OTP_UBOOT_ROLLBACK_WORDS; i++) {
+		if (misc_otp_read(dev, 4 *
+		    (OTP_UBOOT_ROLLBACK_OFFSET + i),
+		    &index,
+		    4)) {
+			printf("Can't read rollback index\n");
+			return -EIO;
+		}
+		bit_count = fls(index);
+		otp_version += bit_count;
+	}
+	*otp_index = otp_version;
+#endif
+
+	return ret;
+}
+
+static int fit_write_otp_rollback_index(u32 fit_index)
+{
+#if defined(CONFIG_SPL_ROCKCHIP_SECURE_OTP_V2)
+	struct udevice *dev;
+	u32 index, i, otp_index;
+
+	if (!fit_index || fit_index > OTP_UBOOT_ROLLBACK_WORDS * 32)
+		return -EINVAL;
+
+	dev = misc_otp_get_device(OTP_S);
+	if (!dev)
+		return -ENODEV;
+
+	if (fit_read_otp_rollback_index(fit_index, &otp_index))
+		return -EIO;
+
+	if (otp_index < fit_index) {
+		/* Write new SW version to otp */
+		for (i = 0; i < OTP_UBOOT_ROLLBACK_WORDS; i++) {
+			/* convert to base-1 representation */
+			index = 0xffffffff >> (OTP_ALL_ONES_NUM_BITS -
+				min(fit_index, (u32)OTP_ALL_ONES_NUM_BITS));
+			fit_index -= min(fit_index,
+					  (u32)OTP_ALL_ONES_NUM_BITS);
+			if (index) {
+				if (misc_otp_write(dev, 4 *
+				    (OTP_UBOOT_ROLLBACK_OFFSET + i),
+				    &index,
+				    4)) {
+					printf("Can't write rollback index\n");
+					return -EIO;
+				}
+			}
+		}
 	}
 #endif
-	return vboot;
+
+	return 0;
+}
+#endif
+
+int spl_board_prepare_for_jump(struct spl_image_info *spl_image)
+{
+#ifdef CONFIG_SPL_FIT_ROLLBACK_PROTECT
+	return fit_write_otp_rollback_index(gd->rollback_index);
+#endif
+	return 0;
 }

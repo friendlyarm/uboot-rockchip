@@ -32,7 +32,7 @@
 #include <linux/list.h>
 #include <u-boot/sha1.h>
 #include <u-boot/sha256.h>
-#include <linux/usb/phy-rockchip-inno-usb2.h>
+#include <linux/usb/phy-rockchip-usb2.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -47,6 +47,8 @@ static void boot_devtype_init(void)
 	if (done)
 		return;
 
+	/* High priority: get bootdev from atags */
+#ifdef CONFIG_ROCKCHIP_PRELOADER_ATAGS
 	ret = param_parse_bootdev(&devtype, &devnum);
 	if (!ret) {
 		atags_en = 1;
@@ -69,8 +71,9 @@ static void boot_devtype_init(void)
 		if (blk_get_devnum_by_typename(devtype, atoi(devnum)))
 			goto finish;
 	}
+#endif
 
-	/* If not find valid bootdev by atags, scan all possible */
+	/* Low priority: if not get bootdev by atags, scan all possible */
 #ifdef CONFIG_DM_MMC
 	mmc_initialize(gd->bd);
 #endif
@@ -245,7 +248,26 @@ void rockchip_set_bootdev(struct blk_desc *desc)
 __weak int rockchip_dnl_key_pressed(void)
 {
 #if defined(CONFIG_DM_KEY)
+#ifdef CONFIG_CMD_ROCKUSB
 	return key_is_pressed(key_read(KEY_VOLUMEUP));
+#else
+	/*
+	 * It's possible that USB is disabled due to developer needs
+	 * a critial size of u-boot.bin.
+	 *
+	 * Disabling USB makes vbus can't be detected any more, so that
+	 * we add menu key and the events trigger are changed:
+	 *
+	 * - rockusb mode(fallback to bootrom mode):
+	 *	"recovery key pressed + vbus=1" => "menu key pressed"
+	 *
+	 * - recovery mode:
+	 *	"recovery key pressed + vbus=0" => "recovery key pressed"
+	 *
+	 * At the most time, USB is enabled and this feature is not applied.
+	 */
+	return key_is_pressed(key_read(KEY_MENU));
+#endif
 
 #elif defined(CONFIG_ADC)
 	const void *blob = gd->fdt_blob;
@@ -272,13 +294,21 @@ __weak int rockchip_dnl_key_pressed(void)
 
 void setup_download_mode(void)
 {
+	int vbus = 1;
+
 	boot_devtype_init();
 
 	/* recovery key or "ctrl+d" */
 	if (rockchip_dnl_key_pressed() || is_hotkey(HK_ROCKUSB_DNL)) {
 		printf("download key pressed... ");
-		if (rockchip_u2phy_vbus_detect() > 0) {
-			printf("entering download mode...\n");
+#ifdef CONFIG_CMD_ROCKUSB
+		vbus = rockchip_u2phy_vbus_detect();
+#endif
+		if (vbus > 0) {
+			printf("%sentering download mode...\n",
+			       IS_ENABLED(CONFIG_CMD_ROCKUSB) ?
+			       "" : "no rockusb, ");
+
 			/* try rockusb download and brom download */
 			run_command("download", 0);
 		} else {
@@ -330,6 +360,8 @@ out:
 	run_command("run bootcmd", 0);
 }
 
+#if defined(CONFIG_USING_KERNEL_DTB) || defined(CONFIG_CMD_BOOTM) || \
+    defined(CONFIG_CMD_BOOTZ) || defined(CONFIG_CMD_BOOTI)
 #ifdef CONFIG_ROCKCHIP_DTB_VERIFY
 #ifdef CONFIG_DM_CRYPTO
 static int crypto_csum(u32 cap, char *input, u32 input_len, u8 *output)
@@ -512,3 +544,4 @@ int rockchip_read_dtb_file(void *fdt_addr)
 
 	return 0;
 }
+#endif

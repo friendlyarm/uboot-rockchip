@@ -16,6 +16,7 @@ struct rockchip_crtc {
 };
 
 struct rockchip_crtc_funcs {
+	int (*preinit)(struct display_state *state);
 	int (*init)(struct display_state *state);
 	void (*deinit)(struct display_state *state);
 	int (*set_plane)(struct display_state *state);
@@ -43,4 +44,5 @@ extern const struct vop_data rk3399_vop_lit;
 extern const struct vop_data rk322x_vop;
 extern const struct vop_data rk3328_vop;
 extern const struct vop_data rv1108_vop;
+extern const struct vop_data rv1126_vop;
 #endif

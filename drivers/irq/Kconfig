@@ -4,3 +4,4 @@ config IRQ
 	default y
 	help
 	  Provide IRQ support for platforms
+

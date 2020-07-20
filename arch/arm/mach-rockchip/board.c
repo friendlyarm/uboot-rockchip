@@ -22,6 +22,7 @@
 #include <memblk.h>
 #include <misc.h>
 #include <of_live.h>
+#include <mtd_blk.h>
 #include <ram.h>
 #include <rockchip_debugger.h>
 #include <syscon.h>
@@ -34,6 +35,7 @@
 #include <power/charge_display.h>
 #include <power/regulator.h>
 #include <optee_include/OpteeClientInterface.h>
+#include <optee_include/tee_api_defines.h>
 #include <asm/arch/boot_mode.h>
 #include <asm/arch/clock.h>
 #include <asm/arch/cpu.h>
@@ -238,12 +240,30 @@ static void env_fixup(void)
 		}
 	}
 #endif
-	/* If bl32 is disabled, maybe kernel can be load to lower address. */
+	/* If BL32 is disabled, move kernel to lower address. */
 	if (!(gd->flags & GD_FLG_BL32_ENABLED)) {
 		addr_r = env_get("kernel_addr_no_bl32_r");
 		if (addr_r)
 			env_set("kernel_addr_r", addr_r);
-	/* If bl32 is enlarged, we move ramdisk addr right behind it */
+
+		/*
+		 * 0x0a200000 and 0x08400000 are rockchip traditional address
+		 * of BL32 and ramdisk:
+		 *
+		 * |------------|------------|
+		 * |    BL32    |  ramdisk   |
+		 * |------------|------------|
+		 *
+		 * Move ramdisk to BL32 address to fix sysmem alloc failed
+		 * issue on the board with critical memory(ie. 256MB).
+		 */
+		if (gd->ram_size > SZ_128M && gd->ram_size <= SZ_256M) {
+			u_addr_r = env_get_ulong("ramdisk_addr_r", 16, 0);
+			if (u_addr_r == 0x0a200000)
+				env_set("ramdisk_addr_r", "0x08400000");
+		}
+
+	/* If BL32 is enlarged, move ramdisk right behind it */
 	} else {
 		mem = param_parse_optee_mem();
 		end = mem.base + mem.size;
@@ -329,8 +349,19 @@ static void board_debug_init(void)
 	}
 
 	if (IS_ENABLED(CONFIG_CONSOLE_DISABLE_CLI))
-		printf("CLI: off\n");
+		printf("Cmd interface: disabled\n");
 }
+
+#ifdef CONFIG_MTD_BLK
+static void board_mtd_blk_map_partitions(void)
+{
+	struct blk_desc *dev_desc;
+
+	dev_desc = rockchip_get_bootdev();
+	if (dev_desc)
+		mtd_blk_map_partitions(dev_desc);
+}
+#endif
 
 int board_init(void)
 {
@@ -342,6 +373,9 @@ int board_init(void)
 
 	set_dtb_name();
 #ifdef CONFIG_USING_KERNEL_DTB
+#ifdef CONFIG_MTD_BLK
+	board_mtd_blk_map_partitions();
+#endif
 	init_kernel_dtb();
 #endif
 	early_download();
@@ -388,17 +422,18 @@ int board_fdt_fixup(void *blob)
 	return rk_board_fdt_fixup(blob);
 }
 
-#ifdef CONFIG_ARM64_BOOT_AARCH32
+#if defined(CONFIG_ARM64_BOOT_AARCH32) || \
+    (!defined(CONFIG_ARM64) && defined(CONFIG_OPTEE_V2))
 /*
- * Fixup MMU region attr for OP-TEE on ARMv8 CPU:
+ * (1) Fixup MMU region attr for OP-TEE on (AArch32 + ARMv8)
  *
  * What ever U-Boot is 64-bit or 32-bit mode, the OP-TEE is always 64-bit mode.
  *
- * Command for OP-TEE:
+ * Common for OP-TEE:
  *	64-bit mode: dcache is always enabled;
- *	32-bit mode: dcache is always disabled(Due to some unknown issue);
+ *	32-bit mode: dcache is always disabled(Due to rockchip sip calls);
  *
- * Command for U-Boot:
+ * Common for U-Boot:
  *	64-bit mode: MMU table is static defined in rkxxx.c file, all memory
  *		     regions are mapped. That's good to match OP-TEE MMU policy.
  *
@@ -414,6 +449,14 @@ int board_fdt_fixup(void *blob)
  *	When CONFIG_ARM64_BOOT_AARCH32 is enabled, U-Boot is 32-bit mode while
  *	OP-TEE is still 64-bit mode. U-Boot would not map MMU table for OP-TEE
  *	region(but OP-TEE requires it cacheable) so we fixup here.
+ *
+ *
+ * (2) Fixup MMU region attr for OP-TEE on (ARMv7 + CONFIG_OPTEE_V2)
+ *
+ * OP-TEE for CONFIG_OPTEE_V1: dcache is always disabled;
+ * OP-TEE for CONFIG_OPTEE_V2: dcache is always enabled;
+ *
+ * So U-Boot should map OP-TEE memory as dcache enabled for CONFIG_OPTEE_V2.
  */
 int board_initr_caches_fixup(void)
 {
@@ -431,22 +474,6 @@ void arch_preboot_os(uint32_t bootm_state)
 {
 	if (bootm_state & BOOTM_STATE_OS_PREP)
 		hotkey_run(HK_CLI_OS_PRE);
-}
-
-void board_quiesce_devices(void *images)
-{
-	hotkey_run(HK_CMDLINE);
-	hotkey_run(HK_CLI_OS_GO);
-
-#ifdef CONFIG_ROCKCHIP_PRELOADER_ATAGS
-	/* Destroy atags makes next warm boot safer */
-	atags_destroy();
-#endif
-
-#ifdef CONFIG_FIT_ROLLBACK_PROTECT
-	/* TODO */
-	printf("fit: rollback protect not implement\n");
-#endif
 }
 
 void enable_caches(void)
@@ -792,17 +819,76 @@ void autoboot_command_fail_handle(void)
 #endif
 }
 
-int fit_board_verify_required_sigs(void)
+#ifdef CONFIG_FIT_IMAGE_POST_PROCESS
+void board_fit_image_post_process(void **p_image, size_t *p_size)
 {
-	uint8_t vboot = 0;
-#ifdef CONFIG_OPTEE_CLIENT
-	int ret;
-
-	ret = trusty_read_vbootkey_enable_flag(&vboot);
-	if (ret) {
-		printf("Can't read verified-boot flag\n");
-		return 1;
+	/* Avoid overriding proccessed(overlay, hw-dtb, ...) kernel dtb */
+#ifdef CONFIG_USING_KERNEL_DTB
+	if (!fdt_check_header(*p_image) && !fdt_check_header(gd->fdt_blob)) {
+		*p_image = (void *)gd->fdt_blob;
+		*p_size = (size_t)fdt_totalsize(gd->fdt_blob);
 	}
 #endif
-	return vboot;
+}
+#endif
+
+#ifdef CONFIG_FIT_ROLLBACK_PROTECT
+
+#define FIT_ROLLBACK_INDEX_LOCATION	0x66697472	/* "fitr" */
+
+int fit_read_otp_rollback_index(uint32_t fit_index, uint32_t *otp_index)
+{
+#ifdef CONFIG_OPTEE_CLIENT
+	u64 index;
+	int ret;
+
+	ret = trusty_read_rollback_index(FIT_ROLLBACK_INDEX_LOCATION, &index);
+	if (ret) {
+		if (ret != TEE_ERROR_ITEM_NOT_FOUND)
+			return ret;
+
+		*otp_index = fit_index;
+		printf("Initial otp index as %d\n", fit_index);
+	}
+
+	*otp_index = index;
+#else
+	*otp_index = 0;
+#endif
+
+	return 0;
+}
+
+static int fit_write_trusty_rollback_index(u32 trusty_index)
+{
+	int ret;
+
+	if (!trusty_index)
+		return 0;
+
+	ret = trusty_write_rollback_index(FIT_ROLLBACK_INDEX_LOCATION,
+					  (u64)trusty_index);
+	if (ret) {
+		printf("Failed to write fit rollback index %d, ret=%d\n",
+		       trusty_index, ret);
+		return ret;
+	}
+
+	return 0;
+}
+#endif
+
+void board_quiesce_devices(void *images)
+{
+	hotkey_run(HK_CMDLINE);
+	hotkey_run(HK_CLI_OS_GO);
+
+#ifdef CONFIG_ROCKCHIP_PRELOADER_ATAGS
+	/* Destroy atags makes next warm boot safer */
+	atags_destroy();
+#endif
+
+#ifdef CONFIG_FIT_ROLLBACK_PROTECT
+	fit_write_trusty_rollback_index(gd->rollback_index);
+#endif
 }

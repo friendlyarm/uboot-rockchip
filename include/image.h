@@ -919,6 +919,7 @@ int bootz_setup(ulong image, ulong *start, ulong *end);
 #define FIT_DATA_OFFSET_PROP	"data-offset"
 #define FIT_DATA_SIZE_PROP	"data-size"
 #define FIT_TIMESTAMP_PROP	"timestamp"
+#define FIT_TOTALSIZE_PROP	"totalsize"
 #define FIT_DESC_PROP		"description"
 #define FIT_ARCH_PROP		"arch"
 #define FIT_TYPE_PROP		"type"
@@ -1021,11 +1022,11 @@ int fit_image_get_rollback_index(const void *fit, int noffset, uint32_t *index);
 int fit_image_hash_get_algo(const void *fit, int noffset, char **algo);
 int fit_image_hash_get_value(const void *fit, int noffset, uint8_t **value,
 				int *value_len);
+int fit_image_check_hash(const void *fit, int noffset, const void *data,
+			 size_t size, char **err_msgp);
 
 int fit_set_timestamp(void *fit, int noffset, time_t timestamp);
-
-int fit_get_image_defconf_node(const void *fit,
-			       int *images_noffset, int *def_noffset);
+int fit_set_totalsize(void *fit, int noffset, int totalsize);
 
 /**
  * fit_add_verification_data() - add verification data to FIT image nodes
@@ -1066,8 +1067,11 @@ int fit_check_format(const void *fit);
 
 int fit_conf_find_compat(const void *fit, const void *fdt);
 int fit_conf_get_node(const void *fit, const char *conf_uname);
+
+/* __weak function */
 int fit_rollback_index_verify(const void *fit, uint32_t rollback_fd,
-			      uint32_t *this_index, uint32_t *min_index);
+			      uint32_t *fit_index, uint32_t *otp_index);
+int fit_read_otp_rollback_index(uint32_t fit_index, uint32_t *otp_index);
 
 /**
  * fit_conf_get_prop_node() - Get node refered to by a configuration

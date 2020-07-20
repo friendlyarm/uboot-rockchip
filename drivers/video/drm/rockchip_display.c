@@ -339,6 +339,23 @@ static int display_get_timing_from_dts(struct panel_state *panel_state,
 }
 
 /**
+ * drm_mode_max_resolution_filter - mark modes out of vop max resolution
+ * @edid_data: structure store mode list
+ * @max_output: vop max output resolution
+ */
+void drm_mode_max_resolution_filter(struct hdmi_edid_data *edid_data,
+				    struct vop_rect *max_output)
+{
+	int i;
+
+	for (i = 0; i < edid_data->modes; i++) {
+		if (edid_data->mode_buf[i].hdisplay > max_output->width ||
+		    edid_data->mode_buf[i].vdisplay > max_output->height)
+			edid_data->mode_buf[i].invalid = true;
+	}
+}
+
+/**
  * drm_mode_set_crtcinfo - set CRTC modesetting timing parameters
  * @p: mode
  * @adjust_flags: a combination of adjustment flags
@@ -527,10 +544,11 @@ static int display_init(struct display_state *state)
 	const struct rockchip_crtc_funcs *crtc_funcs = crtc->funcs;
 	struct drm_display_mode *mode = &conn_state->mode;
 	char *monitor;
-	int bpc;
 	int ret = 0;
 	static bool __print_once = false;
-
+#if defined(CONFIG_I2C_EDID)
+	int bpc;
+#endif
 	if (!__print_once) {
 		__print_once = true;
 		printf("Rockchip UBOOT DRM driver version: %s\n", DRIVER_VERSION);
@@ -554,6 +572,12 @@ static int display_init(struct display_state *state)
 			crtc_state->crtc->active_mode.vdisplay,
 			crtc_state->crtc->active_mode.vrefresh);
 		return -ENODEV;
+	}
+
+	if (crtc_funcs->preinit) {
+		ret = crtc_funcs->preinit(state);
+		if (ret)
+			return ret;
 	}
 
 	if (panel_state->panel)
@@ -602,10 +626,12 @@ static int display_init(struct display_state *state)
 		ret = video_bridge_read_edid(conn_state->bridge->dev,
 					     conn_state->edid, EDID_SIZE);
 		if (ret > 0) {
+#if defined(CONFIG_I2C_EDID)
 			ret = edid_get_drm_mode(conn_state->edid, ret, mode,
 						&bpc);
 			if (!ret)
 				edid_print_info((void *)&conn_state->edid);
+#endif
 		} else {
 			ret = video_bridge_get_timing(conn_state->bridge->dev);
 		}
@@ -613,6 +639,7 @@ static int display_init(struct display_state *state)
 		ret = conn_funcs->get_timing(state);
 	} else if (conn_funcs->get_edid) {
 		ret = conn_funcs->get_edid(state);
+#if defined(CONFIG_I2C_EDID)
 		if (!ret) {
 			ret = edid_get_drm_mode((void *)&conn_state->edid,
 						sizeof(conn_state->edid), mode,
@@ -624,6 +651,7 @@ static int display_init(struct display_state *state)
 					env_set("panel", monitor);
 			}
 		}
+#endif
 	}
 
 	if (ret)
@@ -804,7 +832,6 @@ static int display_logo(struct display_state *state)
 		printf("can't support bmp bits[%d]\n", logo->bpp);
 		return -EINVAL;
 	}
-	crtc_state->rb_swap = logo->bpp != 32;
 	hdisplay = conn_state->mode.hdisplay;
 	vdisplay = conn_state->mode.vdisplay;
 	crtc_state->src_w = logo->width;

@@ -420,9 +420,11 @@ static int initr_spi(void)
 /* go init the NAND */
 static int initr_nand(void)
 {
+#ifndef CONFIG_USING_KERNEL_DTB
 	puts("NAND:  ");
 	nand_init();
 	printf("%lu MiB\n", nand_size() / 1024);
+#endif
 	return 0;
 }
 #endif
@@ -446,6 +448,21 @@ static int initr_mmc(void)
 #ifndef CONFIG_USING_KERNEL_DTB
 	puts("MMC:   ");
 	mmc_initialize(gd->bd);
+#endif
+	return 0;
+}
+#endif
+
+#ifdef CONFIG_MTD_BLK
+static int initr_mtd_blk(void)
+{
+#ifndef CONFIG_USING_KERNEL_DTB
+	struct blk_desc *dev_desc;
+
+	puts("mtd_blk:   ");
+	dev_desc = rockchip_get_bootdev();
+	if (dev_desc)
+		mtd_blk_map_partitions(dev_desc);
 #endif
 	return 0;
 }
@@ -914,6 +931,9 @@ static init_fnc_t init_sequence_r[] = {
 #endif
 #ifdef CONFIG_CMD_ONENAND
 	initr_onenand,
+#endif
+#ifdef CONFIG_MTD_BLK
+	initr_mtd_blk,
 #endif
 #ifdef CONFIG_MMC
 	initr_mmc,

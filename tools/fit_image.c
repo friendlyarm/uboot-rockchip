@@ -99,7 +99,8 @@ static int fit_add_file_data(struct image_tool_params *params, size_t size_inc,
 	/* for first image creation, add a timestamp at offset 0 i.e., root  */
 	if (params->datafile) {
 		time_t time = imagetool_get_source_date(params, sbuf.st_mtime);
-		ret = fit_set_timestamp(ptr, 0, time);
+		ret  = fit_set_timestamp(ptr, 0, time);
+		ret |= fit_set_totalsize(ptr, 0, sbuf.st_size);
 	}
 
 	if (!ret) {
@@ -707,7 +708,7 @@ static int fit_handle_file(struct image_tool_params *params)
 		*cmd = '\0';
 	} else if (params->datafile) {
 		/* dtc -I dts -O dtb -p 500 datafile > tmpfile */
-		snprintf(cmd, sizeof(cmd), "%s -Wno-unit_address_vs_reg %s \"%s\" > \"%s\"",
+		snprintf(cmd, sizeof(cmd), "%s %s \"%s\" > \"%s\"",
 			 MKIMAGE_DTC, params->dtc, params->datafile, tmpfile);
 		debug("Trying to execute \"%s\"\n", cmd);
 	} else {

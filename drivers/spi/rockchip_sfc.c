@@ -137,7 +137,6 @@ static int rockchip_sfc_ofdata_to_platdata(struct udevice *bus)
 {
 	struct rockchip_sfc_platdata *plat = dev_get_platdata(bus);
 	struct rockchip_sfc *sfc = dev_get_priv(bus);
-	ofnode subnode;
 	int ret;
 
 	plat->base = dev_read_addr_ptr(bus);
@@ -146,18 +145,6 @@ static int rockchip_sfc_ofdata_to_platdata(struct udevice *bus)
 		printf("Could not get clock for %s: %d\n", bus->name, ret);
 		return ret;
 	}
-
-	subnode = dev_read_first_subnode(bus);
-	if (!ofnode_valid(subnode)) {
-		printf("Error: subnode with SPI flash config missing!\n");
-		return -ENODEV;
-	}
-
-	plat->frequency = ofnode_read_u32_default(subnode, "spi-max-frequency",
-						  100000000);
-	if (plat->frequency > SFC_MAX_RATE || plat->frequency < SFC_MIN_RATE)
-		plat->frequency = SFC_DEFAULT_RATE;
-	sfc->max_freq = plat->frequency;
 
 	return 0;
 }
@@ -171,6 +158,9 @@ static int rockchip_sfc_probe(struct udevice *bus)
 	dm_spi_bus = bus->uclass_priv;
 	dm_spi_bus->max_hz = plat->frequency;
 	sfc->regbase = (struct rockchip_sfc_reg *)plat->base;
+	sfc->max_freq = SFC_MAX_RATE;
+	sfc->speed_hz = SFC_DEFAULT_RATE;
+	clk_set_rate(&sfc->clk, sfc->speed_hz);
 
 	return 0;
 }
@@ -265,7 +255,7 @@ static void rockchip_sfc_setup_xfer(struct rockchip_sfc *sfc, u32 trb)
 	    sfc->addr_bits == SFC_ADDR_32BITS)
 		data_width = rockchip_sfc_get_if_type(sfc);
 
-	if (sfc->addr_bits & SFC_ADDR_XBITS)
+	if (sfc->addr_bits == SFC_ADDR_XBITS)
 		writel(sfc->addr_xbits_ext - 1, &regs->abit);
 
 	val |= (data_width << SFC_DATA_WIDTH_SHIFT);
@@ -561,7 +551,17 @@ static int rockchip_sfc_xfer(struct udevice *dev, unsigned int bitlen,
 			data_buf = NULL;
 		}
 
-		ret = rockchip_sfc_do_xfer(sfc, data_buf, len);
+		if (sfc->cmd == 0x9f && len == 4) {
+			/* SPI Nand read id */
+			sfc->addr_bits = SFC_ADDR_XBITS;
+			sfc->addr_xbits_ext = 8;
+			sfc->dummy_bits = 0;
+			sfc->addr = 0;
+			((u8 *)data_buf)[0] = 0xff;
+			ret = rockchip_sfc_do_xfer(sfc, &((u8 *)data_buf)[1], 3);
+		} else {
+			ret = rockchip_sfc_do_xfer(sfc, data_buf, len);
+		}
 	}
 
 	return ret;

@@ -1094,29 +1094,16 @@ int fit_set_timestamp(void *fit, int noffset, time_t timestamp)
 	return 0;
 }
 
-int fit_get_image_defconf_node(const void *fit, int *images_noffset, int *def_noffset)
+int fit_set_totalsize(void *fit, int noffset, int totalsize)
 {
-	int images_node, confs_node, defconf_node;
-	const char *def_name;
+	uint32_t t;
+	int ret;
 
-	images_node = fdt_path_offset(fit, FIT_IMAGES_PATH);
-	if (images_node < 0)
-		return images_node;
-
-	confs_node = fdt_path_offset(fit, FIT_CONFS_PATH);
-	if (confs_node < 0)
-		return confs_node;
-
-	def_name = fdt_getprop(fit, confs_node, FIT_DEFAULT_PROP, NULL);
-	if (!def_name)
-		return -ENOENT;
-
-	defconf_node = fdt_subnode_offset(fit, confs_node, def_name);
-	if (defconf_node < 0)
-		return defconf_node;
-
-	*images_noffset = images_node;
-	*def_noffset = defconf_node;
+	t = cpu_to_uimage(totalsize);
+	ret = fdt_setprop(fit, noffset, FIT_TOTALSIZE_PROP, &t,
+				sizeof(uint32_t));
+	if (ret)
+		return ret == -FDT_ERR_NOSPACE ? -ENOSPC : -1;
 
 	return 0;
 }
@@ -1223,8 +1210,8 @@ int calculate_hash(const void *data, int data_len, const char *algo,
 #endif
 #endif
 
-static int fit_image_check_hash(const void *fit, int noffset, const void *data,
-				size_t size, char **err_msgp)
+int fit_image_check_hash(const void *fit, int noffset, const void *data,
+			 size_t size, char **err_msgp)
 {
 	uint8_t value[FIT_MAX_HASH_LEN];
 	int value_len;
@@ -1953,15 +1940,6 @@ int fit_image_load_index(bootm_headers_t *images, ulong addr,
 	const char *prop_name;
 	int ret;
 
-#ifndef USE_HOSTCC
-	/* If board required sigs, check self */
-	if (fit_board_verify_required_sigs() &&
-	    !IS_ENABLED(CONFIG_FIT_SIGNATURE)) {
-		printf("Verified-boot requires CONFIG_FIT_SIGNATURE enabled\n");
-		hang();
-	}
-#endif
-
 	fit = map_sysmem(addr, 0);
 	fit_uname = fit_unamep ? *fit_unamep : NULL;
 	fit_uname_config = fit_uname_configp ? *fit_uname_configp : NULL;
@@ -2002,6 +1980,14 @@ int fit_image_load_index(bootm_headers_t *images, ulong addr,
 		fit_base_uname_config = fdt_get_name(fit, cfg_noffset, NULL);
 		printf("   Using '%s' configuration\n", fit_base_uname_config);
 		if (image_type == IH_TYPE_KERNEL) {
+#ifndef USE_HOSTCC
+			/* If board required sigs, check self */
+			if (fit_board_verify_required_sigs() &&
+			    !IS_ENABLED(CONFIG_FIT_SIGNATURE)) {
+				printf("Verified-boot requires CONFIG_FIT_SIGNATURE enabled\n");
+				hang();
+			}
+#endif
 			/* Remember (and possibly verify) this config */
 			images->fit_uname_cfg = fit_base_uname_config;
 			if (IMAGE_ENABLE_VERIFY) {
@@ -2029,7 +2015,7 @@ int fit_image_load_index(bootm_headers_t *images, ulong addr,
 					return -EINVAL;
 				}
 
-				printf("%d >= %d, OK\n", this_index, min_index);
+				printf("%d >= %d(min), OK\n", this_index, min_index);
 #endif
 			}
 			bootstage_mark(BOOTSTAGE_ID_FIT_CONFIG);

@@ -70,7 +70,37 @@ int misc_decompress_stop(struct udevice *dev)
 	return misc_ioctl(dev, IOCTL_REQ_STOP, NULL);
 }
 
-int misc_decompress_is_complete(struct udevice *dev)
+bool misc_decompress_is_complete(struct udevice *dev)
 {
-	return misc_ioctl(dev, IOCTL_REQ_POLL, NULL);
+	if (misc_ioctl(dev, IOCTL_REQ_POLL, NULL))
+		return false;
+	else
+		return true;
+}
+
+int misc_decompress_process(unsigned long src,
+			    unsigned long dst,
+			    unsigned long limit_size,
+			    u32 cap)
+{
+	struct udevice *dev;
+	int timeout = 10000;
+	int ret;
+
+	dev = misc_decompress_get_device(cap);
+	if (!dev)
+		return -EIO;
+
+	while (!misc_decompress_is_complete(dev)) {
+		if (timeout < 0)
+			return -EIO;
+		timeout--;
+		udelay(10);
+	}
+
+	ret = misc_decompress_stop(dev);
+	if (ret)
+		return -EIO;
+
+	return misc_decompress_start(dev, src, dst, limit_size);
 }

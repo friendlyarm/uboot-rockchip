@@ -8,6 +8,8 @@
 # core
 ifndef CONFIG_SPL_BUILD
 obj-y += init/
+obj-$(CONFIG_SUPPORT_USBPLUG) += usbplug/
+
 obj-y += main.o
 obj-y += exports.o
 obj-$(CONFIG_HASH) += hash.o
@@ -21,7 +23,9 @@ endif
 
 # # boards
 obj-y += board_f.o
+ifndef CONFIG_SUPPORT_USBPLUG
 obj-y += board_r.o
+endif
 obj-$(CONFIG_DISPLAY_BOARDINFO) += board_info.o
 obj-$(CONFIG_DISPLAY_BOARDINFO_LATE) += board_info.o
 
@@ -59,7 +63,7 @@ obj-$(CONFIG_MENU) += menu.o
 obj-$(CONFIG_UPDATE_TFTP) += update.o
 obj-$(CONFIG_DFU_TFTP) += update.o
 obj-$(CONFIG_USB_KEYBOARD) += usb_kbd.o
-obj-$(CONFIG_CMDLINE) += cli_readline.o cli_simple.o
+obj-y += cli_readline.o cli_simple.o
 
 endif # !CONFIG_SPL_BUILD
 
@@ -118,7 +122,6 @@ obj-$(CONFIG_$(SPL_TPL_)FIT) += image-fit.o
 obj-$(CONFIG_$(SPL_)MULTI_DTB_FIT) += boot_fit.o common_fit.o
 obj-$(CONFIG_$(SPL_TPL_)FIT_SIGNATURE) += image-sig.o
 endif
-obj-$(CONFIG_IO_TRACE) += iotrace.o
 
 obj-y += memsize.o
 obj-y += stdio.o
@@ -158,6 +161,7 @@ obj-y += s_record.o
 obj-y += xyzModem.o
 
 ifndef CONFIG_SPL_BUILD
+obj-$(CONFIG_IO_TRACE) += iotrace.o
 obj-$(CONFIG_ANDROID_WRITE_KEYBOX) += write_keybox.o
 obj-$(CONFIG_ANDROID_KEYMASTER_CA) += keymaster.o
 obj-$(CONFIG_ANDROID_KEYMASTER_CA) += attestation_key.o

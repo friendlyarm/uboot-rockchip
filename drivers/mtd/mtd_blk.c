@@ -18,6 +18,9 @@
 #define MTD_PART_INFO_MAX_SIZE		512
 #define MTD_SINGLE_PART_INFO_MAX_SIZE	40
 
+#define MTD_BLK_TABLE_BLOCK_UNKNOWN	(-2)
+#define MTD_BLK_TABLE_BLOCK_SHIFT	(-1)
+
 static int *mtd_map_blk_table;
 
 int mtd_blk_map_table_init(struct blk_desc *desc,
@@ -44,24 +47,32 @@ int mtd_blk_map_table_init(struct blk_desc *desc,
 	if (!mtd) {
 		return -ENODEV;
 	} else {
-		blk_total = (mtd->size + mtd->erasesize - 1) / mtd->erasesize;
+		blk_total = (mtd->size + mtd->erasesize - 1) >> mtd->erasesize_shift;
 		if (!mtd_map_blk_table) {
-			mtd_map_blk_table = (int *)malloc(blk_total * 4);
+			mtd_map_blk_table = (int *)malloc(blk_total * sizeof(int));
 			for (i = 0; i < blk_total; i++)
-				mtd_map_blk_table[i] = i;
+				mtd_map_blk_table[i] = MTD_BLK_TABLE_BLOCK_UNKNOWN;
 		}
 
-		blk_begin = (u32)offset / mtd->erasesize;
-		blk_cnt = ((u32)(offset % mtd->erasesize + length) / mtd->erasesize);
+		blk_begin = (u32)offset >> mtd->erasesize_shift;
+		blk_cnt = ((u32)((offset & mtd->erasesize_mask) + length) >> mtd->erasesize_shift);
+		if (blk_begin >= blk_total) {
+			pr_err("map table blk begin[%d] overflow\n", blk_begin);
+			return -EINVAL;
+		}
 		if ((blk_begin + blk_cnt) > blk_total)
 			blk_cnt = blk_total - blk_begin;
+
+		if (mtd_map_blk_table[blk_begin] != MTD_BLK_TABLE_BLOCK_UNKNOWN)
+			return 0;
+
 		j = 0;
 		 /* should not across blk_cnt */
 		for (i = 0; i < blk_cnt; i++) {
 			if (j >= blk_cnt)
-				mtd_map_blk_table[blk_begin + i] = -1;
+				mtd_map_blk_table[blk_begin + i] = MTD_BLK_TABLE_BLOCK_SHIFT;
 			for (; j < blk_cnt; j++) {
-				if (!mtd_block_isbad(mtd, (blk_begin + j) * mtd->erasesize)) {
+				if (!mtd_block_isbad(mtd, (blk_begin + j) << mtd->erasesize_shift)) {
 					mtd_map_blk_table[blk_begin + i] = blk_begin + j;
 					j++;
 					if (j == blk_cnt)
@@ -75,51 +86,88 @@ int mtd_blk_map_table_init(struct blk_desc *desc,
 	}
 }
 
+static bool get_mtd_blk_map_address(struct mtd_info *mtd, loff_t *off)
+{
+	bool mapped;
+	loff_t offset = *off;
+	size_t block_offset = offset & (mtd->erasesize - 1);
+
+	mapped = false;
+	if (!mtd_map_blk_table ||
+	    mtd_map_blk_table[(u64)offset >> mtd->erasesize_shift] ==
+	    MTD_BLK_TABLE_BLOCK_UNKNOWN ||
+	    mtd_map_blk_table[(u64)offset >> mtd->erasesize_shift] ==
+	    0xffffffff)
+		return mapped;
+
+	mapped = true;
+	*off = (loff_t)(((u32)mtd_map_blk_table[(u64)offset >>
+		mtd->erasesize_shift] << mtd->erasesize_shift) + block_offset);
+
+	return mapped;
+}
+
+void mtd_blk_map_partitions(struct blk_desc *desc)
+{
+	disk_partition_t info;
+	int i, ret;
+
+	if (!desc)
+		return;
+
+	if (desc->if_type != IF_TYPE_MTD)
+		return;
+
+	for (i = 1; i < MAX_SEARCH_PARTITIONS; i++) {
+		ret = part_get_info(desc, i, &info);
+		if (ret != 0)
+			continue;
+
+		if (mtd_blk_map_table_init(desc,
+					   info.start << 9,
+					   info.size << 9)) {
+			pr_debug("mtd block map table fail\n");
+		}
+	}
+}
+
 static __maybe_unused int mtd_map_read(struct mtd_info *mtd, loff_t offset,
 				       size_t *length, size_t *actual,
 				       loff_t lim, u_char *buffer)
 {
 	size_t left_to_read = *length;
 	u_char *p_buffer = buffer;
-	u32 erasesize = mtd->erasesize;
 	int rval;
 
 	while (left_to_read > 0) {
-		size_t block_offset = offset & (erasesize - 1);
+		size_t block_offset = offset & (mtd->erasesize - 1);
 		size_t read_length;
 		loff_t mapped_offset;
-		bool mapped;
 
 		if (offset >= mtd->size)
 			return 0;
 
 		mapped_offset = offset;
-		mapped = false;
-		if (mtd_map_blk_table)  {
-			mapped = true;
-			mapped_offset = (loff_t)((u32)mtd_map_blk_table[(u64)offset /
-				erasesize] * erasesize + block_offset);
-		}
-
-		if (!mapped) {
-			if (mtd_block_isbad(mtd, offset & ~(erasesize - 1))) {
-				printf("Skip bad block 0x%08llx\n",
-				       offset & ~(erasesize - 1));
-				offset += erasesize - block_offset;
+		if (!get_mtd_blk_map_address(mtd, &mapped_offset)) {
+			if (mtd_block_isbad(mtd, mapped_offset &
+					    ~(mtd->erasesize - 1))) {
+				printf("Skipping bad block 0x%08llx\n",
+				       offset & ~(mtd->erasesize - 1));
+				offset += mtd->erasesize - block_offset;
 				continue;
 			}
 		}
 
-		if (left_to_read < (erasesize - block_offset))
+		if (left_to_read < (mtd->erasesize - block_offset))
 			read_length = left_to_read;
 		else
-			read_length = erasesize - block_offset;
+			read_length = mtd->erasesize - block_offset;
 
 		rval = mtd_read(mtd, mapped_offset, read_length, &read_length,
 				p_buffer);
 		if (rval && rval != -EUCLEAN) {
 			printf("NAND read from offset %llx failed %d\n",
-			       mapped_offset, rval);
+			       offset, rval);
 			*length -= left_to_read;
 			return rval;
 		}
@@ -127,6 +175,90 @@ static __maybe_unused int mtd_map_read(struct mtd_info *mtd, loff_t offset,
 		left_to_read -= read_length;
 		offset       += read_length;
 		p_buffer     += read_length;
+	}
+
+	return 0;
+}
+
+static __maybe_unused int mtd_map_write(struct mtd_info *mtd, loff_t offset,
+					size_t *length, size_t *actual,
+					loff_t lim, u_char *buffer, int flags)
+{
+	int rval = 0, blocksize;
+	size_t left_to_write = *length;
+	u_char *p_buffer = buffer;
+	struct erase_info ei;
+
+	blocksize = mtd->erasesize;
+
+	/*
+	 * nand_write() handles unaligned, partial page writes.
+	 *
+	 * We allow length to be unaligned, for convenience in
+	 * using the $filesize variable.
+	 *
+	 * However, starting at an unaligned offset makes the
+	 * semantics of bad block skipping ambiguous (really,
+	 * you should only start a block skipping access at a
+	 * partition boundary).  So don't try to handle that.
+	 */
+	if ((offset & (mtd->writesize - 1)) != 0) {
+		printf("Attempt to write non page-aligned data\n");
+		*length = 0;
+		return -EINVAL;
+	}
+
+	while (left_to_write > 0) {
+		size_t block_offset = offset & (mtd->erasesize - 1);
+		size_t write_size, truncated_write_size;
+		loff_t mapped_offset;
+
+		if (offset >= mtd->size)
+			return 0;
+
+		mapped_offset = offset;
+		if (!get_mtd_blk_map_address(mtd, &mapped_offset)) {
+			if (mtd_block_isbad(mtd, mapped_offset &
+					    ~(mtd->erasesize - 1))) {
+				printf("Skipping bad block 0x%08llx\n",
+				       offset & ~(mtd->erasesize - 1));
+				offset += mtd->erasesize - block_offset;
+				continue;
+			}
+		}
+
+		if (!(mapped_offset & mtd->erasesize_mask)) {
+			memset(&ei, 0, sizeof(struct erase_info));
+			ei.addr = mapped_offset;
+			ei.len  = mtd->erasesize;
+			rval = mtd_erase(mtd, &ei);
+			if (rval) {
+				pr_info("error %d while erasing %llx\n", rval,
+					mapped_offset);
+				return rval;
+			}
+		}
+
+		if (left_to_write < (blocksize - block_offset))
+			write_size = left_to_write;
+		else
+			write_size = blocksize - block_offset;
+
+		truncated_write_size = write_size;
+		rval = mtd_write(mtd, mapped_offset, truncated_write_size,
+				 (size_t *)(&truncated_write_size), p_buffer);
+
+		offset += write_size;
+		p_buffer += write_size;
+
+		if (rval != 0) {
+			printf("NAND write to offset %llx failed %d\n",
+			       offset, rval);
+			*length -= left_to_write;
+			return rval;
+		}
+
+		left_to_write -= write_size;
 	}
 
 	return 0;
@@ -227,6 +359,8 @@ ulong mtd_dread(struct udevice *udev, lbaint_t start,
 	if (blkcnt == 0)
 		return 0;
 
+	pr_debug("mtd dread %s %lx %lx\n", mtd->name, start, blkcnt);
+
 	if (desc->devnum == BLK_MTD_NAND) {
 #if defined(CONFIG_NAND) && !defined(CONFIG_SPL_BUILD)
 		mtd = dev_get_priv(udev->parent);
@@ -271,7 +405,40 @@ ulong mtd_dread(struct udevice *udev, lbaint_t start,
 ulong mtd_dwrite(struct udevice *udev, lbaint_t start,
 		 lbaint_t blkcnt, const void *src)
 {
-	/* Not implemented */
+	struct blk_desc *desc = dev_get_uclass_platdata(udev);
+#if defined(CONFIG_NAND) || defined(CONFIG_MTD_SPI_NAND) || defined(CONFIG_SPI_FLASH_MTD)
+	loff_t off = (loff_t)(start * 512);
+	size_t rwsize = blkcnt * 512;
+#endif
+	struct mtd_info *mtd;
+	int ret = 0;
+
+	if (!desc)
+		return ret;
+
+	mtd = desc->bdev->priv;
+	if (!mtd)
+		return 0;
+
+	pr_debug("mtd dwrite %s %lx %lx\n", mtd->name, start, blkcnt);
+
+	if (blkcnt == 0)
+		return 0;
+
+	if (desc->devnum == BLK_MTD_NAND ||
+	    desc->devnum == BLK_MTD_SPI_NAND ||
+	    desc->devnum == BLK_MTD_SPI_NOR) {
+		ret = mtd_map_write(mtd, off, &rwsize,
+				    NULL, mtd->size,
+				    (u_char *)(src), 0);
+		if (!ret)
+			return blkcnt;
+		else
+			return 0;
+	} else {
+		return 0;
+	}
+
 	return 0;
 }
 

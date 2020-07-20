@@ -575,7 +575,6 @@ int fdt_fixup_memory_banks(void *blob, u64 start[], u64 size[], int banks)
 	}
 	return 0;
 }
-#endif
 
 int fdt_fixup_memory(void *blob, u64 start, u64 size)
 {
@@ -611,6 +610,7 @@ int fdt_update_reserved_memory(void *blob, char *name, u64 start, u64 size)
 
 	return nodeoffset;
 }
+#endif
 
 void fdt_fixup_ethernet(void *fdt)
 {
