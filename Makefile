@@ -359,6 +359,7 @@ KBUILD_CPPFLAGS := -D__KERNEL__ -D__UBOOT__
 
 KBUILD_CFLAGS   := -Wall -Wstrict-prototypes \
 		   -Wno-format-security \
+		   -Wno-address-of-packed-member \
 		   -fno-builtin -ffreestanding
 KBUILD_CFLAGS	+= -fshort-wchar -Werror
 KBUILD_AFLAGS   := -D__ASSEMBLY__
