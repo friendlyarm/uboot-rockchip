@@ -1015,14 +1015,19 @@ int android_fdt_overlay_apply(void *fdt_addr)
 	android_print_contents(hdr);
 #endif
 
-	if (android_image_check_header(hdr))
-		return -EINVAL;
-
-	/* Check header version */
-	if (!hdr->header_version) {
-		printf("Android header version 0\n");
-		ret = -EINVAL;
-		goto out;
+	if (!android_image_check_header(hdr)) {
+		/* Check header version */
+		if (!hdr->header_version) {
+			printf("Android header version 0\n");
+			ret = -EINVAL;
+			goto out;
+		}
+	} else {
+		if (boot_mode == BOOT_MODE_RECOVERY ||
+			part_get_info_by_name(dev_desc, PART_DTBO, &part_info) < 0) {
+			ret = -EINVAL;
+			goto out;
+		}
 	}
 
 	ret = android_get_dtbo(&fdt_dtbo, (void *)hdr, &index, boot_mode);
