@@ -145,6 +145,7 @@ static int do_rkusb(cmd_tbl_t *cmdtp, int flag, int argc, char *const argv[])
 	unsigned int controller_index;
 	int rc;
 	int cable_ready_timeout __maybe_unused;
+	int lockdown = env_get_yesno("rkusb_lock");
 	const char *s;
 
 	if (argc != 4)
@@ -154,7 +155,7 @@ static int do_rkusb(cmd_tbl_t *cmdtp, int flag, int argc, char *const argv[])
 	devtype = argv[2];
 	devnum	= argv[3];
 
-	if (!strcmp(devtype, "mmc") && !strcmp(devnum, "1")) {
+	if (lockdown && !strcmp(devtype, "mmc") && !strcmp(devnum, "1")) {
 		pr_err("Forbid to flash mmc 1(sdcard)\n");
 		return CMD_RET_FAILURE;
 	}
