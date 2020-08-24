@@ -156,15 +156,19 @@ static void setup_macaddr(void)
 	u8 hash[SHA256_SUM_LEN];
 	int size = sizeof(hash);
 	u8 mac_addr[6];
+	int from_eeprom = 0;
+	int lockdown = 0;
 
-	/* Only generate a MAC address, if none is set in the environment */
-	if (env_get("ethaddr"))
+#ifndef CONFIG_ENV_IS_NOWHERE
+	lockdown = env_get_yesno("lockdown") == 1;
+#endif
+	if (lockdown && env_get("ethaddr"))
 		return;
 
 	ret = mac_read_from_generic_eeprom(mac_addr);
 	if (!ret && is_valid_ethaddr(mac_addr)) {
 		eth_env_set_enetaddr("ethaddr", mac_addr);
-		return;
+		from_eeprom = 1;
 	}
 
 	if (!cpuid) {
@@ -184,7 +188,22 @@ static void setup_macaddr(void)
 	/* Make this a valid MAC address and set it */
 	mac_addr[0] &= 0xfe;  /* clear multicast bit */
 	mac_addr[0] |= 0x02;  /* set local assignment bit (IEEE802) */
-	eth_env_set_enetaddr("ethaddr", mac_addr);
+
+	if (from_eeprom) {
+		eth_env_set_enetaddr("eth1addr", mac_addr);
+	} else {
+		eth_env_set_enetaddr("ethaddr", mac_addr);
+
+		if (lockdown && env_get("eth1addr"))
+			return;
+
+		/* Ugly, copy another 4 bytes to generate a similar address */
+		memcpy(mac_addr + 2, hash + 8, 4);
+		if (!memcmp(hash + 2, hash + 8, 4))
+			mac_addr[5] ^= 0xff;
+
+		eth_env_set_enetaddr("eth1addr", mac_addr);
+	}
 #endif
 
 	return;
@@ -200,6 +219,12 @@ static void setup_serial(void)
 	char cpuid_str[RK3399_CPUID_LEN * 2 + 1];
 	u64 serialno;
 	char serialno_str[16];
+
+#ifndef CONFIG_ENV_IS_NOWHERE
+	if (env_get_yesno("lockdown") == 1 &&
+		env_get("cpuid#") && env_get("serial#"))
+		return;
+#endif
 
 	/* retrieve the device */
 	ret = uclass_get_device_by_driver(UCLASS_MISC,
@@ -311,6 +336,12 @@ static void set_board_rev(void)
 void set_dtb_name(void)
 {
 	char info[64] = {0, };
+
+#ifndef CONFIG_ENV_IS_NOWHERE
+	if (env_get_yesno("lockdown") == 1 &&
+		env_get("dtb_name"))
+		return;
+#endif
 
 	snprintf(info, ARRAY_SIZE(info),
 			"rk3399-nanopi4-rev%02x.dtb", get_board_rev());
