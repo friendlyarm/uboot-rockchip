@@ -247,7 +247,11 @@ function process_args()
 function select_toolchain()
 {
 	if grep -q '^CONFIG_ARM64=y' .config ; then
-		if [ -d ${TOOLCHAIN_ARM64} ]; then
+		if ${GCC_ARM64}gcc -v >/dev/null 2>&1; then
+			TOOLCHAIN_GCC=${GCC_ARM64}
+			TOOLCHAIN_OBJDUMP=${OBJ_ARM64}
+			TOOLCHAIN_ADDR2LINE=${ADDR2LINE_ARM64}
+		elif [ -d ${TOOLCHAIN_ARM64} ]; then
 			absolute_path=$(cd `dirname ${TOOLCHAIN_ARM64}`; pwd)
 			TOOLCHAIN_GCC=${absolute_path}/bin/${GCC_ARM64}
 			TOOLCHAIN_OBJDUMP=${absolute_path}/bin/${OBJ_ARM64}
