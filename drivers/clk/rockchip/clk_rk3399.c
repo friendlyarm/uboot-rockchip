@@ -1351,6 +1351,8 @@ static void rkclk_init(struct rockchip_cru *cru)
 		     pclk_div << PCLK_PERILP1_DIV_CON_SHIFT |
 		     hclk_div << HCLK_PERILP1_DIV_CON_SHIFT |
 		     HCLK_PERILP1_PLL_SEL_GPLL << HCLK_PERILP1_PLL_SEL_SHIFT);
+
+	rk3399_saradc_set_clk(cru, 1000000);
 }
 #endif
 
