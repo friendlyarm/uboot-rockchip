@@ -101,9 +101,13 @@ static uint32_t get_adc_index(int chn)
  * Group A:
  *  0x04 - NanoPi NEO4
  *  0x06 - SOC-RK3399
+ *  0x07 - SOC-RK3399 V2
+ *  0x09 - NanoPi R4S 1GB
+ *  0x0A - NanoPi R4S 4GB
  *
  * Group B:
  *  0x21 - NanoPi M4 Ver2.0
+ *  0x22 - NanoPi M4B
  */
 static int pcb_rev = -1;
 
@@ -140,6 +144,38 @@ void bd_hwrev_init(void)
 		}
 	}
 }
+
+#ifdef CONFIG_SPL_BUILD
+static struct board_ddrtype {
+	int rev;
+	const char *type;
+} ddrtypes[] = {
+	{ 0x00, "lpddr3-samsung-4GB-1866" },
+	{ 0x01, "lpddr3-samsung-4GB-1866" },
+	{ 0x04,   "ddr3-1866" },
+	{ 0x06,   "ddr3-1866" },
+	{ 0x07, "lpddr4-100"  },
+	{ 0x09,   "ddr3-1866" },
+	{ 0x0a, "lpddr4-100"  },
+	{ 0x21, "lpddr4-100"  },
+	{ 0x22,   "ddr3-1866" },
+};
+
+const char *rk3399_get_ddrtype(void) {
+	int i;
+
+	bd_hwrev_init();
+	printf("Board: rev%02x\n", pcb_rev);
+
+	for (i = 0; i < ARRAY_SIZE(ddrtypes); i++) {
+		if (ddrtypes[i].rev == pcb_rev)
+			return ddrtypes[i].type;
+	}
+
+	/* fallback to first subnode (ie, first included dtsi) */
+	return NULL;
+}
+#endif
 
 /* To override __weak symbols */
 u32 get_board_rev(void)
