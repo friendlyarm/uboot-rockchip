@@ -5,6 +5,8 @@
  */
 
 &dmc {
+	lpddr3-2GB-1600 {
+	u-boot,dm-pre-reloc;
 	rockchip,sdram-params = <
 		0x1
 		0xa
@@ -1537,4 +1539,5 @@
 		0x01010000
 		0x00000000
 	>;
+	};
 };

@@ -6,6 +6,8 @@
  */
 
 &dmc {
+	lpddr4-100 {
+	u-boot,dm-pre-reloc;
 	rockchip,sdram-params = <
 		0x2
 		0xa
@@ -1538,4 +1540,5 @@
 		0x01010000
 		0x00000000
 	>;
+	};
 };

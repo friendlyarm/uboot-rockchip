@@ -4,6 +4,8 @@
  */
 
 &dmc {
+	lpddr3-samsung-4GB-1866 {
+	u-boot,dm-pre-reloc;
 	rockchip,sdram-params = <
 		0x2
 		0xa
@@ -1543,4 +1545,5 @@
 		0x01010000	/* DENALI_PHY_957_DATA */
 		0x00000000	/* DENALI_PHY_958_DATA */
 	>;
+	};
 };
