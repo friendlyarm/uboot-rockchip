@@ -513,7 +513,7 @@ static void dw_mipi_dsi_phy_init(struct dw_mipi_dsi *dsi)
 		{1400, 0x1c}, {1450, 0x2c}, {1500, 0x3c}
 	};
 	u8 hsfreqrange, counter;
-	unsigned int index, txbyteclkhs;
+	unsigned int index;
 	u16 n, m;
 
 	for (index = 0; index < ARRAY_SIZE(hsfreqrange_table); index++)
@@ -526,17 +526,30 @@ static void dw_mipi_dsi_phy_init(struct dw_mipi_dsi *dsi)
 	hsfreqrange = hsfreqrange_table[index].hsfreqrange;
 	testif_write(dsi, 0x44, HSFREQRANGE(hsfreqrange));
 
-	txbyteclkhs = dsi->lane_mbps >> 3;
-	counter = txbyteclkhs * 60 / 1000;
+	/*
+	 * FIXME:
+	 * By looking at related driver codes, some are fixed 0xf, some are
+	 * calculated 0x43, but from the test results of a mipi-dsi panel,
+	 * we should write 0x10 instead of 8 for 1068mbps.
+	 */
+	counter = DIV_ROUND_UP(dsi->lane_mbps * 60, 1000 << 3) + 7;
 	testif_write(dsi, 0x60, 0x80 | counter);
 	testif_write(dsi, 0x70, 0x80 | counter);
 
 	n = dsi->dphy.input_div - 1;
 	m = dsi->dphy.feedback_div - 1;
-	testif_write(dsi, 0x19, 0x30);
+
 	testif_write(dsi, 0x17, INPUT_DIV(n));
 	testif_write(dsi, 0x18, FEEDBACK_DIV_LO(m));
+	/*
+	 * We need set PLL_INPUT_AND_LOOP_DIVIDER_RATIOS_CONTROL immediately
+	 * to make the configured LSB effective according to IP simulation
+	 * and lab test results.
+	 * Only in this way can we get correct mipi phy pll frequency.
+	 */
+	testif_write(dsi, 0x19, 0x30);
 	testif_write(dsi, 0x18, FEEDBACK_DIV_HI(m >> 5));
+	testif_write(dsi, 0x19, 0x30);
 }
 
 static unsigned long dw_mipi_dsi_get_lane_rate(struct dw_mipi_dsi *dsi)
