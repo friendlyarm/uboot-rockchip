@@ -1,0 +1,6 @@
+NanoPi R2 Series
+M:      FriendlyELEC <support@friendlyarm.com>
+S:      Maintained
+F:      board/rockchip/nanopi_r2/
+F:      include/configs/nanopi_r2.h
+F:      configs/nanopi_r2_defconfig

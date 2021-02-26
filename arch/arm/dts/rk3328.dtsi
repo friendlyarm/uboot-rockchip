@@ -506,7 +506,7 @@
 		};
 	};
 
-	sdmmc: rksdmmc@ff500000 {
+	sdmmc: dwmmc@ff500000 {
 		compatible = "rockchip,rk3328-dw-mshc", "rockchip,rk3288-dw-mshc";
 		reg = <0x0 0xff500000 0x0 0x4000>;
 		max-frequency = <150000000>;
@@ -530,7 +530,7 @@
 		status = "disabled";
 	};
 
-	emmc: rksdmmc@ff520000 {
+	emmc: dwmmc@ff520000 {
 		compatible = "rockchip,rk3328-dw-mshc", "rockchip,rk3288-dw-mshc";
 		reg = <0x0 0xff520000 0x0 0x4000>;
 		max-frequency = <150000000>;
