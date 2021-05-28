@@ -5590,7 +5590,8 @@ char *edid_get_monitor_name(struct edid1_info *edid_info)
 		monitor = &edid_info->monitor_details.descriptor[i];
 		bytes = (unsigned char *)monitor;
 
-		if (bytes[0] == 0 && bytes[1] == 0) {
+		if (bytes[0] == 0 && bytes[1] == 0 &&
+		    monitor->type == EDID_MONITOR_DESCRIPTOR_NAME) {
 			name = snip(monitor->data.string);
 			if (strlen(name) > 0)
 				return name;
