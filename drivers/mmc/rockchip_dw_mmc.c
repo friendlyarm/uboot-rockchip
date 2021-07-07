@@ -45,7 +45,7 @@ int board_mmc_dm_reinit(struct udevice *dev)
 	if (!priv || !&priv->clk)
 		return 0;
 
-	if (!memcmp(dev->name, "dwmmc", strlen("dwmmc")))
+	if (!memcmp(dev->name, "mmc", strlen("mmc")))
 		return clk_get_by_index(dev, 0, &priv->clk);
 	else
 		return 0;

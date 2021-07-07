@@ -56,7 +56,11 @@ static int device_bind_common(struct udevice *parent, const struct driver *drv,
 		if (drv->id == UCLASS_MMC || drv->id == UCLASS_RKNAND ||
 		    drv->id == UCLASS_SPI_FLASH || drv->id == UCLASS_MTD) {
 			list_for_each_entry(dev, &uc->dev_head, uclass_node) {
-				if (!strcmp(name, dev->name)) {
+				/*
+				 * The node name in the kernel dtb may still be `dwmmc@...',
+				 * so let's take care of this.
+				 */
+				if (!strcmp(name, dev->name) || strstr(name, dev->name)) {
 					debug("%s do not bind dev already in list %s\n",
 					      __func__, dev->name);
 					/*
