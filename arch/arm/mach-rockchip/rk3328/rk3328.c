@@ -44,8 +44,8 @@ static struct mm_region rk3328_mem_map[] = {
 struct mm_region *mem_map = rk3328_mem_map;
 
 const char * const boot_devices[BROM_LAST_BOOTSOURCE + 1] = {
-	[BROM_BOOTSOURCE_EMMC] = "/rksdmmc@ff520000",
-	[BROM_BOOTSOURCE_SD] = "/rksdmmc@ff500000",
+	[BROM_BOOTSOURCE_EMMC] = "/mmc@ff520000",
+	[BROM_BOOTSOURCE_SD] = "/mmc@ff500000",
 };
 int arch_cpu_init(void)
 {
