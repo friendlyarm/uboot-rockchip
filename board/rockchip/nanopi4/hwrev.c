@@ -19,6 +19,7 @@
 
 #include <config.h>
 #include <common.h>
+#include <adc.h>
 #include <asm/io.h>
 #include <asm/gpio.h>
 
@@ -50,46 +51,15 @@ static const int id_readings[] = {
 
 static int cached_board_id = -1;
 
-#define SARADC_BASE		0xFF100000
-#define SARADC_DATA		(SARADC_BASE + 0)
-#define SARADC_CTRL		(SARADC_BASE + 8)
-
-static u32 get_saradc_value(int chn)
-{
-	int timeout = 0;
-	u32 adc_value = 0;
-
-	writel(0, SARADC_CTRL);
-	udelay(2);
-
-	writel(0x28 | chn, SARADC_CTRL);
-	udelay(50);
-
-	timeout = 0;
-	do {
-		if (readl(SARADC_CTRL) & 0x40) {
-			adc_value = readl(SARADC_DATA) & 0x3FF;
-			goto stop_adc;
-		}
-
-		udelay(10);
-	} while (timeout++ < 100);
-
-stop_adc:
-	writel(0, SARADC_CTRL);
-
-	return adc_value;
-}
-
 static uint32_t get_adc_index(int chn)
 {
 	int i;
-	int adc_reading;
+	u32 adc_reading = 0;
 
 	if (cached_board_id != -1)
 		return cached_board_id;
 
-	adc_reading = get_saradc_value(chn);
+	adc_channel_single_shot("saradc", chn, &adc_reading);
 	for (i = 0; i < ARRAY_SIZE(id_readings); i++) {
 		if (adc_reading <= id_readings[i]) {
 			debug("ADC reading %d, ID %d\n", adc_reading, i);
