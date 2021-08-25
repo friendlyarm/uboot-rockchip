@@ -512,6 +512,14 @@ static int dw_hdmi_i2c_xfer(struct ddc_adapter *adap,
 	u8 addr = msgs[0].addr;
 	int i, ret = 0;
 
+	if (adap->ops) {
+		ret = adap->ops->xfer(adap->i2c_bus, msgs, num);
+		if (!ret)
+			ret = num;
+
+		return ret;
+	}
+
 	printf("xfer: num: %d, addr: %#x\n", num, addr);
 	for (i = 0; i < num; i++) {
 		if (msgs[i].len == 0) {
@@ -2329,6 +2337,8 @@ int rockchip_dw_hdmi_init(struct display_state *state)
 			hdmi->adap.ops = i2c_get_ops(hdmi->adap.i2c_bus);
 	}
 
+	hdmi->adap.ddc_xfer = dw_hdmi_i2c_xfer;
+
 	hdmi->grf = syscon_get_first_range(ROCKCHIP_SYSCON_GRF);
 	if (hdmi->grf <= 0) {
 		printf("%s: Get syscon grf failed (ret=%p)\n",
@@ -2353,7 +2363,6 @@ int rockchip_dw_hdmi_init(struct display_state *state)
 		hdmi->i2c = malloc(sizeof(struct dw_hdmi_i2c));
 		if (!hdmi->i2c)
 			return -ENOMEM;
-		hdmi->adap.ddc_xfer = dw_hdmi_i2c_xfer;
 
 		/*
 		 * Read high and low time from device tree. If not available use
