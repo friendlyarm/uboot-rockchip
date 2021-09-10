@@ -541,24 +541,6 @@ int ofnode_decode_display_timing(ofnode node, int index,
 const void *ofnode_get_property(ofnode node, const char *propname, int *lenp);
 
 /**
- * ofnode_hide_property() - hide a property
- *
- * @np: Pointer to device node holding property
- * @name: Name of property to hide
- * @return hidden name if ok, otherwise NULL
- */
-const char *ofnode_hide_property(ofnode node, const char *propname);
-
-/**
- * ofnode_present_property() - present a property hidden before
- *
- * @np: Pointer to device node holding property
- * @name: Hidden name of property
- * @return 0 if ok, otherwise failed
- */
-int ofnode_present_property(ofnode node, const char *propname);
-
-/**
  * ofnode_is_available() - check if a node is marked available
  *
  * @node: node to check
@@ -709,4 +691,17 @@ int ofnode_read_resource_byname(ofnode node, const char *name,
 	     ofnode_valid(node); \
 	     node = ofnode_next_subnode(node))
 
+/**
+ * ofnode_translate_address() - Tranlate a device-tree address
+ *
+ * Translate an address from the device-tree into a CPU physical address. This
+ * function walks up the tree and applies the various bus mappings along the
+ * way.
+ *
+ * @ofnode: Device tree node giving the context in which to translate the
+ *          address
+ * @in_addr: pointer to the address to translate
+ * @return the translated address; OF_BAD_ADDR on error
+ */
+u64 ofnode_translate_address(ofnode node, const fdt32_t *in_addr);
 #endif

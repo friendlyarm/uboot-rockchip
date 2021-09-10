@@ -149,7 +149,6 @@ Exit:
 	return TeecResult;
 }
 
-#ifdef CONFIG_OPTEE_V2
 TEEC_Result OpteeRpcCmdLoadV2Ta(t_teesmc32_arg *TeeSmc32Arg)
 {
 	TEEC_Result TeecResult = TEEC_SUCCESS;
@@ -175,8 +174,8 @@ TEEC_Result OpteeRpcCmdLoadV2Ta(t_teesmc32_arg *TeeSmc32Arg)
 		/*memcpy((void *)(size_t)TeeSmc32Param[1].u.memref.buf_ptr,
 			(void *)keymaster_data, TeeSmc32Param[1].u.memref.size);*/
 		debug("TEEC: memref.buf_ptr = 0x%llx; memref.size = 0x%llx\n",
-			TeeSmc32Param[1].u.memref.buf_ptr,
-			TeeSmc32Param[1].u.memref.size);
+			(uint64_t)TeeSmc32Param[1].u.memref.buf_ptr,
+			(uint64_t)TeeSmc32Param[1].u.memref.size);
 	}
 
 Exit:
@@ -187,7 +186,6 @@ Exit:
 
 	return TeecResult;
 }
-#endif
 
 /*
  * Free a previously loaded TA and release the memory
@@ -238,6 +236,7 @@ Exit:
  */
 
 uint16_t global_block_count;
+#ifdef CONFIG_SUPPORT_EMMC_RPMB
 TEEC_Result OpteeRpcCmdRpmb(t_teesmc32_arg *TeeSmc32Arg)
 {
 	struct tee_rpc_rpmb_dev_info *DevInfo;
@@ -509,6 +508,7 @@ Exit:
 
 	return TeecResult;
 }
+#endif
 
 /*
  * Execute a normal world local file system operation.
@@ -559,16 +559,11 @@ TEEC_Result OpteeRpcCallback(ARM_SMC_ARGS *ArmSmcArgs)
 
 	switch (TEESMC_RETURN_GET_RPC_FUNC(ArmSmcArgs->Arg0)) {
 	case TEESMC_RPC_FUNC_ALLOC_ARG: {
-#ifdef CONFIG_OPTEE_V1
-		TeecResult = OpteeRpcAlloc(ArmSmcArgs->Arg1, &ArmSmcArgs->Arg1);
-#endif
-#ifdef CONFIG_OPTEE_V2
 		debug("TEEC: ArmSmcArgs->Arg1 = 0x%x \n", ArmSmcArgs->Arg1);
 		TeecResult = OpteeRpcAlloc(ArmSmcArgs->Arg1, &ArmSmcArgs->Arg2);
 		ArmSmcArgs->Arg5 = ArmSmcArgs->Arg2;
 		ArmSmcArgs->Arg1 = 0;
 		ArmSmcArgs->Arg4 = 0;
-#endif
 		break;
 	}
 
@@ -578,12 +573,7 @@ TEEC_Result OpteeRpcCallback(ARM_SMC_ARGS *ArmSmcArgs)
 	}
 
 	case TEESMC_RPC_FUNC_FREE_ARG: {
-#ifdef CONFIG_OPTEE_V1
-		TeecResult = OpteeRpcFree(ArmSmcArgs->Arg1);
-#endif
-#ifdef CONFIG_OPTEE_V2
 		TeecResult = OpteeRpcFree(ArmSmcArgs->Arg2);
-#endif
 		break;
 	}
 
@@ -597,49 +587,10 @@ TEEC_Result OpteeRpcCallback(ARM_SMC_ARGS *ArmSmcArgs)
 	}
 
 	case TEESMC_RPC_FUNC_CMD: {
-#ifdef CONFIG_OPTEE_V1
-		t_teesmc32_arg *TeeSmc32Arg =
-			(t_teesmc32_arg *)(size_t)ArmSmcArgs->Arg1;
-#endif
-#ifdef CONFIG_OPTEE_V2
 		t_teesmc32_arg *TeeSmc32Arg =
 			(t_teesmc32_arg *)(size_t)((uint64_t)ArmSmcArgs->Arg1 << 32 | ArmSmcArgs->Arg2);
 		debug("TEEC: TeeSmc32Arg->cmd = 0x%x\n", TeeSmc32Arg->cmd);
-#endif
 		switch (TeeSmc32Arg->cmd) {
-#ifdef CONFIG_OPTEE_V1
-		case TEE_RPC_LOAD_TA: {
-			TeecResult = OpteeRpcCmdLoadTa(TeeSmc32Arg);
-			break;
-		}
-
-		case TEE_RPC_FREE_TA: {
-			TeecResult = OpteeRpcCmdFreeTa(TeeSmc32Arg);
-			break;
-		}
-
-		case TEE_RPC_RPMB_CMD: {
-			TeecResult = OpteeRpcCmdRpmb(TeeSmc32Arg);
-			break;
-		}
-
-		case TEE_RPC_FS: {
-			TeecResult = OpteeRpcCmdFs(TeeSmc32Arg);
-			TeeSmc32Arg->ret = TEEC_SUCCESS;
-			break;
-		}
-
-		case TEE_RPC_GET_TIME: {
-			TeecResult = OpteeRpcCmdGetTime(TeeSmc32Arg);
-			break;
-		}
-
-		case TEE_RPC_WAIT_MUTEX: {
-			TeecResult = OpteeRpcCmdWaitMutex(TeeSmc32Arg);
-			break;
-		}
-#endif
-#ifdef CONFIG_OPTEE_V2
 		case OPTEE_MSG_RPC_CMD_SHM_ALLOC_V2: {
 			uint32_t tempaddr;
 			uint32_t allocsize = TeeSmc32Arg->params[0].u.value.b;
@@ -658,10 +609,12 @@ TEEC_Result OpteeRpcCallback(ARM_SMC_ARGS *ArmSmcArgs)
 			break;
 
 		}
+#ifdef CONFIG_SUPPORT_EMMC_RPMB
 		case OPTEE_MSG_RPC_CMD_RPMB_V2: {
 			TeecResult = OpteeRpcCmdRpmb(TeeSmc32Arg);
 			break;
 		}
+#endif
 		case OPTEE_MSG_RPC_CMD_FS_V2: {
 			TeecResult = OpteeRpcCmdFs(TeeSmc32Arg);
 			TeeSmc32Arg->ret = TEEC_SUCCESS;
@@ -671,7 +624,6 @@ TEEC_Result OpteeRpcCallback(ARM_SMC_ARGS *ArmSmcArgs)
 			TeecResult = OpteeRpcCmdLoadV2Ta(TeeSmc32Arg);
 			break;
 		}
-#endif
 
 		default: {
 			printf("TEEC: ...unsupported RPC CMD: cmd=0x%X\n",

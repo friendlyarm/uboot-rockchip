@@ -528,6 +528,29 @@ int fit_get_timestamp(const void *fit, int noffset, time_t *timestamp)
 }
 
 /**
+ * fit_get_totalsize - get node totalsize property.
+ *
+ * @fit: pointer to the FIT image header
+ * @totalsize: holds the /totalsize property
+ *
+ * returns:
+ *     0, on success
+ *     -ENOENT if the property could not be found
+ */
+int fit_get_totalsize(const void *fit, int *totalsize)
+{
+	const fdt32_t *val;
+
+	val = fdt_getprop(fit, 0, FIT_TOTALSIZE_PROP, NULL);
+	if (!val)
+		return -ENOENT;
+
+	*totalsize = fdt32_to_cpu(*val);
+
+	return 0;
+}
+
+/**
  * fit_image_get_node - get node offset for component image of a given unit name
  * @fit: pointer to the FIT format image header
  * @image_uname: component image node unit name
@@ -688,6 +711,23 @@ int fit_image_get_comp(const void *fit, int noffset, uint8_t *comp)
 	return 0;
 }
 
+bool fit_image_is_preload(const void *fit, int noffset)
+{
+	int len;
+	int *data;
+
+	data = (int *)fdt_getprop(fit, noffset, FIT_PRE_LOAD_PROP, &len);
+	if (data == NULL || len != sizeof(int)) {
+		fit_get_debug(fit, noffset, FIT_PRE_LOAD_PROP, len);
+		return false;
+	}
+
+	if (fdt32_to_cpu(*data) != 1)
+		return false;
+
+	return true;
+}
+
 static int fit_image_get_address(const void *fit, int noffset, char *name,
 			  ulong *load)
 {
@@ -760,6 +800,24 @@ static int fit_image_set_address(const void *fit, int noffset, char *name,
 int fit_image_get_load(const void *fit, int noffset, ulong *load)
 {
 	return fit_image_get_address(fit, noffset, FIT_LOAD_PROP, load);
+}
+
+/**
+ * fit_image_get_comp_addr() - get compress addr property for given component image node
+ * @fit: pointer to the FIT format image header
+ * @noffset: component image node offset
+ * @comp: pointer to the uint32_t, will hold load address
+ *
+ * fit_image_get_comp_addr() finds compress address property in a given component
+ * image node. If the property is found, its value is returned to the caller.
+ *
+ * returns:
+ *     0, on success
+ *     -1, on failure
+ */
+int fit_image_get_comp_addr(const void *fit, int noffset, ulong *comp)
+{
+	return fit_image_get_address(fit, noffset, FIT_COMP_ADDR_PROP, comp);
 }
 
 /**
@@ -1108,27 +1166,22 @@ int fit_set_totalsize(void *fit, int noffset, int totalsize)
 	return 0;
 }
 
-/**
- * calculate_hash - calculate and return hash for provided input data
- * @data: pointer to the input data
- * @data_len: data length
- * @algo: requested hash algorithm
- * @value: pointer to the char, will hold hash value data (caller must
- * allocate enough free space)
- * value_len: length of the calculated hash
- *
- * calculate_hash() computes input data hash according to the requested
- * algorithm.
- * Resulting hash value is placed in caller provided 'value' buffer, length
- * of the calculated hash is returned via value_len pointer argument.
- *
- * returns:
- *     0, on success
- *    -1, when algo is unsupported
- */
-int calculate_hash_software(const void *data, int data_len,
-			    const char *algo, uint8_t *value,
-			    int *value_len)
+int fit_set_version(void *fit, int noffset, int version)
+{
+	uint32_t v;
+	int ret;
+
+	v = cpu_to_uimage(version);
+	ret = fdt_setprop(fit, noffset, FIT_VERSION_PROP, &v, sizeof(uint32_t));
+	if (ret)
+		return ret == -FDT_ERR_NOSPACE ? -ENOSPC : -1;
+
+	return 0;
+}
+
+int fit_calculate_hash(const void *data, int data_len,
+		       const char *algo, uint8_t *value,
+		       int *value_len)
 {
 	if (IMAGE_ENABLE_CRC32 && strcmp(algo, "crc32") == 0) {
 		*((uint32_t *)value) = crc32_wd(0, data, data_len,
@@ -1153,13 +1206,7 @@ int calculate_hash_software(const void *data, int data_len,
 	return 0;
 }
 
-#ifdef USE_HOSTCC
-int calculate_hash(const void *data, int data_len, const char *algo,
-		   uint8_t *value, int *value_len)
-{
-	return calculate_hash_software(data, data_len, algo, value, value_len);
-}
-#else
+#ifndef USE_HOSTCC
 #if CONFIG_IS_ENABLED(FIT_HW_CRYPTO)
 static int crypto_csum(u32 cap, const char *data, int len, u8 *output)
 {
@@ -1178,37 +1225,70 @@ static int crypto_csum(u32 cap, const char *data, int len, u8 *output)
 	return crypto_sha_csum(dev, &csha_ctx, (char *)data, len, output);
 }
 
-int calculate_hash(const void *data, int data_len, const char *algo,
-		   uint8_t *value, int *value_len)
+static int hw_fit_calculate_hash(const void *data, int data_len,
+				 const char *algo, uint8_t *value,
+				 int *value_len)
 {
+	int ret = 0;
+
 	if (IMAGE_ENABLE_CRC32 && strcmp(algo, "crc32") == 0) {
 		*((uint32_t *)value) = crc32_wd(0, data, data_len,
 							CHUNKSZ_CRC32);
 		*((uint32_t *)value) = cpu_to_uimage(*((uint32_t *)value));
 		*value_len = 4;
 	} else if (IMAGE_ENABLE_SHA1 && strcmp(algo, "sha1") == 0) {
-		crypto_csum(CRYPTO_SHA1, data, data_len, value);
+		ret = crypto_csum(CRYPTO_SHA1, data, data_len, value);
 		*value_len = 20;
 	} else if (IMAGE_ENABLE_SHA256 && strcmp(algo, "sha256") == 0) {
-		crypto_csum(CRYPTO_SHA256, data, data_len, value);
+		ret = crypto_csum(CRYPTO_SHA256, data, data_len, value);
 		*value_len = SHA256_SUM_LEN;
 	} else if (IMAGE_ENABLE_MD5 && strcmp(algo, "md5") == 0) {
-		crypto_csum(CRYPTO_MD5, data, data_len, value);
+		ret = crypto_csum(CRYPTO_MD5, data, data_len, value);
 		*value_len = 16;
 	} else {
 		debug("Unsupported hash alogrithm\n");
 		return -1;
 	}
-	return 0;
+
+	if (ret)
+		printf("%s: algo %s failed, ret=%d\n", __func__, algo, ret);
+
+	return ret;
 }
-#else
+#endif
+#endif
+
+/**
+ * calculate_hash - calculate and return hash for provided input data
+ * @data: pointer to the input data
+ * @data_len: data length
+ * @algo: requested hash algorithm
+ * @value: pointer to the char, will hold hash value data (caller must
+ * allocate enough free space)
+ * value_len: length of the calculated hash
+ *
+ * calculate_hash() computes input data hash according to the requested
+ * algorithm.
+ * Resulting hash value is placed in caller provided 'value' buffer, length
+ * of the calculated hash is returned via value_len pointer argument.
+ *
+ * returns:
+ *     0, on success
+ *    -1, when algo is unsupported
+ */
 int calculate_hash(const void *data, int data_len, const char *algo,
 		   uint8_t *value, int *value_len)
 {
-	return calculate_hash_software(data, data_len, algo, value, value_len);
+#if defined(USE_HOSTCC)
+	return fit_calculate_hash(data, data_len, algo, value, value_len);
+#else
+#if !CONFIG_IS_ENABLED(FIT_HW_CRYPTO)
+	return fit_calculate_hash(data, data_len, algo, value, value_len);
+#else
+	return hw_fit_calculate_hash(data, data_len, algo, value, value_len);
+#endif
+#endif
 }
-#endif
-#endif
 
 int fit_image_check_hash(const void *fit, int noffset, const void *data,
 			 size_t size, char **err_msgp)
@@ -1251,6 +1331,13 @@ int fit_image_check_hash(const void *fit, int noffset, const void *data,
 		*err_msgp = "Bad hash value len";
 		return -1;
 	} else if (memcmp(value, fit_value, value_len) != 0) {
+		int i;
+
+		printf(" Bad hash: ");
+		for (i = 0; i < value_len; i++)
+			printf("%02x", value[i]);
+		printf("\n");
+
 		*err_msgp = "Bad hash value";
 		return -1;
 	}
@@ -2098,8 +2185,13 @@ int fit_image_load_index(bootm_headers_t *images, ulong addr,
 	}
 
 #if !defined(USE_HOSTCC) && defined(CONFIG_FIT_IMAGE_POST_PROCESS)
+	ret = fit_image_get_load(fit, noffset, &load);
+	if (ret < 0)
+		return ret;
+
 	/* perform any post-processing on the image data */
-	board_fit_image_post_process((void **)&buf, &size);
+	board_fit_image_post_process((void *)fit, noffset,
+				     &load, (ulong **)&buf, &size);
 #endif
 
 	len = (ulong)size;

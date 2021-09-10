@@ -5,11 +5,17 @@
 # SPDX-License-Identifier: GPL-2.0
 #
 
-OLD_IMAGE=$1
-IMAGE=resource.img
+RSCE_OLD=$1
+RSCE_NEW=resource.img
+
+BOOT_OLD=$1
+BOOT_NEW=boot.img
+
 TOOL=../rkbin/tools/resource_tool
 [ -x ./tools/resource_tool ] && TOOL=./tools/resource_tool
-RESOURCES=./tools/images/
+IMAGES=./tools/images/
+TMP_DIR=.resource_tmp
+TMP_DIR2=.boot_tmp
 
 usage()
 {
@@ -20,53 +26,73 @@ usage()
 prepare()
 {
 	echo
-	if [ "$OLD_IMAGE" = '--help' -o "$OLD_IMAGE" = '-h' -o "$OLD_IMAGE" = '--h' ]; then
+	if [ "${RSCE_OLD}" = '--help' -o "${RSCE_OLD}" = '-h' -o "${RSCE_OLD}" = '--h' ]; then
 		usage
 		exit 0
-	elif [ ! -f "$TOOL" ];then
-		echo "Can't find '../rkbin/' Responsity, please download it before pack image!"
-		echo "How to obtain? 3 ways:"
-		echo "	1. Login your Rockchip gerrit account: \"Projects\" -> \"List\" -> search \"rk/rkbin\" Responsity"
-		echo "	2. Github Responsity: https://github.com/rockchip-linux/rkbin"
-		echo "	3. Download full release SDK Responsity"
+	elif [ ! -d "${IMAGES}" ];then
+		echo "ERROR: No ${RESOURCE}"
 		exit 1
-	elif [ ! -d "$RESOURCES" ];then
-		echo "Can't find resources: $RESOURCES"
-		exit 1
-	elif [ -z "$OLD_IMAGE" ];then
-		echo "Missing: <input image>"
+	elif [ -z "${RSCE_OLD}" ];then
 		usage
 		exit 1
-	elif [ ! -f "$OLD_IMAGE" ];then
-		echo "Can't find file: $OLD_IMAGE"
-		usage
+	elif [ ! -f "${RSCE_OLD}" ];then
+		echo "ERROR: No ${RSCE_OLD}"
 		exit 1
 	fi
 }
 
-append_resource()
+append_images_to_resource()
 {
-	local TMP_DIR=.resource_tmp
-	rm -r $TMP_DIR 2>/dev/null
-	mkdir $TMP_DIR
+	rm -rf ${TMP_DIR} && mkdir -p ${TMP_DIR}
 
-	echo "Pack $RESOURCES & $OLD_IMAGE to $IMAGE ..."
-	if [ -f "$OLD_IMAGE" ];then
-		echo "Unpacking old image($OLD_IMAGE):"
-		$TOOL --unpack --verbose --image=$OLD_IMAGE $TMP_DIR 2>&1|grep entry|sed "s/^.*://"|xargs echo
+	echo "Pack ${IMAGES} & ${RSCE_OLD} to ${RSCE_NEW} ..."
+	if [ -f "${RSCE_OLD}" ];then
+		echo "Unpacking old image(${RSCE_OLD}):"
+		${TOOL} --unpack --verbose --image=${RSCE_OLD} ${TMP_DIR} 2>&1 | grep entry | sed "s/^.*://" | xargs echo
 	fi
-	if [ -d "$RESOURCES" ];then
-		cp -r $RESOURCES/* $TMP_DIR
+
+	if [ -d "${IMAGES}" ];then
+		cp -r ${IMAGES}/* ${TMP_DIR}
 	else
-		cp -r $RESOURCES $TMP_DIR
+		cp -r ${IMAGES}   ${TMP_DIR}
 	fi
-	$TOOL --pack --dtbname --root=$TMP_DIR --image=$IMAGE `find $TMP_DIR -type f|sort`
-	echo "Packed resources:"
-	$TOOL --unpack --verbose --image=$IMAGE $TMP_DIR 2>&1|grep entry|sed "s/^.*://"|xargs echo
-	rm -r $TMP_DIR 2>/dev/null
+	${TOOL} --pack --dtbname --root=${TMP_DIR} --image=${RSCE_NEW} `find ${TMP_DIR} -type f|sort`
+
 	echo
-	echo "resource.img is packed ready"
+	echo "Packed resources:"
+	${TOOL} --unpack --verbose --image=${RSCE_NEW} ${TMP_DIR} 2>&1 | grep entry | sed "s/^.*://" | xargs echo
+
+	rm -rf ${TMP_DIR}
+	echo
+	echo "./resource.img with battery images is ready"
+}
+
+append_images_to_android_img()
+{
+	./scripts/unpack_bootimg --boot_img ${BOOT_OLD} --out ${TMP_DIR2}/
+	RSCE_OLD="${TMP_DIR2}/second"
+	append_images_to_resource
+	./scripts/repack-bootimg --boot_img ${BOOT_OLD} --second ${RSCE_NEW} -o ${BOOT_NEW}
+	rm -rf ${TMP_DIR2}
+}
+
+append_images_to_fit_img()
+{
+	./scripts/fit-unpack.sh -f ${BOOT_OLD} -o ${TMP_DIR2}/
+	RSCE_OLD="${TMP_DIR2}/resource"
+	append_images_to_resource
+	rm -rf ${TMP_DIR2}/*
+	mv ${RSCE_NEW} ${TMP_DIR2}/resource
+	 ./scripts/fit-repack.sh -f ${BOOT_OLD} -d ${TMP_DIR2}
+	rm -rf ${TMP_DIR2}
 }
 
 prepare
-append_resource
+if file ${RSCE_OLD} | grep 'Android bootimg' >/dev/null 2>&1 ; then
+	append_images_to_android_img
+elif file ${RSCE_OLD} | grep 'Device Tree Blob' >/dev/null 2>&1 ; then
+	append_images_to_fit_img
+elif strings ${RSCE_OLD} | grep "RSCE" >/dev/null 2>&1 ; then
+	append_images_to_resource
+fi
+

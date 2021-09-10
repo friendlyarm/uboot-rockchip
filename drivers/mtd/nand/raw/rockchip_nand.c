@@ -627,7 +627,6 @@ static int rockchip_nand_chip_init(int node, struct rk_nand *rknand, int devnum)
 		debug("Failed to register mtd device: %d\n", ret);
 		return ret;
 	}
-	mtd->name = "rk-nand";
 	memcpy(&rknand->mtd, mtd, sizeof(struct mtd_info));
 
 	return 0;
@@ -697,7 +696,7 @@ static int rockchip_nandc_bind(struct udevice *udev)
 	struct udevice *bdev;
 
 	ret = blk_create_devicef(udev, "mtd_blk", "blk", IF_TYPE_MTD,
-				 0, 512, 0, &bdev);
+				 BLK_MTD_NAND, 512, 0, &bdev);
 	if (ret)
 		printf("Cannot create block device\n");
 #endif

@@ -198,7 +198,6 @@ enum {
 	RK817_POWER_EN2,
 	RK817_POWER_EN3,
 };
-
 #define RK817_POWER_EN_SAVE0	0x99
 #define RK817_POWER_EN_SAVE1	0xa4
 
@@ -206,6 +205,7 @@ enum {
 #define RK817_ID_LSB	0xee
 #define RK8XX_ID_MSK	0xfff0
 
+#define RK817_PMIC_SYS_CFG1	0xf1
 #define RK817_PMIC_SYS_CFG3	0xf4
 #define RK817_GPIO_INT_CFG	0xfe
 
@@ -215,6 +215,17 @@ enum {
 #define RK817_ON_SOURCE		0xf5
 #define RK817_OFF_SOURCE	0xf6
 #define RK817_NUM_OF_REGS	0xff
+
+#define RK8XX_DEVCTRL_REG	0x4b
+#define RK817_PWRON_KEY		0xf7
+#define RK8XX_LP_ACTION_MSK	BIT(6)
+#define RK8XX_LP_OFF		(0 << 6)
+#define RK8XX_LP_RESTART	(1 << 6)
+#define RK8XX_LP_OFF_MSK	BIT(4) | BIT(5)
+#define RK8XX_LP_TIME_6S	(0 << 4)
+#define RK8XX_LP_TIME_8S	(1 << 4)
+#define RK8XX_LP_TIME_10S	(2 << 4)
+#define RK8XX_LP_TIME_12S	(3 << 4)
 
 /* IRQ definitions */
 #define RK8XX_IRQ_PWRON_FALL		0
@@ -266,9 +277,13 @@ struct rk8xx_reg_table {
 };
 
 struct rk8xx_priv {
+	struct virq_chip *irq_chip;
 	int variant;
 	int irq;
-	struct virq_chip *irq_chip;
+	int lp_off_time;
+	int lp_action;
+	uint8_t sleep_pin;
+	int not_save_power_en;
 };
 
 int rk8xx_spl_configure_buck(struct udevice *pmic, int buck, int uvolt);

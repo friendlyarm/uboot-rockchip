@@ -31,6 +31,18 @@ config TPL_MISC
 	  set of generic read, write and ioctl methods may be used to
 	  access the device.
 
+config MISC_DECOMPRESS
+	bool "Enable misc decompress driver support"
+	depends on MISC
+	help
+	  Enable misc decompress driver support.
+
+config SPL_MISC_DECOMPRESS
+	bool "Enable misc decompress driver support in SPL"
+	depends on SPL_MISC
+	help
+	  Enable misc decompress driver support in spl.
+
 config ALTERA_SYSID
 	bool "Altera Sysid support"
 	depends on MISC
@@ -68,23 +80,24 @@ config ROCKCHIP_OTP
 
 config ROCKCHIP_HW_DECOMPRESS
 	bool "Rockchip HardWare Decompress Support"
-	depends on MISC && IRQ
+	depends on MISC_DECOMPRESS
 	help
 	  This driver support Decompress IP built-in Rockchip SoC, support
 	  LZ4, GZIP, PNG, ZLIB.
 
 config SPL_ROCKCHIP_HW_DECOMPRESS
 	bool "Rockchip HardWare Decompress Support"
-	depends on SPL_MISC
+	depends on SPL_MISC_DECOMPRESS
 	help
 	  This driver support Decompress IP built-in Rockchip SoC, support
 	  LZ4, GZIP, PNG, ZLIB.
 
-config SPL_ROCKCHIP_SECURE_OTP
-	bool "Rockchip Secure OTP Support in spl"
+config SPL_ROCKCHIP_SECURE_OTP_V1
+	bool "Rockchip Secure OTP Version 1 Support in spl"
 	depends on SPL_MISC
 	help
-	  Support read & write secure otp in spl.
+	  Support read & write secure otp in spl. Support platforms: rk3308,
+	  rk3326, px30, rk3568, rk3566.
 
 config SPL_ROCKCHIP_SECURE_OTP_V2
 	bool "Rockchip Secure OTP Version 2 Support in spl"

@@ -20,7 +20,15 @@ endif
 
 ifdef CONFIG_SPL_BUILD
 obj-$(CONFIG_$(SPL_TPL_)BOOTROM_SUPPORT) += spl_bootrom.o
+ifdef CONFIG_SPL_KERNEL_BOOT
+ifdef CONFIG_ARM64
 obj-$(CONFIG_$(SPL_TPL_)LOAD_FIT) += spl_fit.o
+else
+obj-$(CONFIG_$(SPL_TPL_)LOAD_FIT) += spl_fit_tb_arm_v7.o
+endif
+else
+obj-$(CONFIG_$(SPL_TPL_)LOAD_FIT) += spl_fit.o
+endif
 obj-$(CONFIG_$(SPL_TPL_)NOR_SUPPORT) += spl_nor.o
 obj-$(CONFIG_$(SPL_TPL_)XIP_SUPPORT) += spl_xip.o
 obj-$(CONFIG_$(SPL_TPL_)YMODEM_SUPPORT) += spl_ymodem.o
@@ -32,6 +40,7 @@ obj-$(CONFIG_$(SPL_TPL_)UBI) += spl_ubi.o
 obj-$(CONFIG_$(SPL_TPL_)NET_SUPPORT) += spl_net.o
 obj-$(CONFIG_$(SPL_TPL_)MMC_SUPPORT) += spl_mmc.o
 obj-$(CONFIG_$(SPL_TPL_)MTD_SUPPORT) += spl_mtd_blk.o
+obj-$(CONFIG_$(SPL_TPL_)RKNAND_SUPPORT) += spl_rknand.o
 obj-$(CONFIG_$(SPL_TPL_)ATF) += spl_atf.o
 obj-$(CONFIG_$(SPL_TPL_)OPTEE) += spl_optee.o
 obj-$(CONFIG_$(SPL_TPL_)LOAD_RKFW) += spl_rkfw.o

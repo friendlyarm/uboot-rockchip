@@ -207,6 +207,11 @@ config SYS_MMCSD_RAW_MODE_U_BOOT_PARTITION_TYPE
 	  Partition Type on the MMC to load U-Boot from, when the MMC is being
 	  used in raw mode.
 
+config SPL_MISC_SECTOR
+	hex "Sector address to load misc in SPL"
+	depends on !SPL_LIBDISK_SUPPORT && SPL_KERNEL_BOOT
+	default 0x8000
+
 config SPL_CRC32_SUPPORT
 	bool "Support CRC32"
 	depends on SPL_FIT
@@ -329,6 +334,7 @@ config SPL_ENV_SUPPORT
 config SPL_SAVEENV
 	bool "Support save environment"
 	depends on SPL_ENV_SUPPORT
+	select SPL_MMC_WRITE if ENV_IS_IN_MMC
 	help
 	  Enable save environment support in SPL after setenv. By default
 	  the saveenv option is not provided in SPL, but some boards need
@@ -443,6 +449,14 @@ config SPL_MMC_SUPPORT
 	  this option to build the drivers in drivers/mmc as part of an SPL
 	  build.
 
+config SPL_MMC_WRITE
+	bool "MMC/SD/SDIO card support for write operations in SPL"
+	depends on SPL_MMC_SUPPORT
+	default n
+	help
+	  Enable write access to MMC and SD Cards in SPL
+
+
 config SPL_MPC8XXX_INIT_DDR_SUPPORT
 	bool "Support MPC8XXX DDR init"
 	help
@@ -459,6 +473,21 @@ config SPL_MTD_SUPPORT
 	  SPI flash. This allows SPL to load U-Boot from supported MTD
 	  devices. See SPL_NAND_SUPPORT and SPL_ONENAND_SUPPORT for how
 	  to enable specific MTD drivers.
+
+config MTD_BLK_U_BOOT_OFFS
+	hex "Location in MTD block to read U-Boot from"
+	default 0x4000
+	depends on SPL_MTD_SUPPORT
+	help
+	  Set the offset from the start of the nand,spi nand and nor flash where
+	  u-boot should be loaded from.
+
+config SPL_MTD_WRITE
+	bool "nand & spi nand & spi nor support for write operations in SPL"
+	depends on SPL_MTD_SUPPORT
+	default n
+	help
+	  Enable write access to nand & spi nand & spi nor in SPL
 
 config SPL_MUSB_NEW_SUPPORT
 	bool "Support new Mentor Graphics USB"
@@ -644,6 +673,23 @@ config SPL_SPI_FLASH_SUPPORT
 	  but fast bidirectional 4-wire bus (clock, chip select and two data
 	  lines). This enables the drivers in drivers/mtd/spi as part of an
 	  SPL build. This normally requires SPL_SPI_SUPPORT.
+
+config SPL_RKNAND_SUPPORT
+	bool "Rockchip NAND FLASH device support"
+	depends on BLK
+	select RKNAND
+	select ZFTL if (ROCKCHIP_PX30 || ROCKCHIP_RK3568)
+	help
+	  This option enables support for Rockchip NAND FLASH devices.
+	  It supports block interface(with rk ftl) to read and write NAND FLASH.
+
+config RKNAND_BLK_U_BOOT_OFFS
+	hex "Location in RKNAND block to read U-Boot from"
+	default 0x4000
+	depends on SPL_RKNAND_SUPPORT
+	help
+	  Set the offset from the start of the rknand device where
+	  u-boot should be loaded from.
 
 if SPL_SPI_FLASH_SUPPORT
 
@@ -836,6 +882,19 @@ config RKFW_BOOT_SECTOR
         depends on SPL_LOAD_RKFW
         default 0xa000
 
+config SPL_KERNEL_BOOT
+	bool "Enable boot kernel in SPL"
+	depends on SPL
+	help
+	  Enable boot kernel in SPL.
+
+config SPL_KERNEL_BOOT_SECTOR
+	hex "Sector address to load kernel in SPL"
+	depends on SPL_KERNEL_BOOT
+	depends on !SPL_LIBDISK_SUPPORT
+	default 0xa000
+
+if SPL_LOAD_RKFW
 config SPL_KERNEL_ADDR
 	hex "Kernel load address in spl"
 	depends on SPL
@@ -889,12 +948,7 @@ config SPL_RAMDISK_DECOM_LIMIT_SIZE
 	help
 	  Define ramdisk maximum decompressible size that prevent
 	  memory overrun.
-
-config SPL_KERNEL_BOOT
-	bool "Enable boot kernel in SPL"
-	depends on SPL
-	help
-	  Enable boot kernel in SPL.
+endif
 
 config TPL
 	bool

@@ -35,12 +35,9 @@
 #define RK3328_GRF_SOC_CON3              0x040c
 #define RK3328_GRF_SOC_CON4              0x0410
 
-#define DRM_BASE_MODE(c, hd, hss, hse, ht, vd, vss, vse, vt, vs, f) \
-	.clock = (c), \
-	.hdisplay = (hd), .hsync_start = (hss), .hsync_end = (hse), \
-	.htotal = (ht), .vdisplay = (vd), \
-	.vsync_start = (vss), .vsync_end = (vse), .vtotal = (vt), \
-	.vscan = (vs), .flags = (f)
+#define RK3568_GRF_VO_CON1               0x0364
+#define RK3568_HDMI_SDAIN_MSK            ((1 << 15) | (1 << (15 + 16)))
+#define RK3568_HDMI_SCLIN_MSK            ((1 << 14) | (1 << (14 + 16)))
 
 static const struct dw_hdmi_mpll_config rockchip_mpll_cfg[] = {
 	{
@@ -185,323 +182,9 @@ static const struct dw_hdmi_phy_config rockchip_phy_config[] = {
 	{ 165000000, 0x802b, 0x0004, 0x0209},
 	{ 297000000, 0x8039, 0x0005, 0x028d},
 	{ 594000000, 0x8039, 0x0000, 0x019d},
+	{ ~0UL,	     0x0000, 0x0000, 0x0000},
 	{ ~0UL,	     0x0000, 0x0000, 0x0000}
 };
-
-static const struct base_drm_display_mode resolution_white[] = {
-	/* 0. vic:2 - 720x480@60Hz */
-	{ DRM_BASE_MODE(27000, 720, 736,
-			798, 858, 480, 489, 495, 525, 0,
-			DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC),
-	  .vrefresh = 60, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_4_3, },
-	/* 1. vic:3 - 720x480@60Hz */
-	{ DRM_BASE_MODE(27000, 720, 736,
-			798, 858, 480, 489, 495, 525, 0,
-			DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC),
-	  .vrefresh = 60, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9, },
-	/* 2. vic:4 - 1280x720@60Hz */
-	{ DRM_BASE_MODE(74250, 1280, 1390,
-			1430, 1650, 720, 725, 730, 750, 0,
-			DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
-	  .vrefresh = 60, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9, },
-	/* 3. vic:5 - 1920x1080i@60Hz */
-	{ DRM_BASE_MODE(74250, 1920, 2008,
-			2052, 2200, 1080, 1084, 1094, 1125, 0,
-			DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC |
-			DRM_MODE_FLAG_INTERLACE),
-	  .vrefresh = 60, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9, },
-	/* 4. vic:6 - 720(1440)x480i@60Hz */
-	{ DRM_BASE_MODE(13500, 720, 739,
-			801, 858, 480, 488, 494, 525, 0,
-			DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC |
-			DRM_MODE_FLAG_INTERLACE | DRM_MODE_FLAG_DBLCLK),
-	  .vrefresh = 60, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_4_3, },
-	/* 5. vic:16 - 1920x1080@60Hz */
-	{ DRM_BASE_MODE(148500, 1920, 2008,
-			2052, 2200, 1080, 1084, 1089, 1125, 0,
-			DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
-	  .vrefresh = 60, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9, },
-	/* 6. vic:17 - 720x576@50Hz */
-	{ DRM_BASE_MODE(27000, 720, 732,
-			796, 864, 576, 581, 586, 625, 0,
-			DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC),
-	  .vrefresh = 50, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_4_3, },
-	/* 7. vic:18 - 720x576@50Hz */
-	{ DRM_BASE_MODE(27000, 720, 732,
-			796, 864, 576, 581, 586, 625, 0,
-			DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC),
-	  .vrefresh = 50, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9, },
-	/* 8. vic:19 - 1280x720@50Hz */
-	{ DRM_BASE_MODE(74250, 1280, 1720,
-			1760, 1980, 720, 725, 730, 750, 0,
-			DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
-	  .vrefresh = 50, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9, },
-	/* 9. vic:20 - 1920x1080i@50Hz */
-	{ DRM_BASE_MODE(74250, 1920, 2448,
-			2492, 2640, 1080, 1084, 1094, 1125, 0,
-			DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC |
-			DRM_MODE_FLAG_INTERLACE),
-	  .vrefresh = 50, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9, },
-	/* 10. vic:21 - 720(1440)x576i@50Hz */
-	{ DRM_BASE_MODE(13500, 720, 732,
-			795, 864, 576, 580, 586, 625, 0,
-			DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC |
-			DRM_MODE_FLAG_INTERLACE | DRM_MODE_FLAG_DBLCLK),
-	  .vrefresh = 50, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_4_3, },
-	/* 11. vic:31 - 1920x1080@50Hz */
-	{ DRM_BASE_MODE(148500, 1920, 2448,
-			2492, 2640, 1080, 1084, 1089, 1125, 0,
-			DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
-	  .vrefresh = 50, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9, },
-	/* 12. vic:32 - 1920x1080@24Hz */
-	{ DRM_BASE_MODE(74250, 1920, 2558,
-			2602, 2750, 1080, 1084, 1089, 1125, 0,
-			DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
-	  .vrefresh = 24, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9, },
-	/* 13. vic:33 - 1920x1080@25Hz */
-	{ DRM_BASE_MODE(74250, 1920, 2448,
-			2492, 2640, 1080, 1084, 1089, 1125, 0,
-			DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
-	  .vrefresh = 25, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9, },
-	/* 14. vic:34 - 1920x1080@30Hz */
-	{ DRM_BASE_MODE(74250, 1920, 2008,
-			2052, 2200, 1080, 1084, 1089, 1125, 0,
-			DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
-	  .vrefresh = 30, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9, },
-	/* 15. vic:39 - 1920x1080i@50Hz */
-	{ DRM_BASE_MODE(72000, 1920, 1952,
-			2120, 2304, 1080, 1126, 1136, 1250, 0,
-			DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC |
-			DRM_MODE_FLAG_INTERLACE),
-	  .vrefresh = 50, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9, },
-	/* 16. vic:60 - 1280x720@24Hz */
-	{ DRM_BASE_MODE(59400, 1280, 3040,
-			3080, 3300, 720, 725, 730, 750, 0,
-			DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
-	  .vrefresh = 24, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9, },
-	/* 17. vic:61 - 1280x720@25Hz */
-	{ DRM_BASE_MODE(74250, 1280, 3700,
-			3740, 3960, 720, 725, 730, 750, 0,
-			DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
-	  .vrefresh = 25, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9, },
-	/* 18. vic:62 - 1280x720@30Hz */
-	{ DRM_BASE_MODE(74250, 1280, 3040,
-			3080, 3300, 720, 725, 730, 750, 0,
-			DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
-	  .vrefresh = 30, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9, },
-	/* 19. vic:93 - 3840x2160p@24Hz 16:9 */
-	{ DRM_BASE_MODE(297000, 3840, 5116,
-			5204, 5500, 2160, 2168, 2178, 2250, 0,
-			DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
-	.vrefresh = 24, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9, },
-	/* 20. vic:94 - 3840x2160p@25Hz 16:9 */
-	{ DRM_BASE_MODE(297000, 3840, 4896,
-			4984, 5280, 2160, 2168, 2178, 2250, 0,
-			DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
-	.vrefresh = 25, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9, },
-	/* 21. vic:95 - 3840x2160p@30Hz 16:9 */
-	{ DRM_BASE_MODE(297000, 3840, 4016,
-			4104, 4400, 2160, 2168, 2178, 2250, 0,
-			DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
-	.vrefresh = 30, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9, },
-	/* 22. vic:96 - 3840x2160p@50Hz 16:9 */
-	{ DRM_BASE_MODE(594000, 3840, 4896,
-			4984, 5280, 2160, 2168, 2178, 2250, 0,
-			DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
-	.vrefresh = 50, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9, },
-	/* 23. vic:97 - 3840x2160p@60Hz 16:9 */
-	{ DRM_BASE_MODE(594000, 3840, 4016,
-			4104, 4400, 2160, 2168, 2178, 2250, 0,
-			DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
-	.vrefresh = 60, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9, },
-	/* 24. vic:98 - 4096x2160p@24Hz 256:135 */
-	{ DRM_BASE_MODE(297000, 4096, 5116,
-			5204, 5500, 2160, 2168, 2178, 2250, 0,
-			DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
-	.vrefresh = 24, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_256_135, },
-	/* 25. vic:99 - 4096x2160p@25Hz 256:135 */
-	{ DRM_BASE_MODE(297000, 4096, 5064,
-			5152, 5280, 2160, 2168, 2178, 2250, 0,
-			DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
-	.vrefresh = 25, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_256_135, },
-	/* 26. vic:100 - 4096x2160p@30Hz 256:135 */
-	{ DRM_BASE_MODE(297000, 4096, 4184,
-			4272, 4400, 2160, 2168, 2178, 2250, 0,
-			DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
-	.vrefresh = 30, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_256_135, },
-	/* 27. vic:101 - 4096x2160p@50Hz 256:135 */
-	{ DRM_BASE_MODE(594000, 4096, 5064,
-			5152, 5280, 2160, 2168, 2178, 2250, 0,
-			DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
-	.vrefresh = 50, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_256_135, },
-	/* 28. vic:102 - 4096x2160p@60Hz 256:135 */
-	{ DRM_BASE_MODE(594000, 4096, 4184,
-			4272, 4400, 2160, 2168, 2178, 2250, 0,
-			DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
-	.vrefresh = 60, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_256_135, },
-};
-
-static bool drm_mode_equal(const struct base_drm_display_mode *mode1,
-			   const struct drm_display_mode *mode2)
-{
-	unsigned int flags_mask =
-		DRM_MODE_FLAG_INTERLACE | DRM_MODE_FLAG_PHSYNC |
-		DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC |
-		DRM_MODE_FLAG_NVSYNC;
-
-	if (mode1->clock == mode2->clock &&
-	    mode1->hdisplay == mode2->hdisplay &&
-	    mode1->hsync_start == mode2->hsync_start &&
-	    mode1->hsync_end == mode2->hsync_end &&
-	    mode1->htotal == mode2->htotal &&
-	    mode1->vdisplay == mode2->vdisplay &&
-	    mode1->vsync_start == mode2->vsync_start &&
-	    mode1->vsync_end == mode2->vsync_end &&
-	    mode1->vtotal == mode2->vtotal &&
-	    (mode1->flags & flags_mask) == (mode2->flags & flags_mask)) {
-		return true;
-	}
-
-	return false;
-}
-
-/**
- * drm_mode_sort - sort mode list
- * @edid_data: modes structures to sort
- *
- * Sort @edid_data by favorability, moving good modes to the head of the list.
- */
-void drm_mode_sort(struct hdmi_edid_data *edid_data)
-{
-	struct drm_display_mode *a, *b;
-	struct drm_display_mode c;
-	int diff, i, j;
-
-	for (i = 0; i < (edid_data->modes - 1); i++) {
-		a = &edid_data->mode_buf[i];
-		for (j = i + 1; j < edid_data->modes; j++) {
-			b = &edid_data->mode_buf[j];
-			diff = ((b->type & DRM_MODE_TYPE_PREFERRED) != 0) -
-				((a->type & DRM_MODE_TYPE_PREFERRED) != 0);
-			if (diff) {
-				if (diff > 0) {
-					c = *a;
-					*a = *b;
-					*b = c;
-				}
-				continue;
-			}
-
-			diff = b->hdisplay * b->vdisplay
-				- a->hdisplay * a->vdisplay;
-			if (diff) {
-				if (diff > 0) {
-					c = *a;
-					*a = *b;
-					*b = c;
-				}
-				continue;
-			}
-
-			diff = b->vrefresh - a->vrefresh;
-			if (diff) {
-				if (diff > 0) {
-					c = *a;
-					*a = *b;
-					*b = c;
-				}
-				continue;
-			}
-
-			diff = b->clock - a->clock;
-			if (diff > 0) {
-				c = *a;
-				*a = *b;
-				*b = c;
-			}
-		}
-	}
-	edid_data->preferred_mode = &edid_data->mode_buf[0];
-}
-
-/**
- * drm_mode_prune_invalid - remove invalid modes from mode list
- * @edid_data: structure store mode list
- * Returns:
- * Number of valid modes.
- */
-int drm_mode_prune_invalid(struct hdmi_edid_data *edid_data)
-{
-	int i, j;
-	int num = edid_data->modes;
-	int len = sizeof(struct drm_display_mode);
-	struct drm_display_mode *mode_buf = edid_data->mode_buf;
-
-	for (i = 0; i < num; i++) {
-		if (mode_buf[i].invalid) {
-			/* If mode is invalid, delete it. */
-			for (j = i; j < num - 1; j++)
-				memcpy(&mode_buf[j], &mode_buf[j + 1], len);
-
-			num--;
-			i--;
-		}
-	}
-	/* Clear redundant modes of mode_buf. */
-	memset(&mode_buf[num], 0, len * (edid_data->modes - num));
-
-	edid_data->modes = num;
-	return num;
-}
-
-/**
- * drm_rk_filter_whitelist - mark modes out of white list from mode list
- * @edid_data: structure store mode list
- */
-void drm_rk_filter_whitelist(struct hdmi_edid_data *edid_data)
-{
-	struct drm_display_mode *dmode = edid_data->mode_buf;
-	int i, j, white_len;
-
-	white_len = sizeof(resolution_white);
-	if (white_len) {
-		white_len /= sizeof(resolution_white[0]);
-		for (i = 0; i < edid_data->modes; i++, dmode++) {
-			/* Keep preferred mode to match the choice of kernel */
-			if (dmode->type & DRM_MODE_TYPE_PREFERRED)
-				continue;
-
-			for (j = 0; j < white_len; j++) {
-				if (drm_mode_equal(&resolution_white[j], dmode))
-					break;
-			}
-
-			if (j == white_len)
-				dmode->invalid = true;
-		}
-	}
-}
-
-void drm_rk_select_mode(struct hdmi_edid_data *edid_data,
-			struct base_screen_info *screen_info)
-{
-	int i;
-	const struct base_drm_display_mode *base_mode;
-
-	if (!screen_info) {
-		/* define init resolution here */
-	} else {
-		base_mode = &screen_info->mode;
-		for (i = 0; i < edid_data->modes; i++) {
-			if (drm_mode_equal(base_mode,
-					   &edid_data->mode_buf[i])) {
-				edid_data->preferred_mode =
-					&edid_data->mode_buf[i];
-				break;
-			}
-		}
-	}
-}
 
 static unsigned int drm_rk_select_color(struct hdmi_edid_data *edid_data,
 					struct base_screen_info *screen_info,
@@ -640,14 +323,17 @@ static unsigned int drm_rk_select_color(struct hdmi_edid_data *edid_data,
 }
 
 void drm_rk_selete_output(struct hdmi_edid_data *edid_data,
+			  struct connector_state *conn_state,
 			  unsigned int *bus_format,
 			  struct overscan *overscan,
 			  enum dw_hdmi_devtype dev_type)
 {
 	int ret, i, screen_size;
 	struct base_disp_info base_parameter;
+	struct base2_disp_info *base2_parameter = conn_state->disp_info;
 	const struct base_overscan *scan;
 	struct base_screen_info *screen_info = NULL;
+	struct base2_screen_info *screen_info2 = NULL;
 	int max_scan = 100;
 	int min_scan = 51;
 	struct blk_desc *dev_desc;
@@ -664,26 +350,62 @@ void drm_rk_selete_output(struct hdmi_edid_data *edid_data,
 	else
 		*bus_format = MEDIA_BUS_FMT_YUV8_1X24;
 
-	dev_desc = rockchip_get_bootdev();
-	if (!dev_desc) {
-		printf("%s: Could not find device\n", __func__);
-		return;
-	}
+	if (!base2_parameter) {
+		dev_desc = rockchip_get_bootdev();
+		if (!dev_desc) {
+			printf("%s: Could not find device\n", __func__);
+			return;
+		}
 
-	if (part_get_info_by_name(dev_desc, "baseparameter", &part_info) < 0) {
-		printf("Could not find baseparameter partition\n");
-		return;
-	}
+		ret = part_get_info_by_name(dev_desc, "baseparameter",
+					    &part_info);
+		if (ret < 0) {
+			printf("Could not find baseparameter partition\n");
+			return;
+		}
 
-	ret = blk_dread(dev_desc, part_info.start, 1,
-			(void *)baseparameter_buf);
-	if (ret < 0) {
-		printf("read baseparameter failed\n");
-		return;
-	}
+		ret = blk_dread(dev_desc, part_info.start, 1,
+				(void *)baseparameter_buf);
+		if (ret < 0) {
+			printf("read baseparameter failed\n");
+			return;
+		}
 
-	memcpy(&base_parameter, baseparameter_buf, sizeof(base_parameter));
-	scan = &base_parameter.scan;
+		memcpy(&base_parameter, baseparameter_buf,
+		       sizeof(base_parameter));
+		scan = &base_parameter.scan;
+
+		screen_size = sizeof(base_parameter.screen_list) /
+			sizeof(base_parameter.screen_list[0]);
+
+		for (i = 0; i < screen_size; i++) {
+			if (base_parameter.screen_list[i].type ==
+			    DRM_MODE_CONNECTOR_HDMIA) {
+				screen_info = &base_parameter.screen_list[i];
+				break;
+			}
+		}
+	} else {
+		scan = &base2_parameter->overscan_info;
+		screen_size = sizeof(base2_parameter->screen_info) /
+			sizeof(base2_parameter->screen_info[0]);
+
+		for (i = 0; i < screen_size; i++) {
+			if (base2_parameter->screen_info[i].type ==
+			    DRM_MODE_CONNECTOR_HDMIA) {
+				screen_info2 =
+					&base2_parameter->screen_info[i];
+				break;
+			}
+		}
+		screen_info = malloc(sizeof(*screen_info));
+
+		screen_info->type = screen_info2->type;
+		screen_info->mode = screen_info2->resolution;
+		screen_info->format = screen_info2->format;
+		screen_info->depth = screen_info2->depthc;
+		screen_info->feature = screen_info2->feature;
+	}
 
 	if (scan->leftscale < min_scan && scan->leftscale > 0)
 		overscan->left_margin = min_scan;
@@ -705,16 +427,7 @@ void drm_rk_selete_output(struct hdmi_edid_data *edid_data,
 	else if (scan->bottomscale < max_scan && scan->bottomscale > 0)
 		overscan->bottom_margin = scan->bottomscale;
 
-	screen_size = sizeof(base_parameter.screen_list) /
-		sizeof(base_parameter.screen_list[0]);
 
-	for (i = 0; i < screen_size; i++) {
-		if (base_parameter.screen_list[i].type ==
-		    DRM_MODE_CONNECTOR_HDMIA) {
-			screen_info = &base_parameter.screen_list[i];
-			break;
-		}
-	}
 
 	if (screen_info)
 		printf("base_parameter.mode:%dx%d\n",
@@ -745,6 +458,10 @@ void dw_hdmi_set_iomux(void *grf, int dev_type)
 		writel(RK3228_IO_3V_DOMAIN, grf + RK3228_GRF_SOC_CON6);
 		writel(RK3228_IO_DDC_IN_MSK, grf + RK3228_GRF_SOC_CON2);
 		break;
+	case RK3568_HDMI:
+		writel(RK3568_HDMI_SDAIN_MSK | RK3568_HDMI_SCLIN_MSK,
+		       grf + RK3568_GRF_VO_CON1);
+		break;
 	default:
 		break;
 	}
@@ -758,6 +475,7 @@ static const struct dw_hdmi_phy_ops inno_dw_hdmi_phy_ops = {
 };
 
 static const struct rockchip_connector_funcs rockchip_dw_hdmi_funcs = {
+	.pre_init = rockchip_dw_hdmi_pre_init,
 	.init = rockchip_dw_hdmi_init,
 	.deinit = rockchip_dw_hdmi_deinit,
 	.prepare = rockchip_dw_hdmi_prepare,
@@ -811,10 +529,25 @@ const struct dw_hdmi_plat_data rk3399_hdmi_drv_data = {
 	.dev_type   = RK3399_HDMI,
 };
 
+const struct dw_hdmi_plat_data rk3568_hdmi_drv_data = {
+	.vop_sel_bit = 0,
+	.grf_vop_sel_reg = 0,
+	.mpll_cfg   = rockchip_mpll_cfg,
+	.cur_ctr    = rockchip_cur_ctr,
+	.phy_config = rockchip_phy_config,
+	.mpll_cfg_420 = rockchip_mpll_cfg_420,
+	.dev_type   = RK3568_HDMI,
+};
+
 static int rockchip_dw_hdmi_probe(struct udevice *dev)
 {
 	return 0;
 }
+
+static const struct rockchip_connector rk3568_dw_hdmi_data = {
+	.funcs = &rockchip_dw_hdmi_funcs,
+	.data = &rk3568_hdmi_drv_data,
+};
 
 static const struct rockchip_connector rk3399_dw_hdmi_data = {
 	.funcs = &rockchip_dw_hdmi_funcs,
@@ -843,6 +576,9 @@ static const struct rockchip_connector rk3228_dw_hdmi_data = {
 
 static const struct udevice_id rockchip_dw_hdmi_ids[] = {
 	{
+	 .compatible = "rockchip,rk3568-dw-hdmi",
+	 .data = (ulong)&rk3568_dw_hdmi_data,
+	}, {
 	 .compatible = "rockchip,rk3399-dw-hdmi",
 	 .data = (ulong)&rk3399_dw_hdmi_data,
 	}, {

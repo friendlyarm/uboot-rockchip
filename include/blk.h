@@ -51,6 +51,10 @@ enum if_type {
 #define BLK_PRD_SIZE		20
 #define BLK_REV_SIZE		8
 
+/* define block device operation flags */
+#define BLK_PRE_RW		BIT(0)	/* Block prepare read & write*/
+#define BLK_MTD_CONT_WRITE	BIT(1)	/* Special for Nand device P/E */
+
 /*
  * Identifies the partition table type (ie. MBR vs GPT GUID) signature
  */
@@ -79,6 +83,7 @@ struct blk_desc {
 	unsigned char	hwpart;		/* HW partition, e.g. for eMMC */
 	unsigned char	type;		/* device type */
 	unsigned char	removable;	/* removable device */
+	unsigned char	op_flag;	/* Some special operation flags */
 #ifdef CONFIG_LBA48
 	/* device can use 48bit addr (ATA/ATAPI v7) */
 	unsigned char	lba48;
@@ -225,20 +230,6 @@ struct blk_ops {
 			      lbaint_t blkcnt, void *buffer);
 
 	/**
-	 * read_prepare() - read from a block device
-	 *
-	 * @dev:	Device to read from
-	 * @start:	Start block number to read (0=first)
-	 * @blkcnt:	Number of blocks to read
-	 * @buffer:	Destination buffer for data read
-	 * @return number of blocks read, or -ve error number (see the
-	 * IS_ERR_VALUE() macro
-	 */
-#ifdef CONFIG_SPL_BLK_READ_PREPARE
-	unsigned long (*read_prepare)(struct udevice *dev, lbaint_t start,
-				      lbaint_t blkcnt, void *buffer);
-#endif
-	/**
 	 * write() - write to a block device
 	 *
 	 * @dev:	Device to write to
@@ -293,10 +284,6 @@ struct blk_ops {
  */
 unsigned long blk_dread(struct blk_desc *block_dev, lbaint_t start,
 			lbaint_t blkcnt, void *buffer);
-#ifdef CONFIG_SPL_BLK_READ_PREPARE
-unsigned long blk_dread_prepare(struct blk_desc *block_dev, lbaint_t start,
-				lbaint_t blkcnt, void *buffer);
-#endif
 unsigned long blk_dwrite(struct blk_desc *block_dev, lbaint_t start,
 			 lbaint_t blkcnt, const void *buffer);
 unsigned long blk_derase(struct blk_desc *block_dev, lbaint_t start,

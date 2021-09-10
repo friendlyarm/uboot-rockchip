@@ -16,7 +16,7 @@ DECLARE_GLOBAL_DATA_PTR;
 /* Here, only fixup cru phandle, pmucru is not included */
 static int phandles_fixup_cru(const void *fdt)
 {
-	const char *props[] = { "clocks", "assigned-clocks" };
+	const char *props[] = { "clocks", "assigned-clocks", "resets"};
 	struct udevice *dev;
 	struct uclass *uc;
 	const char *comp;
@@ -217,35 +217,94 @@ static int mmc_dm_reinit(void)
 	return 0;
 }
 
+/*
+ * Simply check cru node:
+ * This kernel dtb is belong to current platform ?
+ */
+static int dtb_check_ok(void *fdt, void *ufdt)
+{
+	const char *compare[2] = { NULL, NULL, };
+	const char *compat;
+	void *blob = fdt;
+	int offset;
+	int i;
+
+	for (i = 0; i < 2; i++) {
+		for (offset = fdt_next_node(blob, 0, NULL);
+		     offset >= 0;
+		     offset = fdt_next_node(blob, offset, NULL)) {
+			compat = fdt_getprop(blob, offset, "compatible", NULL);
+			if (!compat)
+				continue;
+			debug("[%d] compat: %s\n", i, compat);
+			if (strstr(compat, "-cru")) {
+				compare[i] = compat;
+				blob = ufdt;
+				break;
+			}
+		}
+	}
+
+	if (compare[0] && compare[1])
+		return !memcmp(compare[0], compare[1], strlen(compare[0]));
+
+	return 0;
+}
+
 int init_kernel_dtb(void)
 {
 	ulong fdt_addr;
 	void *ufdt_blob;
-	int ret;
+	int ret = -ENODEV;
 
 	fdt_addr = env_get_ulong("fdt_addr_r", 16, 0);
 	if (!fdt_addr) {
 		printf("No Found FDT Load Address.\n");
-		return -1;
+		return -ENODEV;
+	}
+
+	if (IS_ENABLED(CONFIG_EMBED_KERNEL_DTB_ALWAYS)) {
+		printf("Always embed kernel dtb\n");
+		goto dtb_embed;
 	}
 
 	ret = rockchip_read_dtb_file((void *)fdt_addr);
-	if (ret < 0) {
-		if (!fdt_check_header(gd->fdt_blob_kern)) {
-			fdt_addr = (ulong)memalign(ARCH_DMA_MINALIGN,
-					fdt_totalsize(gd->fdt_blob_kern));
-			if (!fdt_addr)
-				return -ENOMEM;
-
-			memcpy((void *)fdt_addr, gd->fdt_blob_kern,
-			       fdt_totalsize(gd->fdt_blob_kern));
-			printf("DTB: embedded kern.dtb\n");
+	if (!ret) {
+		if (!dtb_check_ok((void *)fdt_addr, (void *)gd->fdt_blob)) {
+			ret = -EINVAL;
+			printf("Kernel dtb mismatch this platform!\n");
 		} else {
-			printf("Failed to get kernel dtb, ret=%d\n", ret);
-			return ret;
+			goto dtb_okay;
 		}
 	}
 
+dtb_embed:
+	if (!fdt_check_header(gd->fdt_blob_kern)) {
+		if (!dtb_check_ok((void *)gd->fdt_blob_kern, (void *)gd->fdt_blob)) {
+			printf("Embedded kernel dtb mismatch this platform!\n");
+			return -EINVAL;
+		}
+
+		fdt_addr = (ulong)memalign(ARCH_DMA_MINALIGN,
+				fdt_totalsize(gd->fdt_blob_kern));
+		if (!fdt_addr)
+			return -ENOMEM;
+
+		/*
+		 * Alloc another space for this embed kernel dtb.
+		 * Because "fdt_addr_r" *MUST* be the fdt passed to kernel.
+		 */
+		memcpy((void *)fdt_addr, gd->fdt_blob_kern,
+		       fdt_totalsize(gd->fdt_blob_kern));
+		printf("DTB: %s\n", CONFIG_EMBED_KERNEL_DTB_PATH);
+	}
+
+	if (fdt_check_header((void *)fdt_addr)) {
+		printf("Failed to get kernel dtb, ret=%d\n", ret);
+		return ret;
+	}
+
+dtb_okay:
 	ufdt_blob = (void *)gd->fdt_blob;
 	gd->fdt_blob = (void *)fdt_addr;
 
@@ -261,6 +320,7 @@ int init_kernel_dtb(void)
 	phandles_fixup_cru((void *)gd->fdt_blob);
 	phandles_fixup_gpio((void *)gd->fdt_blob, (void *)ufdt_blob);
 
+	gd->flags |= GD_FLG_KDTB_READY;
 	of_live_build((void *)gd->fdt_blob, (struct device_node **)&gd->of_root);
 	dm_scan_fdt((void *)gd->fdt_blob, false);
 

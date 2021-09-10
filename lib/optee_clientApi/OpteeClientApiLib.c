@@ -7,8 +7,49 @@
 #include <common.h>
 #include <optee_include/OpteeClientApiLib.h>
 #include <optee_include/OpteeClientMem.h>
+#include <optee_include/OpteeClientRPC.h>
 #include <optee_include/OpteeClientSMC.h>
 #include <optee_include/OpteeClientRkFs.h>
+#include <optee_include/teesmc.h>
+#include <optee_include/teesmc_optee.h>
+#include <optee_include/teesmc_v2.h>
+
+#define OPTEE_MSG_REVISION_MAJOR        2
+#define OPTEE_MSG_REVISION_MINOR        0
+
+static bool optee_is_init;
+
+static bool optee_api_revision_is_compatible(void)
+{
+	ARM_SMC_ARGS ArmSmcArgs = {0};
+
+	ArmSmcArgs.Arg0 = OPTEE_SMC_CALLS_REVISION;
+
+	tee_smc_call(&ArmSmcArgs);
+
+	if (ArmSmcArgs.Arg0 == OPTEE_MSG_REVISION_MAJOR &&
+	    ArmSmcArgs.Arg1 >= OPTEE_MSG_REVISION_MINOR) {
+		printf("optee api revision: %d.%d\n",
+		       ArmSmcArgs.Arg0, ArmSmcArgs.Arg1);
+		return true;
+	} else {
+		printf("optee check api revision fail: %d.%d\n",
+		       ArmSmcArgs.Arg0, ArmSmcArgs.Arg1);
+		return false;
+	}
+}
+
+void optee_get_shm_config(phys_addr_t *base, phys_size_t *size)
+{
+	ARM_SMC_ARGS ArmSmcArgs = {0};
+
+	ArmSmcArgs.Arg0 = OPTEE_SMC_GET_SHM_CONFIG_V2;
+
+	tee_smc_call(&ArmSmcArgs);
+
+	*base = ArmSmcArgs.Arg1;
+	*size = ArmSmcArgs.Arg2;
+}
 
 /*
  * Initlialize the library
@@ -16,6 +57,13 @@
 TEEC_Result OpteeClientApiLibInitialize(void)
 {
 	TEEC_Result status = TEEC_SUCCESS;
+
+	if (optee_is_init)
+		return TEEC_SUCCESS;
+
+	/* check api revision compatibility */
+	if (!optee_api_revision_is_compatible())
+		panic("optee api revision is too low");
 
 	status = OpteeClientMemInit();
 	if (status != TEEC_SUCCESS) {
@@ -27,6 +75,8 @@ TEEC_Result OpteeClientApiLibInitialize(void)
 		printf("TEEC: OpteeClientRkFsInit fail!\n");
 		return status;
 	}
+
+	optee_is_init = true;
 
 	return TEEC_SUCCESS;
 }

@@ -512,24 +512,6 @@ const void *ofnode_get_property(ofnode node, const char *propname, int *lenp)
 				   propname, lenp);
 }
 
-const char *ofnode_hide_property(ofnode node, const char *propname)
-{
-	if (ofnode_is_np(node))
-		return of_hide_property((struct device_node *)ofnode_to_np(node),
-					propname);
-	else
-		return NULL;
-}
-
-int ofnode_present_property(ofnode node, const char *propname)
-{
-	if (ofnode_is_np(node))
-		return of_present_property((struct device_node *)ofnode_to_np(node),
-					   propname);
-	else
-		return -ENOSYS;
-}
-
 bool ofnode_is_available(ofnode node)
 {
 	if (ofnode_is_np(node))
@@ -719,4 +701,12 @@ int ofnode_read_resource_byname(ofnode node, const char *name,
 		return index;
 
 	return ofnode_read_resource(node, index, res);
+}
+
+u64 ofnode_translate_address(ofnode node, const fdt32_t *in_addr)
+{
+	if (ofnode_is_np(node))
+		return of_translate_address(ofnode_to_np(node), in_addr);
+	else
+		return fdt_translate_address(gd->fdt_blob, ofnode_to_offset(node), in_addr);
 }

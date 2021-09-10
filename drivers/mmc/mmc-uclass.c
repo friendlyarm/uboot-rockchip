@@ -29,6 +29,10 @@ int dm_mmc_send_cmd(struct udevice *dev, struct mmc_cmd *cmd,
 		ret = -ENOSYS;
 	mmmc_trace_after_send(mmc, cmd, ret);
 
+	if (ret && cmd->cmdidx != SD_CMD_SEND_IF_COND
+	    && cmd->cmdidx != MMC_CMD_APP_CMD)
+		printf("MMC error: The cmd index is %d, ret is %d\n", cmd->cmdidx, ret);
+
 	return ret;
 }
 
@@ -46,6 +50,9 @@ int dm_mmc_send_cmd_prepare(struct udevice *dev, struct mmc_cmd *cmd,
 	else
 		ret = -ENOSYS;
 	mmmc_trace_after_send(mmc, cmd, ret);
+	if (ret && cmd->cmdidx != SD_CMD_SEND_IF_COND
+	    && cmd->cmdidx != MMC_CMD_APP_CMD)
+		printf("MMC error: The cmd index is %d, ret is %d\n", cmd->cmdidx, ret);
 
 	return ret;
 }
@@ -315,10 +322,7 @@ static int mmc_blk_probe(struct udevice *dev)
 
 static const struct blk_ops mmc_blk_ops = {
 	.read	= mmc_bread,
-#ifdef CONFIG_SPL_BLK_READ_PREPARE
-	.read_prepare	= mmc_bread_prepare,
-#endif
-#ifndef CONFIG_SPL_BUILD
+#if CONFIG_IS_ENABLED(MMC_WRITE)
 	.write	= mmc_bwrite,
 	.erase	= mmc_berase,
 #endif

@@ -8,6 +8,28 @@
 #ifndef __GENERIC_PHY_H
 #define __GENERIC_PHY_H
 
+#include <generic-phy-dp.h>
+#include <generic-phy-mipi-dphy.h>
+#include <generic-phy-pcie.h>
+
+enum phy_mode {
+	PHY_MODE_INVALID,
+	PHY_MODE_DP,
+};
+
+/**
+ * union phy_configure_opts - Opaque generic phy configuration
+ *
+ * @mipi_dphy: Configuration set applicable for phys supporting
+ *	       the MIPI_DPHY phy mode.
+ * @dp:	       Configuration set applicable for phys supporting
+ *	       the DisplayPort protocol.
+ */
+union phy_configure_opts {
+	struct phy_configure_opts_mipi_dphy     mipi_dphy;
+	struct phy_configure_opts_dp		dp;
+	struct phy_configure_opts_pcie		pcie;
+};
 
 /**
  * struct phy - A handle to (allowing control of) a single phy port.
@@ -94,6 +116,37 @@ struct phy_ops {
 	int	(*reset)(struct phy *phy);
 
 	/**
+	 * @configure:
+	 *
+	 * Optional.
+	 *
+	 * Used to change the PHY parameters. phy_init() must have
+	 * been called on the phy.
+	 *
+	 * Returns: 0 if successful, an negative error code otherwise
+	 */
+	int	(*configure)(struct phy *phy, union phy_configure_opts *opts);
+
+	/**
+	 * @validate:
+	 *
+	 * Optional.
+	 *
+	 * Used to check that the current set of parameters can be
+	 * handled by the phy. Implementations are free to tune the
+	 * parameters passed as arguments if needed by some
+	 * implementation detail or constraints. It must not change
+	 * any actual configuration of the PHY, so calling it as many
+	 * times as deemed fit by the consumer must have no side
+	 * effect.
+	 *
+	 * Returns: 0 if the configuration can be applied, an negative
+	 * error code otherwise
+	 */
+	int	(*validate)(struct phy *phy, enum phy_mode mode, int submode,
+			    union phy_configure_opts *opts);
+
+	/**
 	* power_on - power on a PHY device
 	*
 	* @phy:	PHY port to be powered on
@@ -147,6 +200,23 @@ int generic_phy_exit(struct phy *phy);
  *@return 0 if OK, or a negative error code
  */
 int generic_phy_reset(struct phy *phy);
+
+/**
+ * generic_phy_configure() - change the PHY parameters
+ *
+ * @phy:        PHY port to be configure
+ * @return 0 if OK, or a negative error code
+ */
+int generic_phy_configure(struct phy *phy, union phy_configure_opts *opts);
+
+/**
+ * generic_phy_validate() - validate the PHY parameters
+ *
+ * @phy:        PHY port to be validate
+ * @return 0 if OK, or a negative error code
+ */
+int generic_phy_validate(struct phy *phy, enum phy_mode mode, int submode,
+			 union phy_configure_opts *opts);
 
 /**
  * generic_phy_power_on() - power on a PHY device
@@ -238,6 +308,19 @@ static inline int generic_phy_reset(struct phy *phy)
 	return 0;
 }
 
+static inline int generic_phy_configure(struct phy *phy,
+					union phy_configure_opts *opts)
+{
+	return 0;
+}
+
+static inline int generic_phy_validate(struct phy *phy, enum phy_mode mode,
+				       int submode,
+				       union phy_configure_opts *opts)
+{
+	return 0;
+}
+
 static inline int generic_phy_power_on(struct phy *phy)
 {
 	return 0;
@@ -270,7 +353,7 @@ static inline int generic_phy_get_by_name(struct udevice *user, const char *phy_
  */
 static inline bool generic_phy_valid(struct phy *phy)
 {
-	return phy->dev != NULL;
+	return phy && phy->dev;
 }
 
 #endif /*__GENERIC_PHY_H */

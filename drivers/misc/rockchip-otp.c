@@ -9,8 +9,14 @@
 #include <dm.h>
 #include <linux/bitops.h>
 #include <linux/delay.h>
+#include <linux/iopoll.h>
 #include <misc.h>
 #include <rockchip-otp.h>
+
+struct otp_data {
+	int (*init)(struct udevice *dev);
+	int (*read)(struct udevice *dev, int offset, void *buf, int size);
+};
 
 static int rockchip_otp_wait_status(struct rockchip_otp_platdata *otp,
 				    u32 flag)
@@ -91,16 +97,116 @@ read_end:
 	return ret;
 }
 
+static int rockchip_rk3568_otp_read(struct udevice *dev, int offset, void *buf,
+				    int size)
+{
+	struct rockchip_otp_platdata *otp = dev_get_platdata(dev);
+	unsigned int addr_start, addr_end, addr_offset, addr_len;
+	u32 out_value;
+	u8 *buffer;
+	int ret = 0, i = 0;
+
+	addr_start = rounddown(offset, RK3568_NBYTES) / RK3568_NBYTES;
+	addr_end = roundup(offset + size, RK3568_NBYTES) / RK3568_NBYTES;
+	addr_offset = offset % RK3568_NBYTES;
+	addr_len = addr_end - addr_start;
+
+	buffer = calloc(1, sizeof(*buffer) * addr_len * RK3568_NBYTES);
+	if (!buffer)
+		return -ENOMEM;
+
+	ret = rockchip_otp_ecc_enable(otp, false);
+	if (ret < 0) {
+		printf("%s rockchip_otp_ecc_enable err\n", __func__);
+		return ret;
+	}
+
+	writel(OTPC_USE_USER | OTPC_USE_USER_MASK, otp->base + OTPC_USER_CTRL);
+	udelay(5);
+	while (addr_len--) {
+		writel(addr_start++ | OTPC_USER_ADDR_MASK,
+		       otp->base + OTPC_USER_ADDR);
+		writel(OTPC_USER_FSM_ENABLE | OTPC_USER_FSM_ENABLE_MASK,
+		       otp->base + OTPC_USER_ENABLE);
+		ret = rockchip_otp_wait_status(otp, OTPC_USER_DONE);
+		if (ret < 0) {
+			printf("%s timeout during read setup\n", __func__);
+			goto read_end;
+		}
+		out_value = readl(otp->base + OTPC_USER_Q);
+		memcpy(&buffer[i], &out_value, RK3568_NBYTES);
+		i += RK3568_NBYTES;
+	}
+
+	memcpy(buf, buffer + addr_offset, size);
+
+read_end:
+	writel(0x0 | OTPC_USE_USER_MASK, otp->base + OTPC_USER_CTRL);
+
+	kfree(buffer);
+
+	return ret;
+}
+
+static int rockchip_rv1126_otp_init(struct udevice *dev)
+{
+	struct rockchip_otp_platdata *otp = dev_get_platdata(dev);
+	u32 status = 0;
+	int ret;
+
+	writel(0x0, otp->base + RV1126_OTP_NVM_CEB);
+	ret = readl_poll_timeout(otp->base + RV1126_OTP_NVM_ST, status,
+				 status & 0x1, OTPC_TIMEOUT);
+	if (ret < 0) {
+		printf("%s timeout during set ceb\n", __func__);
+		return ret;
+	}
+
+	writel(0x1, otp->base + RV1126_OTP_NVM_RSTB);
+	ret = readl_poll_timeout(otp->base + RV1126_OTP_NVM_ST, status,
+				 status & 0x4, OTPC_TIMEOUT);
+	if (ret < 0) {
+		printf("%s timeout during set rstb\n", __func__);
+		return ret;
+	}
+
+	return 0;
+}
+
+static int rockchip_rv1126_otp_read(struct udevice *dev, int offset, void *buf,
+				    int size)
+{
+	struct rockchip_otp_platdata *otp = dev_get_platdata(dev);
+	u32 status = 0;
+	u8 *buffer = buf;
+	int ret = 0;
+
+	while (size--) {
+		writel(offset++, otp->base + RV1126_OTP_NVM_RADDR);
+		writel(0x1, otp->base + RV1126_OTP_NVM_RSTART);
+		ret = readl_poll_timeout(otp->base + RV1126_OTP_READ_ST,
+					 status, status == 0, OTPC_TIMEOUT);
+		if (ret < 0) {
+			printf("%s timeout during read setup\n", __func__);
+			return ret;
+		}
+
+		*buffer++ = readb(otp->base + RV1126_OTP_NVM_RDATA);
+	}
+
+	return 0;
+}
+
 static int rockchip_otp_read(struct udevice *dev, int offset,
 			     void *buf, int size)
 {
-	OTP_READ otp_read = NULL;
+	struct otp_data *data;
 
-	otp_read = (OTP_READ)dev_get_driver_data(dev);
-	if (!otp_read)
+	data = (struct otp_data *)dev_get_driver_data(dev);
+	if (!data)
 		return -ENOSYS;
 
-	return (*otp_read)(dev, offset, buf, size);
+	return data->read(dev, offset, buf, size);
 }
 
 static const struct misc_ops rockchip_otp_ops = {
@@ -116,14 +222,49 @@ static int rockchip_otp_ofdata_to_platdata(struct udevice *dev)
 	return 0;
 }
 
+static int rockchip_otp_probe(struct udevice *dev)
+{
+	struct otp_data *data;
+
+	data = (struct otp_data *)dev_get_driver_data(dev);
+	if (!data)
+		return -EINVAL;
+
+	if (data->init)
+		return data->init(dev);
+
+	return 0;
+}
+
+static const struct otp_data px30_data = {
+	.read = rockchip_px30_otp_read,
+};
+
+static const struct otp_data rk3568_data = {
+	.read = rockchip_rk3568_otp_read,
+};
+
+static const struct otp_data rv1126_data = {
+	.init = rockchip_rv1126_otp_init,
+	.read = rockchip_rv1126_otp_read,
+};
+
 static const struct udevice_id rockchip_otp_ids[] = {
 	{
 		.compatible = "rockchip,px30-otp",
-		.data = (ulong)&rockchip_px30_otp_read,
+		.data = (ulong)&px30_data,
 	},
 	{
 		.compatible = "rockchip,rk3308-otp",
-		.data = (ulong)&rockchip_px30_otp_read,
+		.data = (ulong)&px30_data,
+	},
+	{
+		.compatible = "rockchip,rk3568-otp",
+		.data = (ulong)&rk3568_data,
+	},
+	{
+		.compatible = "rockchip,rv1126-otp",
+		.data = (ulong)&rv1126_data,
 	},
 	{}
 };
@@ -135,4 +276,5 @@ U_BOOT_DRIVER(rockchip_otp) = {
 	.ops = &rockchip_otp_ops,
 	.ofdata_to_platdata = rockchip_otp_ofdata_to_platdata,
 	.platdata_auto_alloc_size = sizeof(struct rockchip_otp_platdata),
+	.probe = rockchip_otp_probe,
 };

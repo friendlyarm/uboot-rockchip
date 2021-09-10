@@ -149,7 +149,7 @@ void board_init_f_init_reserve(ulong base);
 /*
  * Board-specific Platform code can init serial earlier if needed
  */
-__weak int board_init_f_init_serial(void);
+__weak int board_init_f_boot_flags(void);
 
 /**
  * arch_setup_gd() - Set up the global_data pointer
@@ -522,6 +522,8 @@ int	is_core_valid (unsigned int);
  * version (which does nothing) will be used.
  */
 int arch_cpu_init(void);
+
+int arch_fpga_init(void);
 
 void s_init(void);
 

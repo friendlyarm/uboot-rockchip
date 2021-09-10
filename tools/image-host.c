@@ -153,6 +153,7 @@ static int fit_image_setup_sig(struct image_sign_info *info,
 {
 	const char *node_name;
 	char *algo_name;
+	const char *padding_name;
 
 	node_name = fit_get_name(fit, noffset, NULL);
 	if (fit_image_hash_get_algo(fit, noffset, &algo_name)) {
@@ -161,6 +162,9 @@ static int fit_image_setup_sig(struct image_sign_info *info,
 		return -1;
 	}
 
+	padding_name = fdt_getprop(fit, noffset, "padding", NULL);
+	if (!padding_name)
+		padding_name = "pkcs-1.5";
 	memset(info, '\0', sizeof(*info));
 	info->keydir = keydir;
 	info->keyname = fdt_getprop(fit, noffset, "key-name-hint", NULL);
@@ -169,6 +173,7 @@ static int fit_image_setup_sig(struct image_sign_info *info,
 	info->name = algo_name;
 	info->checksum = image_get_checksum_algo(algo_name);
 	info->crypto = image_get_crypto_algo(algo_name);
+	info->padding = image_get_padding_algo(padding_name);
 	info->require_keys = require_keys;
 	info->engine_id = engine_id;
 	if (!info->checksum || !info->crypto) {
@@ -415,6 +420,7 @@ static int fit_config_get_hash_list(void *fit, int conf_noffset,
 	strlist_init(node_inc);
 	snprintf(name, sizeof(name), "%s/%s", FIT_CONFS_PATH, conf_name);
 	if (strlist_add(node_inc, "/") ||
+	    strlist_add(node_inc, FIT_CONFS_PATH) ||
 	    strlist_add(node_inc, name))
 		goto err_mem;
 

@@ -17,6 +17,7 @@
 #define __IMAGE_H__
 
 #include "compiler.h"
+#include <stdbool.h>
 #include <asm/byteorder.h>
 
 /* Define this to avoid #ifdefs later on */
@@ -29,6 +30,7 @@ struct lmb;
 #define IMAGE_ENABLE_FIT	1
 #define IMAGE_ENABLE_OF_LIBFDT	1
 #define CONFIG_FIT_VERBOSE	1 /* enable fit_format_{error,warning}() */
+#define CONFIG_FIT_ENABLE_RSASSA_PSS_SUPPORT 1
 #define CONFIG_FIT_ENABLE_SHA256_SUPPORT
 #define CONFIG_SHA1
 #define CONFIG_SHA256
@@ -920,13 +922,16 @@ int bootz_setup(ulong image, ulong *start, ulong *end);
 #define FIT_DATA_SIZE_PROP	"data-size"
 #define FIT_TIMESTAMP_PROP	"timestamp"
 #define FIT_TOTALSIZE_PROP	"totalsize"
+#define FIT_VERSION_PROP	"version"
 #define FIT_DESC_PROP		"description"
 #define FIT_ARCH_PROP		"arch"
 #define FIT_TYPE_PROP		"type"
 #define FIT_OS_PROP		"os"
 #define FIT_COMP_PROP		"compression"
+#define FIT_COMP_ADDR_PROP	"comp"
 #define FIT_ENTRY_PROP		"entry"
 #define FIT_LOAD_PROP		"load"
+#define FIT_PRE_LOAD_PROP	"preload"
 #define FIT_ROLLBACK_PROP	"rollback-index"
 
 /* configuration node */
@@ -942,6 +947,7 @@ int bootz_setup(ulong image, ulong *start, ulong *end);
 #define FIT_STANDALONE_PROP	"standalone"
 
 #define FIT_MAX_HASH_LEN	HASH_MAX_DIGEST_SIZE
+#define FIT_MAX_SPL_IMAGE_SZ	SZ_2M
 
 #if IMAGE_ENABLE_FIT
 
@@ -1001,14 +1007,17 @@ static inline const char *fit_get_name(const void *fit_hdr,
 
 int fit_get_desc(const void *fit, int noffset, char **desc);
 int fit_get_timestamp(const void *fit, int noffset, time_t *timestamp);
+int fit_get_totalsize(const void *fit, int *totalsize);
 
 int fit_image_get_node(const void *fit, const char *image_uname);
 int fit_image_get_os(const void *fit, int noffset, uint8_t *os);
 int fit_image_get_arch(const void *fit, int noffset, uint8_t *arch);
 int fit_image_get_type(const void *fit, int noffset, uint8_t *type);
 int fit_image_get_comp(const void *fit, int noffset, uint8_t *comp);
+bool fit_image_is_preload(const void *fit, int noffset);
 int fit_image_get_load(const void *fit, int noffset, ulong *load);
 int fit_image_get_entry(const void *fit, int noffset, ulong *entry);
+int fit_image_get_comp_addr(const void *fit, int noffset, ulong *comp);
 int fit_image_set_load(const void *fit, int noffset, ulong load);
 int fit_image_set_entry(const void *fit, int noffset, ulong entry);
 int fit_image_get_data(const void *fit, int noffset,
@@ -1027,6 +1036,7 @@ int fit_image_check_hash(const void *fit, int noffset, const void *data,
 
 int fit_set_timestamp(void *fit, int noffset, time_t timestamp);
 int fit_set_totalsize(void *fit, int noffset, int totalsize);
+int fit_set_version(void *fit, int noffset, int version);
 
 /**
  * fit_add_verification_data() - add verification data to FIT image nodes
@@ -1142,6 +1152,7 @@ struct image_sign_info {
 	int node_offset;		/* Offset of signature node */
 	const char *name;		/* Algorithm name */
 	struct checksum_algo *checksum;	/* Checksum algorithm information */
+	struct padding_algo *padding;	/* Padding algorithm information */
 	struct crypto_algo *crypto;	/* Crypto algorithm information */
 	const void *fdt_blob;		/* FDT containing public keys */
 	int required_keynode;		/* Node offset of key to use: -1=any */
@@ -1227,6 +1238,13 @@ struct crypto_algo {
 		      uint8_t *sig, uint sig_len);
 };
 
+struct padding_algo {
+	const char *name;
+	int (*verify)(struct image_sign_info *info,
+		      uint8_t *pad, int pad_len,
+		      const uint8_t *hash, int hash_len);
+};
+
 /**
  * image_get_checksum_algo() - Look up a checksum algorithm
  *
@@ -1242,6 +1260,14 @@ struct checksum_algo *image_get_checksum_algo(const char *full_name);
  * @return pointer to algorithm information, or NULL if not found
  */
 struct crypto_algo *image_get_crypto_algo(const char *full_name);
+
+/**
+ * image_get_padding_algo() - Look up a padding algorithm
+ *
+ * @param name		Name of padding algorithm
+ * @return pointer to algorithm information, or NULL if not found
+ */
+struct padding_algo *image_get_padding_algo(const char *name);
 
 /**
  * fit_image_verify_required_sigs() - Verify signatures marked as 'required'
@@ -1340,6 +1366,9 @@ void android_image_set_decomp(struct andr_img_hdr *hdr, int comp);
 int android_image_parse_comp(struct andr_img_hdr *hdr, ulong *load_addr);
 int android_image_memcpy_separate(struct andr_img_hdr *hdr, ulong *load_address);
 
+struct andr_img_hdr *populate_andr_img_hdr(struct blk_desc *dev_desc,
+					   disk_partition_t *part_boot);
+
 /** android_image_load - Load an Android Image from storage.
  *
  * Load an Android Image based on the header size in the storage.
@@ -1391,11 +1420,16 @@ int board_fit_config_name_match(const char *name);
  * into the FIT creation (i.e. the binary blobs would have been pre-processed
  * before being added to the FIT image).
  *
+ * @fit: fit blob
  * @image: pointer to the image start pointer
+ * @load_addr: load address pointer to image(Uncompressed)
+ * @src_addr: source address pointer to image(Compressed maybe)
  * @size: pointer to the image size
  * @return no return value (failure should be handled internally)
  */
-void board_fit_image_post_process(void **p_image, size_t *p_size);
+void board_fit_image_post_process(void *fit, int node, ulong *load_addr,
+				  ulong **src_addr, size_t *size);
+
 #endif /* CONFIG_SPL_FIT_IMAGE_POST_PROCESS */
 
 #define FDT_ERROR	((ulong)(-1))

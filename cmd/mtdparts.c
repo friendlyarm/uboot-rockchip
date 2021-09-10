@@ -38,7 +38,7 @@
  * mtdids=<idmap>[,<idmap>,...]
  *
  * <idmap>    := <dev-id>=<mtd-id>
- * <dev-id>   := 'nand'|'nor'|'onenand'<dev-num>
+ * <dev-id>   := 'nand'|'nor'|'onenand'|'spi-nand'<dev-num>
  * <dev-num>  := mtd device number, 0...
  * <mtd-id>   := unique device tag used by linux kernel to find mtd device (mtd->name)
  *
@@ -178,13 +178,16 @@ static u64 memsize_parse (const char *const ptr, const char **retptr)
 		case 'G':
 		case 'g':
 			ret <<= 10;
+			/* Fallthrough */
 		case 'M':
 		case 'm':
 			ret <<= 10;
+			/* Fallthrough */
 		case 'K':
 		case 'k':
 			ret <<= 10;
 			(*retptr)++;
+			/* Fallthrough */
 		default:
 			break;
 	}
@@ -337,7 +340,7 @@ static int part_validate_eraseblock(struct mtdids *id, struct part_info *part)
 
 	if (!mtd->numeraseregions) {
 		/*
-		 * Only one eraseregion (NAND, OneNAND or uniform NOR),
+		 * Only one eraseregion (NAND, SPI-NAND, OneNAND or uniform NOR),
 		 * checking for alignment is easy here
 		 */
 		offset = part->offset;
@@ -691,7 +694,7 @@ static int part_parse(const char *const partdef, const char **ret, struct part_i
 		part->auto_name = 0;
 	} else {
 		/* auto generated name in form of size@offset */
-		sprintf(part->name, "0x%08llx@0x%08llx", size, offset);
+		snprintf(part->name, name_len, "0x%08llx@0x%08llx", size, offset);
 		part->auto_name = 1;
 	}
 
@@ -873,14 +876,11 @@ static int device_parse(const char *const mtd_dev, const char **ret, struct mtd_
 		return 1;
 	}
 
-#ifdef DEBUG
 	pend = strchr(p, ';');
-#endif
 	debug("dev type = %d (%s), dev num = %d, mtd-id = %s\n",
 			id->type, MTD_DEV_TYPE(id->type),
 			id->num, id->mtd_id);
 	debug("parsing partitions %.*s\n", (int)(pend ? pend - p : strlen(p)), p);
-
 
 	/* parse partitions */
 	num_parts = 0;
@@ -1031,7 +1031,7 @@ static struct mtdids* id_find_by_mtd_id(const char *mtd_id, unsigned int mtd_id_
 }
 
 /**
- * Parse device id string <dev-id> := 'nand'|'nor'|'onenand'<dev-num>,
+ * Parse device id string <dev-id> := 'nand'|'nor'|'onenand'|'spi-nand'<dev-num>,
  * return device type and number.
  *
  * @param id string describing device id
@@ -1055,6 +1055,9 @@ int mtd_id_parse(const char *id, const char **ret_id, u8 *dev_type,
 	} else if (strncmp(p, "onenand", 7) == 0) {
 		*dev_type = MTD_DEV_TYPE_ONENAND;
 		p += 7;
+	} else if (strncmp(p, "spi-nand", 8) == 0) {
+		*dev_type = MTD_DEV_TYPE_SPINAND;
+		p += 8;
 	} else {
 		printf("incorrect device type in %s\n", id);
 		return 1;
@@ -1637,7 +1640,7 @@ static int parse_mtdids(const char *const ids)
 	while(p && (*p != '\0')) {
 
 		ret = 1;
-		/* parse 'nor'|'nand'|'onenand'<dev-num> */
+		/* parse 'nor'|'nand'|'onenand'|'spi-nand'<dev-num> */
 		if (mtd_id_parse(p, &p, &type, &num) != 0)
 			break;
 
@@ -2113,7 +2116,7 @@ static char mtdparts_help_text[] =
 	"'mtdids' - linux kernel mtd device id <-> u-boot device id mapping\n\n"
 	"mtdids=<idmap>[,<idmap>,...]\n\n"
 	"<idmap>    := <dev-id>=<mtd-id>\n"
-	"<dev-id>   := 'nand'|'nor'|'onenand'<dev-num>\n"
+	"<dev-id>   := 'nand'|'nor'|'onenand'|'spi-nand'<dev-num>\n"
 	"<dev-num>  := mtd device number, 0...\n"
 	"<mtd-id>   := unique device tag used by linux kernel to find mtd device (mtd->name)\n\n"
 	"'mtdparts' - partition list\n\n"

@@ -5,6 +5,7 @@
  */
 #include <common.h>
 #include <asm/io.h>
+#include <asm/arch/boot_mode.h>
 #include <asm/arch/hardware.h>
 #include <asm/arch/grf_rv1126.h>
 
@@ -33,7 +34,7 @@ DECLARE_GLOBAL_DATA_PTR;
 #define ISPP_M0_PRIORITY_REG	0xfe880008
 #define ISPP_M1_PRIORITY_REG	0xfe880088
 #define ISP_PRIORITY_REG	0xfe890008
-#define CIF_LIFE_PRIORITY_REG	0xfe890088
+#define CIF_LITE_PRIORITY_REG	0xfe890088
 #define CIF_PRIORITY_REG	0xfe890108
 #define IEP_PRIORITY_REG	0xfe8a0008
 #define RGA_RD_PRIORITY_REG	0xfe8a0088
@@ -42,17 +43,48 @@ DECLARE_GLOBAL_DATA_PTR;
 #define VDPU_PRIORITY_REG	0xfe8b0008
 #define JPEG_PRIORITY_REG	0xfe8c0008
 #define CRYPTO_PRIORITY_REG	0xfe8d0008
+/* external priority register */
+#define ISPP_M0_PRIORITY_EX_REG	0xfe880018
+#define ISPP_M1_PRIORITY_EX_REG	0xfe880098
+#define ISP_PRIORITY_EX_REG	0xfe890018
+#define CIF_LT_PRIORITY_EX_REG	0xfe890098
+#define CIF_PRIORITY_EX_REG	0xfe890118
+#define VOP_PRIORITY_EX_REG	0xfe8a0198
+#define VDPU_PRIORITY_EX_REG	0xfe8b0018
 
 #define PMU_BASE_ADDR		0xff3e0000
 
 #define PMU_BUS_IDLE_SFTCON(n)	(0xc0 + (n) * 4)
 #define PMU_BUS_IDLE_ACK	(0xd0)
 #define PMU_BUS_IDLE_ST		(0xd8)
+#define PMU_NOC_AUTO_CON0	(0xe0)
+#define PMU_NOC_AUTO_CON1	(0xe4)
 #define PMU_PWR_DWN_ST		(0x108)
 #define PMU_PWR_GATE_SFTCON	(0x110)
 
 #define CRU_BASE		0xFF490000
+#define CRU_CLKSEL_CON02	0x108
+#define CRU_CLKSEL_CON03	0x10c
+#define CRU_CLKSEL_CON27	0x16c
+#define CRU_CLKSEL_CON31	0x17c
+#define CRU_CLKSEL_CON33	0x184
+#define CRU_CLKSEL_CON40	0x1a0
+#define CRU_CLKSEL_CON49	0x1c4
+#define CRU_CLKSEL_CON50	0x1c8
+#define CRU_CLKSEL_CON51	0x1cc
+#define CRU_CLKSEL_CON54	0x1d8
+#define CRU_CLKSEL_CON61	0x1f4
+#define CRU_CLKSEL_CON63	0x1fc
+#define CRU_CLKSEL_CON65	0x204
+#define CRU_CLKSEL_CON67	0x20c
+#define CRU_CLKSEL_CON68	0x210
+#define CRU_CLKSEL_CON69	0x214
 #define CRU_SOFTRST_CON02	0x308
+
+#define CRU_PMU_BASE		0xFF480000
+#define CRU_PMU_GPLL_CON0	0x10
+#define CRU_PMU_GPLL_CON1	0x14
+
 #define GRF_BASE		0xFE000000
 #define PMUGRF_BASE		0xFE020000
 #define SGRF_BASE		0xFE0A0000
@@ -60,7 +92,18 @@ DECLARE_GLOBAL_DATA_PTR;
 #define SGRF_SOC_CON3		0x00c
 #define CRU_SOFTRST_CON11	0xFF49032C
 #define PMUGRF_SOC_CON1		0xFE020104
+#define PMUGRF_RSTFUNC_STATUS	0xFE020230
+#define PMUGRF_RSTFUNC_CLR	0xFE020234
+#define WDT_RESET_SRC		BIT(1)
+#define WDT_RESET_SRC_CLR	BIT(1)
 #define GRF_IOFUNC_CON3		0xFF01026C
+#define GRF1_GPIO0D_P		0xFE010104
+#define OTP_NS_BASE		0xFF5C0000
+#define OTP_S_BASE		0xFF5D0000
+#define OTP_NVM_TRWH		0x28
+
+#define PMU_GRF_BASE		0xFE020000
+#define PMUGRF_GPIO0B_IOMUX_H	0xc
 
 enum {
 	GPIO1A7_SHIFT		= 12,
@@ -337,6 +380,7 @@ void board_debug_uart_init(void)
 
 #elif defined(CONFIG_DEBUG_UART_BASE) && (CONFIG_DEBUG_UART_BASE == 0xff410000)
 	static struct rv1126_pmugrf * const pmugrf = (void *)PMUGRF_BASE;
+	static struct rv1126_grf * const grf = (void *)GRF_BASE;
 #if defined(CONFIG_ROCKCHIP_UART_MUX_SEL_M) && \
     (CONFIG_ROCKCHIP_UART_MUX_SEL_M == 0)
 	/* UART1 M0 */
@@ -354,7 +398,7 @@ void board_debug_uart_init(void)
 		     UART1_IO_SEL_M1 << UART1_IO_SEL_SHIFT);
 
 	/* Switch iomux */
-	rk_clrsetreg(&topgrf->gpio1d_iomux_l,
+	rk_clrsetreg(&grf->gpio1d_iomux_l,
 		     GPIO1D1_MASK | GPIO1D0_MASK,
 		     GPIO1D1_UART1_RX_M1 << GPIO1D1_SHIFT |
 		     GPIO1D0_UART1_TX_M1 << GPIO1D0_SHIFT);
@@ -495,19 +539,72 @@ void board_debug_uart_init(void)
 #endif /* CONFIG_DEBUG_UART_BASE && CONFIG_DEBUG_UART_BASE == ... */
 }
 
+#ifndef CONFIG_TPL_BUILD
 int arch_cpu_init(void)
 {
-#if defined(CONFIG_SPL_BUILD) && !defined(CONFIG_TPL_BUILD) || defined(CONFIG_SUPPORT_USBPLUG)
-	/* Just set region 0 to unsecure */
+	/*
+	 * CONFIG_DM_RAMDISK: for ramboot that without SPL.
+	 */
+#if defined(CONFIG_SPL_BUILD) || defined(CONFIG_DM_RAMDISK)
+	int delay;
+
+	/* write BOOT_WATCHDOG to boot mode register, if reset by wdt */
+	if (readl(PMUGRF_RSTFUNC_STATUS) & WDT_RESET_SRC) {
+		writel(BOOT_WATCHDOG, CONFIG_ROCKCHIP_BOOT_MODE_REG);
+		/* clear flag for reset by wdt trigger */
+		writel(WDT_RESET_SRC_CLR, PMUGRF_RSTFUNC_CLR);
+	}
+
+  #ifdef CONFIG_SPL_BUILD
+	/* set otp tRWH to 0x9 for stable read */
+	writel(0x9, OTP_NS_BASE + OTP_NVM_TRWH);
+	writel(0x9, OTP_S_BASE + OTP_NVM_TRWH);
+
+	/*
+	 * Just set region 0 to unsecure.
+	 * (Note: only secure-world can access this register)
+	 */
 	writel(0, FIREWALL_APB_BASE + FW_DDR_CON_REG);
-#endif
+  #endif
 
 	/* disable force jtag mux route to both group0 and group1 */
 	writel(0x00300000, GRF_IOFUNC_CON3);
 
-#if !defined(CONFIG_TPL_BUILD)
-	int delay;
+	/* make npu aclk and sclk less then 300MHz when reset */
+	writel(0x00ff0055, CRU_BASE + CRU_CLKSEL_CON65);
+	writel(0x00ff0055, CRU_BASE + CRU_CLKSEL_CON67);
 
+	/*
+	 * When perform idle operation, corresponding clock can
+	 * be opened or gated automatically.
+	 */
+	writel(0xffffffff, PMU_BASE_ADDR + PMU_NOC_AUTO_CON0);
+	writel(0xffffffff, PMU_BASE_ADDR + PMU_NOC_AUTO_CON1);
+
+  #ifdef CONFIG_SPL_KERNEL_BOOT
+	/* Adjust the parameters of GPLL's VCO for reduce power*/
+	writel(0x00030000, CRU_PMU_BASE);
+	writel(0xffff1063, CRU_PMU_BASE + CRU_PMU_GPLL_CON0);
+	writel(0xffff1442, CRU_PMU_BASE + CRU_PMU_GPLL_CON1);
+	writel(0x00030001, CRU_PMU_BASE);
+
+	/* mux clocks to none-cpll */
+	writel(0x00ff0003, CRU_BASE + CRU_CLKSEL_CON02);
+	writel(0x00ff0005, CRU_BASE + CRU_CLKSEL_CON03);
+	writel(0xffff8383, CRU_BASE + CRU_CLKSEL_CON27);
+	writel(0x00ff0083, CRU_BASE + CRU_CLKSEL_CON31);
+	writel(0x00ff0083, CRU_BASE + CRU_CLKSEL_CON33);
+	writel(0xffff4385, CRU_BASE + CRU_CLKSEL_CON40);
+	writel(0x00ff0043, CRU_BASE + CRU_CLKSEL_CON49);
+	writel(0x00ff0003, CRU_BASE + CRU_CLKSEL_CON50);
+	writel(0x00ff0003, CRU_BASE + CRU_CLKSEL_CON51);
+	writel(0xff000300, CRU_BASE + CRU_CLKSEL_CON54);
+	writel(0xff008900, CRU_BASE + CRU_CLKSEL_CON61);
+	writel(0x00ff0089, CRU_BASE + CRU_CLKSEL_CON63);
+	writel(0x00ff0045, CRU_BASE + CRU_CLKSEL_CON68);
+	writel(0x00ff0043, CRU_BASE + CRU_CLKSEL_CON69);
+
+  #endif
 	/* enable all pd */
 	writel(0xffff0000, PMU_BASE_ADDR + PMU_PWR_GATE_SFTCON);
 	delay = 1000;
@@ -563,10 +660,10 @@ int arch_cpu_init(void)
 	writel(0x101, VEPU_RD0_PRIORITY_REG);
 	writel(0x101, VEPU_RD1_PRIORITY_REG);
 	writel(0x101, VEPU_WR_PRIORITY_REG);
-	writel(0x202, ISPP_M0_PRIORITY_REG);
-	writel(0x202, ISPP_M1_PRIORITY_REG);
-	writel(0x303, ISP_PRIORITY_REG);
-	writel(0x202, CIF_LIFE_PRIORITY_REG);
+	writel(0x101, ISPP_M0_PRIORITY_REG);
+	writel(0x101, ISPP_M1_PRIORITY_REG);
+	writel(0x101, ISP_PRIORITY_REG);
+	writel(0x202, CIF_LITE_PRIORITY_REG);
 	writel(0x202, CIF_PRIORITY_REG);
 	writel(0x101, IEP_PRIORITY_REG);
 	writel(0x101, RGA_RD_PRIORITY_REG);
@@ -575,9 +672,21 @@ int arch_cpu_init(void)
 	writel(0x101, VDPU_PRIORITY_REG);
 	writel(0x101, JPEG_PRIORITY_REG);
 	writel(0x101, CRYPTO_PRIORITY_REG);
-#endif
+	/* enable dynamic priority */
+	writel(0x1, ISP_PRIORITY_EX_REG);
 
-#if defined(CONFIG_SUPPORT_USBPLUG)
+	/*
+	 * Init the i2c0 iomux and use it to control electronic voltmeter
+	 * to detect voltage.
+	 */
+  #if defined(CONFIG_SPL_KERNEL_BOOT) && defined(CONFIG_SPL_DM_FUEL_GAUGE)
+	writel(0x00770011, PMU_GRF_BASE + PMUGRF_GPIO0B_IOMUX_H);
+  #endif
+
+#elif defined(CONFIG_SUPPORT_USBPLUG)
+	/* Just set region 0 to unsecure */
+	writel(0, FIREWALL_APB_BASE + FW_DDR_CON_REG);
+
 	/* reset usbphy_otg usbphypor_otg */
 	writel(((0x1 << 6 | (1 << 8)) << 16) | (0x1 << 6) | (1 << 8), CRU_SOFTRST_CON11);
 	udelay(50);
@@ -585,10 +694,37 @@ int arch_cpu_init(void)
 
 	/* hold pmugrf's io reset */
 	writel(0x1 << 7 | 1 << 23, PMUGRF_SOC_CON1);
+
+#else /* U-Boot */
+	/* uboot: config iomux for sd boot upgrade firmware */
+  #if defined(CONFIG_ROCKCHIP_SFC_IOMUX)
+	static struct rv1126_grf * const grf = (void *)GRF_BASE;
+
+	writel(0x0F0F0303, &grf->gpio0d_iomux_h);
+	writel(0xFFFF3333, &grf->gpio1a_iomux_l);
+  #elif defined(CONFIG_ROCKCHIP_EMMC_IOMUX)
+	static struct rv1126_grf * const grf = (void *)GRF_BASE;
+
+	writel(0xFFFF2222, &grf->gpio0c_iomux_h);
+	writel(0xFFFF2222, &grf->gpio0d_iomux_l);
+	writel(0xF0F02020, &grf->gpio0d_iomux_h);
+  #elif defined(CONFIG_ROCKCHIP_NAND_IOMUX)
+	static struct rv1126_grf * const grf = (void *)GRF_BASE;
+
+	writel(0xFFFF1111, &grf->gpio0c_iomux_h);
+	writel(0xFFFF1111, &grf->gpio0d_iomux_l);
+	writel(0xF0FF1011, &grf->gpio0d_iomux_h);
+	writel(0xFFFF1111, &grf->gpio1a_iomux_l);
+  #endif
+
 #endif
+
+	/* GPIO0_D6 pull down in default, pull up it for SPI Flash */
+	writel(((0x3 << 12) << 16) | (0x1 << 12), GRF1_GPIO0D_P);
 
 	return 0;
 }
+#endif
 
 #ifdef CONFIG_SPL_BUILD
 int spl_fit_standalone_release(uintptr_t entry_point)
@@ -599,6 +735,7 @@ int spl_fit_standalone_release(uintptr_t entry_point)
 	/* set the scr1 addr */
 	writel(entry_point, SGRF_BASE + SGRF_CON_SCR1_BOOT_ADDR);
 	writel(0x00ff00bf, SGRF_BASE + SGRF_SOC_CON3);
+	udelay(10);
 	/* release the scr1 */
 	writel(0x04000000, CRU_BASE + CRU_SOFTRST_CON02);
 

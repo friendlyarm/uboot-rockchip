@@ -11,6 +11,10 @@ menuconfig DRM_ROCKCHIP
 	  This driver supports the on-chip video output device, and targets the
 	  Rockchip RK3288 and RK3399.
 
+config DRM_DP_HELPER
+	bool
+	depends on DRM_ROCKCHIP
+
 config DRM_ROCKCHIP_PANEL
 	bool "Rockchip Panel Support"
 	depends on DRM_ROCKCHIP
@@ -18,6 +22,14 @@ config DRM_ROCKCHIP_PANEL
 
 config DRM_ROCKCHIP_DW_HDMI
 	bool "Rockchip specific extensions for Synopsys DW HDMI"
+	depends on DRM_ROCKCHIP
+	help
+	 This selects support for Rockchip SoC specific extensions
+	 for the Synopsys DesignWare HDMI driver. If you want to
+	 enable HDMI on, you should selet this option.
+
+config DRM_ROCKCHIP_INNO_HDMI
+	bool "Rockchip specific extensions for INNO HDMI"
 	depends on DRM_ROCKCHIP
 	help
 	 This selects support for Rockchip SoC specific extensions
@@ -72,6 +84,7 @@ config DRM_ROCKCHIP_ANALOGIX_DP
 	bool "Rockchip specific extensions for Analogix DP driver"
 	depends on DRM_ROCKCHIP
 	select DRM_ROCKCHIP_PANEL
+	select DRM_DP_HELPER
 	help
 	  This selects support for Rockchip SoC specific extensions
 	  for the Analogix Core DP driver. If you want to enable DP
@@ -120,3 +133,10 @@ config ROCKCHIP_DRM_TVE
 	  Choose this option to enable support for Rockchip TVE.
 	  Rockchip rk322x and rk322xh SoC has TVE can be used, and
 	  say Y to enable TVE driver.
+
+config ROCKCHIP_CUBIC_LUT_SIZE
+	int "Rockchip cubic lut size"
+	depends on DRM_ROCKCHIP
+	default 0
+	help
+	  Used to calc cubic lut size.

@@ -563,13 +563,19 @@ void board_init_r(gd_t *dummy1, ulong dummy2)
 		break;
 #if CONFIG_IS_ENABLED(ATF)
 	case IH_OS_ARM_TRUSTED_FIRMWARE:
-		printf("Jumping to U-Boot via ARM Trusted Firmware\n\n");
+		printf("Jumping to %s(0x%08lx) via ARM Trusted Firmware(0x%08lx)\n",
+		       spl_image.next_stage == SPL_NEXT_STAGE_UBOOT ? "U-Boot" :
+		       (spl_image.next_stage == SPL_NEXT_STAGE_KERNEL ? "Kernel" : "Unknown"),
+		       (ulong)spl_image.entry_point_bl33,
+		       (ulong)spl_image.entry_point);
 		spl_invoke_atf(&spl_image);
 		break;
 #endif
 #if CONFIG_IS_ENABLED(OPTEE)
 	case IH_OS_OP_TEE:
-		printf("Jumping to U-Boot(0x%08lx) via OP-TEE(0x%08lx)\n\n",
+		printf("Jumping to %s(0x%08lx) via OP-TEE(0x%08lx)\n",
+		       spl_image.next_stage == SPL_NEXT_STAGE_UBOOT ? "U-Boot" :
+		       (spl_image.next_stage == SPL_NEXT_STAGE_KERNEL ? "Kernel" : "Unknown"),
 		       (ulong)spl_image.entry_point_os,
 		       (ulong)spl_image.entry_point);
 		spl_cleanup_before_jump(&spl_image);
@@ -679,6 +685,8 @@ ulong spl_relocate_stack_gd(void)
 /* cleanup before jump to next stage */
 void spl_cleanup_before_jump(struct spl_image_info *spl_image)
 {
+	ulong us;
+
 	spl_board_prepare_for_jump(spl_image);
 
 	disable_interrupts();
@@ -698,4 +706,7 @@ void spl_cleanup_before_jump(struct spl_image_info *spl_image)
 
 	dsb();
 	isb();
+
+	us = (get_ticks() - gd->sys_start_tick) / 24UL;
+	printf("Total: %ld.%ld ms\n\n", us / 1000, us % 1000);
 }

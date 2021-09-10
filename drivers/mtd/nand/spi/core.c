@@ -705,10 +705,6 @@ static int spinand_markbad(struct nand_device *nand, const struct nand_pos *pos)
 	if (ret)
 		return ret;
 
-	ret = spinand_write_enable_op(spinand);
-	if (ret)
-		return ret;
-
 	return spinand_write_page(spinand, &req);
 }
 
@@ -819,11 +815,48 @@ static const struct nand_ops spinand_ops = {
 };
 
 static const struct spinand_manufacturer *spinand_manufacturers[] = {
+#ifdef CONFIG_SPI_NAND_GIGADEVICE
 	&gigadevice_spinand_manufacturer,
+#endif
+#ifdef CONFIG_SPI_NAND_MACRONIX
 	&macronix_spinand_manufacturer,
+#endif
+#ifdef CONFIG_SPI_NAND_MICRON
 	&micron_spinand_manufacturer,
+#endif
+#ifdef CONFIG_SPI_NAND_TOSHIBA
 	&toshiba_spinand_manufacturer,
+#endif
+#ifdef CONFIG_SPI_NAND_WINBOND
 	&winbond_spinand_manufacturer,
+#endif
+#ifdef CONFIG_SPI_NAND_DOSILICON
+	&dosilicon_spinand_manufacturer,
+#endif
+#ifdef CONFIG_SPI_NAND_ESMT
+	&esmt_spinand_manufacturer,
+#endif
+#ifdef CONFIG_SPI_NAND_XTX
+	&xtx_spinand_manufacturer,
+#endif
+#ifdef CONFIG_SPI_NAND_HYF
+	&hyf_spinand_manufacturer,
+#endif
+#ifdef CONFIG_SPI_NAND_FMSH
+	&fmsh_spinand_manufacturer,
+#endif
+#ifdef CONFIG_SPI_NAND_FORESEE
+	&foresee_spinand_manufacturer,
+#endif
+#ifdef CONFIG_SPI_NAND_BIWIN
+	&biwin_spinand_manufacturer,
+#endif
+#ifdef CONFIG_SPI_NAND_ETRON
+	&etron_spinand_manufacturer,
+#endif
+#ifdef CONFIG_SPI_NAND_JSC
+	&jsc_spinand_manufacturer,
+#endif
 };
 
 static int spinand_manufacturer_detect(struct spinand_device *spinand)
@@ -1141,7 +1174,7 @@ static int spinand_bind(struct udevice *udev)
 	struct udevice *bdev;
 
 	ret = blk_create_devicef(udev, "mtd_blk", "blk", IF_TYPE_MTD,
-				 1, 512, 0, &bdev);
+				 BLK_MTD_SPI_NAND, 512, 0, &bdev);
 	if (ret)
 		printf("Cannot create block device\n");
 #endif

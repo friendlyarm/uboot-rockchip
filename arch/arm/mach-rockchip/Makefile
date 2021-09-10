@@ -15,7 +15,7 @@ obj-tpl-y += tpl.o
 obj-spl-y += spl.o spl-boot-order.o
 
 ifndef CONFIG_TPL_BUILD
-obj-y += weak.o
+obj-$(CONFIG_$(SPL_)FIT) += fit_misc.o
 endif
 
 ifeq ($(CONFIG_SPL_BUILD)$(CONFIG_TPL_BUILD),)
@@ -27,6 +27,7 @@ ifeq ($(CONFIG_SPL_BUILD)$(CONFIG_TPL_BUILD),)
 
 obj-y += chip_info.o
 ifndef CONFIG_SUPPORT_USBPLUG
+obj-y += lowlevel_init.o
 obj-y += boot_mode.o
 obj-y += boot_rkimg.o
 obj-y += board.o
@@ -44,6 +45,7 @@ obj-$(CONFIG_ROCKCHIP_SMCCC) += rockchip_smccc.o
 obj-$(CONFIG_ROCKCHIP_VENDOR_PARTITION) += vendor.o
 obj-$(CONFIG_ROCKCHIP_RESOURCE_IMAGE) += resource_img.o
 obj-$(CONFIG_ROCKCHIP_DEBUGGER) += rockchip_debugger.o
+obj-$(CONFIG_FPGA_ROCKCHIP) += fpga.o
 endif
 
 obj-$(CONFIG_RAM) += param.o
@@ -63,6 +65,7 @@ obj-$(CONFIG_ROCKCHIP_RK3308) += rk3308/
 obj-$(CONFIG_ROCKCHIP_RK3328) += rk3328/
 obj-$(CONFIG_ROCKCHIP_RK3368) += rk3368/
 obj-$(CONFIG_ROCKCHIP_RK3399) += rk3399/
+obj-$(CONFIG_ROCKCHIP_RK3568) += rk3568/
 obj-$(CONFIG_ROCKCHIP_RK1808) += rk1808/
 obj-$(CONFIG_ROCKCHIP_RV1108) += rv1108/
 obj-$(CONFIG_ROCKCHIP_RV1126) += rv1126/
@@ -75,3 +78,4 @@ obj-$(CONFIG_SPL_BUILD) += $(obj-spl-y)
 obj-$(CONFIG_TPL_BUILD) += $(obj-tpl-y)
 
 obj-$(CONFIG_ROCKCHIP_PRELOADER_ATAGS) += rk_atags.o
+obj-$(CONFIG_SET_DFU_ALT_INFO) += dfu_alt_info.o

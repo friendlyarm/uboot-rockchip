@@ -12,15 +12,7 @@
 
 	chosen {
 		stdout-path = &uart2;
-		u-boot,spl-boot-order = &spi_nand, &spi_nor, &nandc, &emmc;
-	};
-
-	crypto: crypto@ff500000 {
-		compatible = "rockchip,rv1126-crypto";
-		reg = <0xff500000 0x10000>;
-		clock-names = "sclk_crypto", "sclk_crypto_apk";
-		clocks = <&cru CLK_CRYPTO_CORE>, <&cru CLK_CRYPTO_PKA>;
-		clock-frequency = <200000000>, <300000000>;
+		u-boot,spl-boot-order = &sdmmc, &spi_nand, &spi_nor, &nandc, &emmc;
 	};
 
 	secure_otp: secure_otp@0xff5d0000 {
@@ -28,6 +20,11 @@
 		reg = <0xff5d0000 0x4000>;
 		secure_conf = <0xfe0a0008>;
 	};
+};
+
+&psci {
+	u-boot,dm-pre-reloc;
+	status = "okay";
 };
 
 &uart2 {
@@ -39,8 +36,27 @@
 
 &sdmmc {
 	u-boot,dm-spl;
-	/delete-property/ pinctrl-names;
-	/delete-property/ pinctrl-0;
+	status = "okay";
+};
+
+&sdmmc0 {
+	u-boot,dm-spl;
+};
+
+&sdmmc0_bus4 {
+	u-boot,dm-spl;
+};
+
+&sdmmc0_clk {
+	u-boot,dm-spl;
+};
+
+&sdmmc0_cmd {
+	u-boot,dm-spl;
+};
+
+&sdmmc0_det {
+	u-boot,dm-spl;
 };
 
 &emmc {
@@ -85,6 +101,8 @@
 
 &sfc {
 	u-boot,dm-spl;
+	/delete-property/ pinctrl-names;
+	/delete-property/ pinctrl-0;
 	/delete-property/ assigned-clocks;
 	/delete-property/ assigned-clock-rates;
 	status = "okay";
@@ -107,12 +125,14 @@
 		reg = <0>;
 		spi-tx-bus-width = <1>;
 		spi-rx-bus-width = <4>;
-		spi-max-frequency = <96000000>;
+		spi-max-frequency = <100000000>;
 	};
 };
 
 &nandc {
 	u-boot,dm-spl;
+	/delete-property/ pinctrl-names;
+	/delete-property/ pinctrl-0;
 	status = "okay";
 	#address-cells = <1>;
 	#size-cells = <0>;
@@ -136,6 +156,18 @@
 	status = "okay";
 };
 
+&i2c0 {
+	u-boot,dm-spl;
+	status = "okay";
+	rk817_fg@20 {
+		u-boot,dm-spl;
+		compatible = "rk817,battery";
+		reg = <0x20>;
+		bat_res_up = <140>;
+		bat_res_down = <20>;
+	};
+};
+
 &u2phy0 {
 	u-boot,dm-pre-reloc;
 	status = "okay";
@@ -157,8 +189,21 @@
 };
 
 &pinctrl {
-	u-boot,dm-pre-reloc;
+	u-boot,dm-spl;
 	status = "okay";
+};
+
+&gpio1 {
+	u-boot,dm-spl;
+	status = "okay";
+};
+
+&pcfg_pull_up_drv_level_2 {
+	u-boot,dm-spl;
+};
+
+&pcfg_pull_none {
+	u-boot,dm-spl;
 };
 
 &gpio3 {
@@ -239,6 +284,11 @@
 	status = "okay";
 };
 
+&rng {
+	u-boot,dm-spl;
+	status = "okay";
+};
+
 &clk_out_ethernetm1_pins{
 	u-boot,dm-pre-reloc;
 	status = "okay";
@@ -254,3 +304,7 @@
 	status = "okay";
 };
 
+&wdt {
+	u-boot,dm-pre-reloc;
+	status = "okay";
+};

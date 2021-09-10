@@ -37,9 +37,6 @@ struct spl_image_info {
 	uintptr_t entry_point_os;	/* point to uboot or kernel */
 #endif
 	void *fdt_addr;
-#if CONFIG_IS_ENABLED(FIT_ROLLBACK_PROTECT)
-	u32 rollback_index;
-#endif
 	u32 boot_device;
 	u32 next_stage;
 	u32 size;
@@ -337,5 +334,13 @@ void spl_perform_fixups(struct spl_image_info *spl_image);
  *				  jumping to next stage
  */
 int spl_board_prepare_for_jump(struct spl_image_info *spl_image);
+
+/**
+ * spl_kernel_partition() - arch/board-specific callback to get kernel partition
+ */
+#ifdef CONFIG_SPL_KERNEL_BOOT
+const char *spl_kernel_partition(struct spl_image_info *spl,
+				 struct spl_load_info *info);
+#endif
 
 #endif

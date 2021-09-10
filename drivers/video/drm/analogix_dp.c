@@ -11,6 +11,7 @@
 #include <asm/unaligned.h>
 #include <asm/io.h>
 #include <dm/device.h>
+#include <dm/of_access.h>
 #include <dm/read.h>
 #include <linux/list.h>
 #include <syscon.h>
@@ -20,7 +21,6 @@
 #include "rockchip_display.h"
 #include "rockchip_crtc.h"
 #include "rockchip_connector.h"
-#include "rockchip_panel.h"
 #include "analogix_dp.h"
 
 /**
@@ -28,13 +28,15 @@
  * @lcdsel_grf_reg: grf register offset of lcdc select
  * @lcdsel_big: reg value of selecting vop big for eDP
  * @lcdsel_lit: reg value of selecting vop little for eDP
+ * @chip_type: specific chip type
+ * @ssc: check if SSC is supported by source
  */
 struct rockchip_dp_chip_data {
 	u32	lcdsel_grf_reg;
 	u32	lcdsel_big;
 	u32	lcdsel_lit;
 	u32	chip_type;
-	bool	has_vop_sel;
+	bool    ssc;
 };
 
 static void
@@ -82,32 +84,10 @@ static void analogix_dp_training_pattern_dis(struct analogix_dp_device *dp)
 				       DP_TRAINING_PATTERN_DISABLE);
 }
 
-static void
-analogix_dp_set_lane_lane_pre_emphasis(struct analogix_dp_device *dp,
-				       int pre_emphasis, int lane)
-{
-	switch (lane) {
-	case 0:
-		analogix_dp_set_lane0_pre_emphasis(dp, pre_emphasis);
-		break;
-	case 1:
-		analogix_dp_set_lane1_pre_emphasis(dp, pre_emphasis);
-		break;
-
-	case 2:
-		analogix_dp_set_lane2_pre_emphasis(dp, pre_emphasis);
-		break;
-
-	case 3:
-		analogix_dp_set_lane3_pre_emphasis(dp, pre_emphasis);
-		break;
-	}
-}
-
 static int analogix_dp_link_start(struct analogix_dp_device *dp)
 {
 	u8 buf[4];
-	int lane, lane_count, pll_tries, retval;
+	int lane, lane_count, retval;
 
 	lane_count = dp->link_train.lane_count;
 
@@ -128,22 +108,20 @@ static int analogix_dp_link_start(struct analogix_dp_device *dp)
 	if (retval)
 		return retval;
 
-	/* Set TX pre-emphasis to minimum */
+	/* Spread AMP if required, enable 8b/10b coding */
+	buf[0] = analogix_dp_ssc_supported(dp) ? DP_SPREAD_AMP_0_5 : 0;
+	buf[1] = DP_SET_ANSI_8B10B;
+	retval = analogix_dp_write_bytes_to_dpcd(dp, DP_DOWNSPREAD_CTRL,
+						 2, buf);
+	if (retval < 0)
+		return retval;
+
+	/* Set TX voltage-swing and pre-emphasis to minimum */
 	for (lane = 0; lane < lane_count; lane++)
-		analogix_dp_set_lane_lane_pre_emphasis(dp,
-			PRE_EMPHASIS_LEVEL_0, lane);
-
-	/* Wait for PLL lock */
-	pll_tries = 0;
-	while (analogix_dp_get_pll_lock_status(dp) == PLL_UNLOCKED) {
-		if (pll_tries == DP_TIMEOUT_LOOP_COUNT) {
-			dev_err(dp->dev, "Wait for PLL lock timed out\n");
-			return -ETIMEDOUT;
-		}
-
-		pll_tries++;
-		udelay(120);
-	}
+		dp->link_train.training_lane[lane] =
+				DP_TRAIN_VOLTAGE_SWING_LEVEL_0 |
+				DP_TRAIN_PRE_EMPH_LEVEL_0;
+	analogix_dp_set_lane_link_training(dp);
 
 	/* Set training pattern 1 */
 	analogix_dp_set_training_pattern(dp, TRAINING_PTN1);
@@ -222,54 +200,6 @@ static unsigned char analogix_dp_get_adjust_request_pre_emphasis(
 	u8 link_value = adjust_request[lane >> 1];
 
 	return ((link_value >> shift) & 0xc) >> 2;
-}
-
-static void analogix_dp_set_lane_link_training(struct analogix_dp_device *dp,
-					       u8 training_lane_set, int lane)
-{
-	switch (lane) {
-	case 0:
-		analogix_dp_set_lane0_link_training(dp, training_lane_set);
-		break;
-	case 1:
-		analogix_dp_set_lane1_link_training(dp, training_lane_set);
-		break;
-
-	case 2:
-		analogix_dp_set_lane2_link_training(dp, training_lane_set);
-		break;
-
-	case 3:
-		analogix_dp_set_lane3_link_training(dp, training_lane_set);
-		break;
-	}
-}
-
-static unsigned int
-analogix_dp_get_lane_link_training(struct analogix_dp_device *dp,
-				   int lane)
-{
-	u32 reg;
-
-	switch (lane) {
-	case 0:
-		reg = analogix_dp_get_lane0_link_training(dp);
-		break;
-	case 1:
-		reg = analogix_dp_get_lane1_link_training(dp);
-		break;
-	case 2:
-		reg = analogix_dp_get_lane2_link_training(dp);
-		break;
-	case 3:
-		reg = analogix_dp_get_lane3_link_training(dp);
-		break;
-	default:
-		WARN_ON(1);
-		return 0;
-	}
-
-	return reg;
 }
 
 static void analogix_dp_reduce_link_rate(struct analogix_dp_device *dp)
@@ -365,10 +295,7 @@ static int analogix_dp_process_clock_recovery(struct analogix_dp_device *dp)
 	}
 
 	analogix_dp_get_adjust_training_lane(dp, adjust_request);
-
-	for (lane = 0; lane < lane_count; lane++)
-		analogix_dp_set_lane_link_training(dp,
-			dp->link_train.training_lane[lane], lane);
+	analogix_dp_set_lane_link_training(dp);
 
 	retval = analogix_dp_write_bytes_to_dpcd(dp,
 			DP_TRAINING_LANE0_SET, lane_count,
@@ -381,7 +308,7 @@ static int analogix_dp_process_clock_recovery(struct analogix_dp_device *dp)
 
 static int analogix_dp_process_equalizer_training(struct analogix_dp_device *dp)
 {
-	int lane, lane_count, retval;
+	int lane_count, retval;
 	u32 reg;
 	u8 link_align, link_status[2], adjust_request[2];
 
@@ -441,9 +368,7 @@ static int analogix_dp_process_equalizer_training(struct analogix_dp_device *dp)
 		return -EIO;
 	}
 
-	for (lane = 0; lane < lane_count; lane++)
-		analogix_dp_set_lane_link_training(dp,
-			dp->link_train.training_lane[lane], lane);
+	analogix_dp_set_lane_link_training(dp);
 
 	retval = analogix_dp_write_bytes_to_dpcd(dp, DP_TRAINING_LANE0_SET,
 			lane_count, dp->link_train.training_lane);
@@ -483,6 +408,8 @@ static int analogix_dp_init_training(struct analogix_dp_device *dp,
 				     enum link_lane_count_type max_lane,
 				     int max_rate)
 {
+	u8 dpcd;
+
 	/*
 	 * MACRO_RST must be applied after the PLL_LOCK to avoid
 	 * the DP inter pair skew issue for at least 10 us
@@ -510,6 +437,9 @@ static int analogix_dp_init_training(struct analogix_dp_device *dp,
 		dp->link_train.lane_count = max_lane;
 	if (dp->link_train.link_rate > max_rate)
 		dp->link_train.link_rate = max_rate;
+
+	analogix_dp_read_byte_from_dpcd(dp, DP_MAX_DOWNSPREAD, &dpcd);
+	dp->link_train.ssc = !!(dpcd & DP_MAX_DOWNSPREAD_0_5);
 
 	/* All DP analog module power up */
 	analogix_dp_set_analog_power_down(dp, POWER_ALL, 0);
@@ -801,38 +731,30 @@ retry:
 	return retval;
 }
 
+static int analogix_dp_connector_pre_init(struct display_state *state)
+{
+	struct connector_state *conn_state = &state->conn_state;
+
+	conn_state->type = DRM_MODE_CONNECTOR_eDP;
+
+	return 0;
+}
+
 static int analogix_dp_connector_init(struct display_state *state)
 {
 	struct connector_state *conn_state = &state->conn_state;
 	struct analogix_dp_device *dp = dev_get_priv(conn_state->dev);
-	struct video_info *video = &dp->video_info;
-	struct rockchip_panel *panel = state_get_panel(state);
 
-	conn_state->type = DRM_MODE_CONNECTOR_eDP;
+	conn_state->output_if |= VOP_OUTPUT_IF_eDP0;
 	conn_state->output_mode = ROCKCHIP_OUT_MODE_AAAA;
 	conn_state->color_space = V4L2_COLORSPACE_DEFAULT;
 
-	switch (panel->bpc) {
-	case 12:
-		video->color_depth = COLOR_12;
-		break;
-	case 10:
-		video->color_depth = COLOR_10;
-		break;
-	case 6:
-		video->color_depth = COLOR_6;
-		break;
-	case 8:
-	default:
-		video->color_depth = COLOR_8;
-		break;
-	}
-
-	/* eDP software reset request */
-	reset_assert(&dp->reset);
+	reset_assert_bulk(&dp->resets);
 	udelay(1);
-	reset_deassert(&dp->reset);
+	reset_deassert_bulk(&dp->resets);
 
+	conn_state->disp_info  = rockchip_get_disp_info(conn_state->type, dp->id);
+	generic_phy_power_on(&dp->phy);
 	analogix_dp_init_dp(dp);
 
 	return 0;
@@ -862,16 +784,33 @@ static int analogix_dp_connector_enable(struct display_state *state)
 	const struct rockchip_connector *connector = conn_state->connector;
 	const struct rockchip_dp_chip_data *pdata = connector->data;
 	struct analogix_dp_device *dp = dev_get_priv(conn_state->dev);
+	struct video_info *video = &dp->video_info;
 	u32 val;
 	int ret;
 
-	if (pdata->has_vop_sel) {
+	if (pdata->lcdsel_grf_reg) {
 		if (crtc_state->crtc_id)
 			val = pdata->lcdsel_lit;
 		else
 			val = pdata->lcdsel_big;
 
-		writel(val, dp->grf + pdata->lcdsel_grf_reg);
+		writel(val, syscon_get_first_range(ROCKCHIP_SYSCON_GRF) + pdata->lcdsel_grf_reg);
+	}
+
+	switch (conn_state->bpc) {
+	case 12:
+		video->color_depth = COLOR_12;
+		break;
+	case 10:
+		video->color_depth = COLOR_10;
+		break;
+	case 6:
+		video->color_depth = COLOR_6;
+		break;
+	case 8:
+	default:
+		video->color_depth = COLOR_8;
+		break;
 	}
 
 	ret = analogix_dp_set_link_train(dp, dp->video_info.max_lane_count,
@@ -902,11 +841,21 @@ static int analogix_dp_connector_disable(struct display_state *state)
 	return 0;
 }
 
+static int analogix_dp_connector_detect(struct display_state *state)
+{
+	struct connector_state *conn_state = &state->conn_state;
+	struct analogix_dp_device *dp = dev_get_priv(conn_state->dev);
+
+	return analogix_dp_detect(dp);
+}
+
 static const struct rockchip_connector_funcs analogix_dp_connector_funcs = {
+	.pre_init = analogix_dp_connector_pre_init,
 	.init = analogix_dp_connector_init,
 	.get_edid = analogix_dp_connector_get_edid,
 	.enable = analogix_dp_connector_enable,
 	.disable = analogix_dp_connector_disable,
+	.detect = analogix_dp_connector_detect,
 };
 
 static int analogix_dp_probe(struct udevice *dev)
@@ -918,11 +867,11 @@ static int analogix_dp_probe(struct udevice *dev)
 	int ret;
 
 	dp->reg_base = dev_read_addr_ptr(dev);
-	dp->grf = syscon_get_first_range(ROCKCHIP_SYSCON_GRF);
-	if (IS_ERR(dp->grf))
-		return PTR_ERR(dp->grf);
 
-	ret = reset_get_by_name(dev, "dp", &dp->reset);
+	dp->id = of_alias_get_id(ofnode_to_np(dev->node), "edp");
+	if (dp->id < 0)
+		dp->id = 0;
+	ret = reset_get_bulk(dev, &dp->resets);
 	if (ret) {
 		dev_err(dev, "failed to get reset control: %d\n", ret);
 		return ret;
@@ -935,8 +884,13 @@ static int analogix_dp_probe(struct udevice *dev)
 		return ret;
 	}
 
+	generic_phy_get_by_name(dev, "dp", &dp->phy);
+
+	dp->force_hpd = dev_read_bool(dev, "force-hpd");
+
 	dp->plat_data.dev_type = ROCKCHIP_DP;
 	dp->plat_data.subdev_type = pdata->chip_type;
+	dp->plat_data.ssc = pdata->ssc;
 	/*
 	 * Like Rockchip DisplayPort TRM indicate that "Main link
 	 * containing 4 physical lanes of 2.7/1.62 Gbps/lane".
@@ -954,7 +908,6 @@ static const struct rockchip_dp_chip_data rk3288_edp_platform_data = {
 	.lcdsel_big = 0 | BIT(21),
 	.lcdsel_lit = BIT(5) | BIT(21),
 	.chip_type = RK3288_DP,
-	.has_vop_sel = true,
 };
 
 static const struct rockchip_connector rk3288_edp_driver_data = {
@@ -964,7 +917,6 @@ static const struct rockchip_connector rk3288_edp_driver_data = {
 
 static const struct rockchip_dp_chip_data rk3368_edp_platform_data = {
 	.chip_type = RK3368_EDP,
-	.has_vop_sel = false,
 };
 
 static const struct rockchip_connector rk3368_edp_driver_data = {
@@ -977,12 +929,21 @@ static const struct rockchip_dp_chip_data rk3399_edp_platform_data = {
 	.lcdsel_big = 0 | BIT(21),
 	.lcdsel_lit = BIT(5) | BIT(21),
 	.chip_type = RK3399_EDP,
-	.has_vop_sel = true,
 };
 
 static const struct rockchip_connector rk3399_edp_driver_data = {
 	 .funcs = &analogix_dp_connector_funcs,
 	 .data = &rk3399_edp_platform_data,
+};
+
+static const struct rockchip_dp_chip_data rk3568_edp_platform_data = {
+	.chip_type = RK3568_EDP,
+	.ssc = true,
+};
+
+static const struct rockchip_connector rk3568_edp_driver_data = {
+	 .funcs = &analogix_dp_connector_funcs,
+	 .data = &rk3568_edp_platform_data,
 };
 
 static const struct udevice_id analogix_dp_ids[] = {
@@ -995,6 +956,9 @@ static const struct udevice_id analogix_dp_ids[] = {
 	}, {
 		.compatible = "rockchip,rk3399-edp",
 		.data = (ulong)&rk3399_edp_driver_data,
+	}, {
+		.compatible = "rockchip,rk3568-edp",
+		.data = (ulong)&rk3568_edp_driver_data,
 	},
 	{}
 };

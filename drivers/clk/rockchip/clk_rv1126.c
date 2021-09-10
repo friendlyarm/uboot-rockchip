@@ -646,6 +646,7 @@ static ulong rv1126_pdbus_get_clk(struct rv1126_clk_priv *priv, ulong clk_id)
 			return -ENOENT;
 		break;
 	case PCLK_PDBUS:
+	case PCLK_WDT:
 		con = readl(&cru->clksel_con[3]);
 		div = (con & PCLK_PDBUS_DIV_MASK) >> PCLK_PDBUS_DIV_SHIFT;
 		sel = (con & PCLK_PDBUS_SEL_MASK) >> PCLK_PDBUS_SEL_SHIFT;
@@ -667,15 +668,21 @@ static ulong rv1126_pdbus_set_clk(struct rv1126_clk_priv *priv, ulong clk_id,
 				  ulong rate)
 {
 	struct rv1126_cru *cru = priv->cru;
-	int src_clk_div;
+	int src_clk_div, clk_sel;
 
 	switch (clk_id) {
 	case ACLK_PDBUS:
-		src_clk_div = DIV_ROUND_UP(priv->cpll_hz, rate);
+		if (CPLL_HZ % rate) {
+			src_clk_div = DIV_ROUND_UP(priv->gpll_hz, rate);
+			clk_sel = ACLK_PDBUS_SEL_GPLL;
+		} else {
+			src_clk_div = DIV_ROUND_UP(priv->cpll_hz, rate);
+			clk_sel = ACLK_PDBUS_SEL_CPLL;
+		}
 		assert(src_clk_div - 1 <= 31);
 		rk_clrsetreg(&cru->clksel_con[2],
 			     ACLK_PDBUS_SEL_MASK | ACLK_PDBUS_DIV_MASK,
-			     ACLK_PDBUS_SEL_CPLL << ACLK_PDBUS_SEL_SHIFT |
+			     clk_sel << ACLK_PDBUS_SEL_SHIFT |
 			     (src_clk_div - 1) << ACLK_PDBUS_DIV_SHIFT);
 		break;
 	case HCLK_PDBUS:
@@ -687,6 +694,7 @@ static ulong rv1126_pdbus_set_clk(struct rv1126_clk_priv *priv, ulong clk_id,
 			     (src_clk_div - 1) << HCLK_PDBUS_DIV_SHIFT);
 		break;
 	case PCLK_PDBUS:
+	case PCLK_WDT:
 		src_clk_div = DIV_ROUND_UP(priv->gpll_hz, rate);
 		assert(src_clk_div - 1 <= 31);
 		rk_clrsetreg(&cru->clksel_con[3],
@@ -1518,6 +1526,7 @@ static ulong rv1126_clk_isp_set_clk(struct rv1126_clk_priv *priv, ulong rate)
 
 	return rv1126_clk_isp_get_clk(priv);
 }
+#endif
 
 static ulong rv1126_dclk_decom_get_clk(struct rv1126_clk_priv *priv)
 {
@@ -1551,7 +1560,6 @@ static ulong rv1126_dclk_decom_set_clk(struct rv1126_clk_priv *priv, ulong rate)
 
 	return rv1126_dclk_decom_get_clk(priv);
 }
-#endif
 
 static ulong rv1126_clk_get_rate(struct clk *clk)
 {
@@ -1587,6 +1595,7 @@ static ulong rv1126_clk_get_rate(struct clk *clk)
 	case ACLK_PDBUS:
 	case HCLK_PDBUS:
 	case PCLK_PDBUS:
+	case PCLK_WDT:
 		rate = rv1126_pdbus_get_clk(priv, clk->id);
 		break;
 	case ACLK_PDPHP:
@@ -1659,10 +1668,10 @@ static ulong rv1126_clk_get_rate(struct clk *clk)
 	case CLK_ISPP:
 		rate = rv1126_clk_pdvi_ispp_get_clk(priv, clk->id);
 		break;
+#endif
 	case DCLK_DECOM:
 		rate = rv1126_dclk_decom_get_clk(priv);
 		break;
-#endif
 	default:
 		return -ENOENT;
 	}
@@ -1698,6 +1707,7 @@ static ulong rv1126_clk_set_rate(struct clk *clk, ulong rate)
 	case ACLK_PDBUS:
 	case HCLK_PDBUS:
 	case PCLK_PDBUS:
+	case PCLK_WDT:
 		ret = rv1126_pdbus_set_clk(priv, clk->id, rate);
 		break;
 	case ACLK_PDPHP:
@@ -1772,10 +1782,10 @@ static ulong rv1126_clk_set_rate(struct clk *clk, ulong rate)
 	case CLK_ISPP:
 		ret = rv1126_clk_pdvi_ispp_set_clk(priv, clk->id, rate);
 		break;
+#endif
 	case DCLK_DECOM:
 		ret = rv1126_dclk_decom_set_clk(priv, rate);
 		break;
-#endif
 	default:
 		return -ENOENT;
 	}
@@ -1935,7 +1945,7 @@ static int rv1126_gmac_src_m0_set_parent(struct clk *clk, struct clk *parent)
 		rk_clrsetreg(&cru->gmac_con, GMAC_SRC_M0_SEL_MASK,
 			     GMAC_SRC_M0_SEL_INT << GMAC_SRC_M0_SEL_SHIFT);
 	else
-		rk_clrsetreg(&cru->gmac_con, GMAC_SRC_SEL_MASK,
+		rk_clrsetreg(&cru->gmac_con, GMAC_SRC_M0_SEL_MASK,
 			     GMAC_SRC_M0_SEL_EXT << GMAC_SRC_M0_SEL_SHIFT);
 
 	return 0;
@@ -1947,10 +1957,10 @@ static int rv1126_gmac_src_m1_set_parent(struct clk *clk, struct clk *parent)
 	struct rv1126_cru *cru = priv->cru;
 
 	if (parent->id == CLK_GMAC_DIV)
-		rk_clrsetreg(&cru->gmac_con, GMAC_SRC_M0_SEL_MASK,
+		rk_clrsetreg(&cru->gmac_con, GMAC_SRC_M1_SEL_MASK,
 			     GMAC_SRC_M1_SEL_INT << GMAC_SRC_M1_SEL_SHIFT);
 	else
-		rk_clrsetreg(&cru->gmac_con, GMAC_SRC_SEL_MASK,
+		rk_clrsetreg(&cru->gmac_con, GMAC_SRC_M1_SEL_MASK,
 			     GMAC_SRC_M1_SEL_EXT << GMAC_SRC_M1_SEL_SHIFT);
 
 	return 0;

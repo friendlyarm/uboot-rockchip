@@ -408,10 +408,8 @@ int fprintf(int file, const char *fmt, ...)
 
 int getc(void)
 {
-#ifdef CONFIG_DISABLE_CONSOLE
-	if (gd->flags & GD_FLG_DISABLE_CONSOLE)
+	if (!gd || gd->flags & GD_FLG_DISABLE_CONSOLE)
 		return 0;
-#endif
 
 	if (!gd->have_console)
 		return 0;
@@ -436,10 +434,8 @@ int getc(void)
 
 int tstc(void)
 {
-#ifdef CONFIG_DISABLE_CONSOLE
-	if (gd->flags & GD_FLG_DISABLE_CONSOLE)
+	if (!gd || gd->flags & GD_FLG_DISABLE_CONSOLE)
 		return 0;
-#endif
 
 	if (!gd->have_console)
 		return 0;
@@ -460,10 +456,8 @@ int tstc(void)
 
 void flushc(void)
 {
-#ifdef CONFIG_DISABLE_CONSOLE
-	if (gd->flags & GD_FLG_DISABLE_CONSOLE)
+	if (!gd || gd->flags & GD_FLG_DISABLE_CONSOLE)
 		return;
-#endif
 
 	if (gd->flags & GD_FLG_DEVINIT)
 		fclear(stdout);
@@ -520,10 +514,8 @@ static inline void print_pre_console_buffer(int flushpoint) {}
 
 void putc(const char c)
 {
-#ifdef CONFIG_DISABLE_CONSOLE
 	if (!gd || gd->flags & GD_FLG_DISABLE_CONSOLE)
 		return;
-#endif
 
 #ifdef CONFIG_DEBUG_UART
 	/* if we don't have a console yet, use the debug UART */
@@ -554,7 +546,8 @@ void putc(const char c)
 	}
 }
 
-#if (!defined(CONFIG_SPL_BUILD) && defined(CONFIG_BOOTSTAGE_PRINTF_TIMESTAMP))
+#if ((!defined(CONFIG_SPL_BUILD) || !defined(CONFIG_USE_TINY_PRINTF)) && \
+	defined(CONFIG_BOOTSTAGE_PRINTF_TIMESTAMP))
 static void vspfunc(char *buf, size_t size, char *format, ...)
 {
 	va_list ap;

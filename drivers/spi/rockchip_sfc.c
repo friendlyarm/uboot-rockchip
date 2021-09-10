@@ -40,10 +40,17 @@ struct rockchip_sfc_reg {
 	u32 fsr;
 	u32 sr;
 	u32 risr;
-	u32 reserved[21];
+	u32 ver;
+	u32 qop;
+	u32 ext_ctrl;
+	u32 reserved;
+	u32 dll_ctrl0;
+	u32 reserved1[16];
 	u32 dmatr;
 	u32 dmaaddr;
-	u32 reserved1[30];
+	u32 len_ctrl;
+	u32 len_ext;
+	u32 reserved2[28];
 	u32 cmd;
 	u32 addr;
 	u32 data;
@@ -101,11 +108,22 @@ check_member(rockchip_sfc_reg, data, 0x108);
 #define RX_UF_INT		BIT(1)        /* Rx fifo underflow interrupt */
 #define RX_FULL_INT		BIT(0)        /* Rx fifo full interrupt */
 
-#define SFC_MAX_TRB		(512 * 31)
+/*SFC_DLL_CTRL0*/
+#define DLL_CTRL0_SCLK_SMP_DLL	BIT(15)       /* SCLK sampling enable dll */
+#define DLL_CTRL0_DLL_MAX_VER4	0xFFU
+#define DLL_CTRL0_DLL_MAX_VER5	0x1FFU
+
+#define SFC_MAX_TRB_VER3	(512 * 31)
+#define SFC_MAX_TRB_VER4	(0xFFFFFFFF)
 
 #define SFC_MAX_RATE		(150 * 1000 * 1000)
+#define SFC_DLL_THRESHOLD_RATE	(100 * 1000 * 1000)
 #define SFC_DEFAULT_RATE	(80 * 1000 * 1000)
 #define SFC_MIN_RATE		(10 * 1000 * 1000)
+
+#define SFC_VER_3		0x3
+#define SFC_VER_4		0x4
+#define SFC_VER_5		0x5
 
 enum rockchip_sfc_if_type {
 	IF_TYPE_STD,
@@ -124,6 +142,10 @@ struct rockchip_sfc {
 	unsigned int max_freq;
 	unsigned int mode;
 	unsigned int speed_hz;
+	u32 max_iosize;
+	u32 max_dll_cells;
+	bool prepare;
+	u32 last_prepare_size;
 	u32 cmd;
 	u32 addr;
 	u8 addr_bits;
@@ -136,23 +158,51 @@ struct rockchip_sfc {
 static int rockchip_sfc_ofdata_to_platdata(struct udevice *bus)
 {
 	struct rockchip_sfc_platdata *plat = dev_get_platdata(bus);
+
+	plat->base = dev_read_addr_ptr(bus);
+#if CONFIG_IS_ENABLED(CLK)
 	struct rockchip_sfc *sfc = dev_get_priv(bus);
 	int ret;
 
-	plat->base = dev_read_addr_ptr(bus);
 	ret = clk_get_by_index(bus, 0, &sfc->clk);
 	if (ret < 0) {
 		printf("Could not get clock for %s: %d\n", bus->name, ret);
 		return ret;
 	}
+#endif
 
 	return 0;
+}
+
+u32 rockchip_sfc_get_version(struct rockchip_sfc *sfc)
+{
+	struct rockchip_sfc_reg *regs = sfc->regbase;
+
+	return  (u32)(readl(&regs->ver) & 0xFFFF);
+}
+
+int rockchip_sfc_set_delay_lines(struct rockchip_sfc *sfc, u32 cells)
+{
+	struct rockchip_sfc_reg *regs = sfc->regbase;
+
+	if (cells > sfc->max_dll_cells)
+		cells = sfc->max_dll_cells;
+
+	return writel(DLL_CTRL0_SCLK_SMP_DLL | cells, &regs->dll_ctrl0);
+}
+
+int rockchip_sfc_disable_delay_lines(struct rockchip_sfc *sfc)
+{
+	struct rockchip_sfc_reg *regs = sfc->regbase;
+
+	return writel(0, &regs->dll_ctrl0);
 }
 
 static int rockchip_sfc_probe(struct udevice *bus)
 {
 	struct rockchip_sfc_platdata *plat = dev_get_platdata(bus);
 	struct rockchip_sfc *sfc = dev_get_priv(bus);
+	struct rockchip_sfc_reg *regs;
 	struct dm_spi_bus *dm_spi_bus;
 
 	dm_spi_bus = bus->uclass_priv;
@@ -160,7 +210,25 @@ static int rockchip_sfc_probe(struct udevice *bus)
 	sfc->regbase = (struct rockchip_sfc_reg *)plat->base;
 	sfc->max_freq = SFC_MAX_RATE;
 	sfc->speed_hz = SFC_DEFAULT_RATE;
+#if CONFIG_IS_ENABLED(CLK)
 	clk_set_rate(&sfc->clk, sfc->speed_hz);
+#endif
+	regs = sfc->regbase;
+	switch (rockchip_sfc_get_version(sfc)) {
+	case SFC_VER_5:
+		sfc->max_dll_cells = DLL_CTRL0_DLL_MAX_VER5;
+		sfc->max_iosize = SFC_MAX_TRB_VER4;
+		writel(1, &regs->len_ctrl);
+		break;
+	case SFC_VER_4:
+		sfc->max_dll_cells = DLL_CTRL0_DLL_MAX_VER4;
+		sfc->max_iosize = SFC_MAX_TRB_VER4;
+		writel(1, &regs->len_ctrl);
+		break;
+	default:
+		sfc->max_iosize = SFC_MAX_TRB_VER3;
+		break;
+	}
 
 	return 0;
 }
@@ -190,6 +258,29 @@ static int rockchip_sfc_reset(struct rockchip_sfc *sfc)
 	return ret;
 }
 
+static int rockchip_sfc_dma_xfer_wait_finished(struct rockchip_sfc *sfc)
+{
+	struct rockchip_sfc_reg *regs = sfc->regbase;
+	int timeout = sfc->last_prepare_size * 10;
+	unsigned long tbase;
+	int ret = 0;
+	int risr;
+
+	tbase = get_timer(0);
+	do {
+		udelay(1);
+		risr = readl(&regs->risr);
+		if (get_timer(tbase) > timeout) {
+			debug("dma timeout\n");
+			ret = -ETIMEDOUT;
+			break;
+		}
+	} while (!(risr & TRANS_FINISH_INT));
+	sfc->last_prepare_size = 0;
+
+	return ret;
+}
+
 /* The SFC_CTRL register is a global control register,
  * when the controller is in busy state(SFC_SR),
  * SFC_CTRL cannot be set.
@@ -201,6 +292,9 @@ static int rockchip_sfc_wait_idle(struct rockchip_sfc *sfc,
 	unsigned long tbase = get_timer(0);
 	u32 sr, fsr;
 
+	if (sfc->last_prepare_size && rockchip_sfc_dma_xfer_wait_finished(sfc))
+		return -ETIMEDOUT;
+
 	while (1) {
 		sr = readl(&regs->sr);
 		fsr = readl(&regs->fsr);
@@ -210,7 +304,7 @@ static int rockchip_sfc_wait_idle(struct rockchip_sfc *sfc,
 			break;
 		if (get_timer(tbase) > timeout_ms) {
 			printf("waite sfc idle timeout(sr:0x%08x fsr:0x%08x)\n",
-				sr, fsr);
+			       sr, fsr);
 			rockchip_sfc_reset(sfc);
 			return -ETIMEDOUT;
 		}
@@ -246,27 +340,32 @@ static u8 rockchip_sfc_get_if_type(struct rockchip_sfc *sfc)
 static void rockchip_sfc_setup_xfer(struct rockchip_sfc *sfc, u32 trb)
 {
 	struct rockchip_sfc_reg *regs = sfc->regbase;
-	u32 val = 0x02;
+	u32 val;
 	u8 data_width = IF_TYPE_STD;
 
-	SFC_DBG("--- sfc.addr_bit %x\n", sfc->addr_bits);
+	rockchip_sfc_wait_idle(sfc, 10);
 
 	if (sfc->addr_bits == SFC_ADDR_24BITS ||
 	    sfc->addr_bits == SFC_ADDR_32BITS)
 		data_width = rockchip_sfc_get_if_type(sfc);
 
+	SFC_DBG("--- sfc.addr_bit %x\n", sfc->addr_bits);
 	if (sfc->addr_bits == SFC_ADDR_XBITS)
 		writel(sfc->addr_xbits_ext - 1, &regs->abit);
 
-	val |= (data_width << SFC_DATA_WIDTH_SHIFT);
+	if (rockchip_sfc_get_version(sfc) >= SFC_VER_4) {
+		SFC_DBG("--- sfc.len_ext %x\n", trb);
+		writel(trb, &regs->len_ext);
+	}
 
-	rockchip_sfc_wait_idle(sfc, 10);
+	val = 0x2;
+	val |= (data_width << SFC_DATA_WIDTH_SHIFT);
 
 	SFC_DBG("--- sfc.ctrl %x\n", val);
 	writel(val, &regs->ctrl);
 
 	val = sfc->cmd;
-	val |= trb << SFC_TRB_SHIFT;
+	val |= (trb & 0x3fff) << SFC_TRB_SHIFT;
 	val |= sfc->rw << SFC_RW_SHIFT;
 	val |= sfc->addr_bits << SFC_ADDR_BITS_SHIFT;
 	val |= sfc->dummy_bits << SFC_DUMMY_BITS_SHIFT;
@@ -280,12 +379,13 @@ static void rockchip_sfc_setup_xfer(struct rockchip_sfc *sfc, u32 trb)
 	}
 }
 
-static int rockchip_sfc_dma_xfer(struct rockchip_sfc *sfc, void *buffer, size_t trb)
+static int rockchip_sfc_dma_xfer(struct rockchip_sfc *sfc, void *buffer,
+				 size_t trb)
 {
 	struct rockchip_sfc_reg *regs = sfc->regbase;
 	struct bounce_buffer bb;
 	unsigned int bb_flags;
-	int timeout = 1000;
+	int timeout = trb * 1000;
 	int ret = 0;
 	int risr;
 	unsigned long tbase;
@@ -321,6 +421,26 @@ static int rockchip_sfc_dma_xfer(struct rockchip_sfc *sfc, void *buffer, size_t 
 	bounce_buffer_stop(&bb);
 
 	return ret;
+}
+
+static int rockchip_sfc_dma_xfer_prepare(struct rockchip_sfc *sfc,
+					 void *buffer, size_t trb)
+{
+	struct rockchip_sfc_reg *regs = sfc->regbase;
+
+	SFC_DBG("sfc_dma_xfer_prepar enter\n");
+
+	rockchip_sfc_setup_xfer(sfc, trb);
+	sfc->last_prepare_size = trb;
+
+	flush_dcache_range((unsigned long)buffer,
+			   (unsigned long)buffer + trb);
+
+	writel(0xFFFFFFFF, &regs->iclr);
+	writel((unsigned long)buffer, &regs->dmaaddr);
+	writel(SFC_DMA_START, &regs->dmatr);
+
+	return 0;
 }
 
 static int rockchip_sfc_wait_fifo_ready(struct rockchip_sfc *sfc, int rw,
@@ -440,8 +560,11 @@ static int rockchip_sfc_read(struct rockchip_sfc *sfc, u32 offset,
 	}
 
 	while (dma_trans) {
-		trb = min_t(size_t, dma_trans, SFC_MAX_TRB);
-		ret = rockchip_sfc_dma_xfer(sfc, buf, trb);
+		trb = min_t(size_t, dma_trans, sfc->max_iosize);
+		if (sfc->prepare)
+			ret = rockchip_sfc_dma_xfer_prepare(sfc, buf, len);
+		else
+			ret = rockchip_sfc_dma_xfer(sfc, buf, trb);
 		if (ret < 0)
 			return ret;
 		dma_trans -= trb;
@@ -461,7 +584,7 @@ static int rockchip_sfc_read(struct rockchip_sfc *sfc, u32 offset,
 static int rockchip_sfc_write(struct rockchip_sfc *sfc, u32 offset,
 			      void *buf, size_t len)
 {
-	if (len > SFC_MAX_TRB) {
+	if (len > sfc->max_iosize) {
 		printf("out of the max sfc trb");
 		return -EINVAL;
 	}
@@ -534,8 +657,8 @@ static int rockchip_sfc_xfer(struct udevice *dev, unsigned int bitlen,
 			sfc->addr = 0;
 			break;
 		}
-		SFC_DBG("%s %d %x %d %d %x\n", __func__, len, sfc->cmd, sfc->addr_bits,
-			sfc->dummy_bits, sfc->addr);
+		SFC_DBG("%s %d %x %d %d %x\n", __func__, len, sfc->cmd,
+			sfc->addr_bits, sfc->dummy_bits, sfc->addr);
 	}
 	if (flags & SPI_XFER_END) {
 		if (din) {
@@ -550,6 +673,8 @@ static int rockchip_sfc_xfer(struct udevice *dev, unsigned int bitlen,
 			len = 0;
 			data_buf = NULL;
 		}
+
+		sfc->prepare = flags & SPI_XFER_PREPARE ? true : false;
 
 		if (sfc->cmd == 0x9f && len == 4) {
 			/* SPI Nand read id */
@@ -575,9 +700,49 @@ static int rockchip_sfc_set_speed(struct udevice *bus, uint speed)
 		speed = sfc->max_freq;
 
 	sfc->speed_hz = speed;
+#if CONFIG_IS_ENABLED(CLK)
+	if (rockchip_sfc_get_version(sfc) >= SFC_VER_4 &&
+	    sfc->speed_hz > SFC_DLL_THRESHOLD_RATE) {
+		u8 id[3], id_temp[3];
+		int right, left = -1;
+
+		sfc->cmd = 0x9f;
+		sfc->addr = 0;
+		sfc->addr_bits = 0;
+		sfc->addr_xbits_ext = 8;
+		sfc->dummy_bits = 0;
+		sfc->rw = 0;
+		clk_set_rate(&sfc->clk, SFC_DLL_THRESHOLD_RATE);
+		rockchip_sfc_read(sfc, 0, (void *)&id, 3);
+
+		clk_set_rate(&sfc->clk, sfc->speed_hz);
+		sfc->speed_hz = clk_get_rate(&sfc->clk);
+		if (sfc->speed_hz > SFC_DLL_THRESHOLD_RATE) {
+			for (right = 10; right <= sfc->max_dll_cells; right += 10) {
+				rockchip_sfc_set_delay_lines(sfc, right);
+				rockchip_sfc_read(sfc, 0, (void *)&id_temp, 3);
+				SFC_DBG("sfc dll %d id= %x %x %x\n", right,
+					id_temp[0], id_temp[1], id_temp[2]);
+				if (left == -1 && !memcmp(&id, &id_temp, 3))
+					left = right;
+				else if (left >= 0 && memcmp(&id, &id_temp, 3))
+					break;
+			}
+
+			if (left >= 0 && (right - left > 50)) {
+				rockchip_sfc_set_delay_lines(sfc, (u32)((right + left) / 2));
+			} else {
+				rockchip_sfc_disable_delay_lines(sfc);
+				sfc->speed_hz = SFC_DLL_THRESHOLD_RATE;
+			}
+		}
+	} else if (rockchip_sfc_get_version(sfc) >= SFC_VER_4) {
+		rockchip_sfc_disable_delay_lines(sfc);
+	}
+
 	clk_set_rate(&sfc->clk, sfc->speed_hz);
 	SFC_DBG("%s clk= %ld\n", __func__, clk_get_rate(&sfc->clk));
-
+#endif
 	return 0;
 }
 

@@ -374,7 +374,7 @@ static int handle_decomp_error(int comp_type, size_t uncomp_size,
 
 int bootm_parse_comp(const unsigned char *hdr)
 {
-#if defined(CONFIG_ARM) && !defined(CONFIG_ARM64)
+#if defined(CONFIG_CMD_BOOTZ)
 	ulong start, end;
 
 	if (!bootz_setup((ulong)hdr, &start, &end))
@@ -396,6 +396,11 @@ int bootm_parse_comp(const unsigned char *hdr)
 	if ((hdr[0] == 'B') && (hdr[1] == 'Z') && (hdr[2] == 'h'))
 		return IH_COMP_BZIP2;
 #endif
+#if defined(CONFIG_LZMA)
+	if (lzma_is_valid(hdr))
+		return IH_COMP_LZMA;
+#endif
+
 	return IH_COMP_NONE;
 }
 

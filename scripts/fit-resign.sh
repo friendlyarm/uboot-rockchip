@@ -11,7 +11,7 @@ set -e
 #	openssl genpkey -algorithm RSA -out keys/dev.key -pkeyopt rsa_keygen_bits:2048 -pkeyopt rsa_keygen_pubexp:65537
 #	openssl req -batch -new -x509 -key keys/dev.key -out keys/dev.crt
 # [Sign]
-#	openssl dgst -sha256 -sign keys/dev.key -out sha256-rsa2048.sign fit/boot.data2sign
+#	openssl dgst -sha256 -sign keys/dev.key -sigopt rsa_padding_mode:pss -out sha256-rsa2048.sign fit/boot.data2sign
 
 IMG_UBOOT="uboot.img"
 IMG_BOOT="boot.img"
@@ -50,6 +50,9 @@ function fit_resign()
 
 	if [ ! -f ${ITB} ]; then
 		echo "ERROR: No ${ITB}"
+		exit 1
+	elif ! file ${ITB} | grep 'Device Tree Blob' ; then
+		echo "ERROR: ${ITB} is not FIT image"
 		exit 1
 	elif [ ! -f ${SIG} ]; then
 		echo "ERROR: No ${SIG}"

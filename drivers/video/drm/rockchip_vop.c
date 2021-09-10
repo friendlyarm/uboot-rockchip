@@ -311,9 +311,9 @@ static int rockchip_vop_init(struct display_state *state)
 		VOP_CTRL_SET(vop, mipi_pin_pol, val);
 		VOP_CTRL_SET(vop, mipi_dclk_pol, dclk_inv);
 		VOP_CTRL_SET(vop, mipi_dual_channel_en,
-			!!(conn_state->output_type & ROCKCHIP_OUTPUT_DSI_DUAL_CHANNEL));
+			!!(conn_state->output_flags & ROCKCHIP_OUTPUT_DUAL_CHANNEL_LEFT_RIGHT_MODE));
 		VOP_CTRL_SET(vop, data01_swap,
-			!!(conn_state->output_type & ROCKCHIP_OUTPUT_DSI_DUAL_LINK) ||
+			!!(conn_state->output_flags & ROCKCHIP_OUTPUT_DATA_SWAP) ||
 			crtc_state->dual_channel_swap);
 		break;
 	case DRM_MODE_CONNECTOR_DisplayPort:
@@ -660,11 +660,9 @@ static int rockchip_vop_set_plane(struct display_state *state)
 	int xvir = crtc_state->xvir;
 	int x_mirror = 0, y_mirror = 0;
 
-	if ((crtc_w > crtc_state->max_output.width) ||
-	    (crtc_h > crtc_state->max_output.height)){
-		printf("Maximum destination %dx%d exceeded\n",
-		       crtc_state->max_output.width,
-		       crtc_state->max_output.height);
+	if (crtc_w > crtc_state->max_output.width) {
+		printf("ERROR: output w[%d] exceeded max width[%d]\n",
+		       crtc_w, crtc_state->max_output.width);
 		return -EINVAL;
 	}
 

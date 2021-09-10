@@ -18,6 +18,7 @@ enum _boot_mode {
 	BOOT_MODE_BROM_DOWNLOAD,
 	BOOT_MODE_PANIC,
 	BOOT_MODE_WATCHDOG,
+	BOOT_MODE_DFU,
 	BOOT_MODE_UNDEFINE,
 };
 
@@ -54,14 +55,19 @@ struct rockchip_image {
 #define PART_RESOURCE			"resource"
 #define PART_KERNEL			"kernel"
 #define PART_BOOT			"boot"
+#define PART_VENDOR_BOOT		"vendor_boot"
 #define PART_RECOVERY			"recovery"
 #define PART_DTBO			"dtbo"
 #define PART_LOGO			"logo"
+#define PART_SYSTEM			"system"
+#define PART_METADATA			"metadata"
+#define PART_USERDATA			"userdata"
 
 struct blk_desc *rockchip_get_bootdev(void);
 void rockchip_set_bootdev(struct blk_desc *desc);
 void board_run_recovery_wipe_data(void);
 void setup_download_mode(void);
+int get_bcb_recovery_msg(void);
 int rockchip_get_boot_mode(void);
 int rockchip_read_dtb_file(void *fdt_addr);
 int init_kernel_dtb(void);

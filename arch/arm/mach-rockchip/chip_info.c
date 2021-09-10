@@ -63,6 +63,8 @@ static int rockchip_get_chip_info(unsigned int chip_info[])
 	chip_info[0] = 0x33333236;
 #elif defined(CONFIG_ROCKCHIP_PX30)
 	chip_info[0] = 0x50583330;
+#elif defined(CONFIG_ROCKCHIP_RK3568)
+	chip_info[0] = 0x33353638;
 #endif
 
 	return 0;
@@ -91,8 +93,6 @@ int rockchip_rockusb_get_chip_info(unsigned int chip_info[])
 		chip_info[0] = 0x33333043;
 #elif defined(CONFIG_ROCKCHIP_RK1808)
 		chip_info[0] = 0x31383041;
-#elif defined(CONFIG_ROCKCHIP_RV1109)
-		chip_info[0] = 0x31313039;
 #elif defined(CONFIG_ROCKCHIP_RV1126)
 		chip_info[0] = 0x31313236;
 #endif

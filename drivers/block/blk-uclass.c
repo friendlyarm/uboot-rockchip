@@ -135,8 +135,9 @@ struct blk_desc *blk_get_devnum_by_typename(const char *if_typename, int devnum)
 			 * the UCLASS_MTD when find the mtd block device.
 			 * Fix it here when enable CONFIG_MTD_BLK.
 			 */
-			if ((if_type == IF_TYPE_MTD) &&
-			    (devnum == BLK_MTD_SPI_NOR)) {
+			if (device_get_uclass_id(dev->parent) == UCLASS_SPI_FLASH &&
+			    if_type == IF_TYPE_MTD &&
+			    devnum == BLK_MTD_SPI_NOR) {
 				debug("Fix the spi flash uclass different\n");
 			} else {
 				debug("%s: parent uclass %d, this dev %d\n",
@@ -453,20 +454,6 @@ unsigned long blk_dread(struct blk_desc *block_dev, lbaint_t start,
 
 	return blks_read;
 }
-
-#ifdef CONFIG_SPL_BLK_READ_PREPARE
-unsigned long blk_dread_prepare(struct blk_desc *block_dev, lbaint_t start,
-				lbaint_t blkcnt, void *buffer)
-{
-	struct udevice *dev = block_dev->bdev;
-	const struct blk_ops *ops = blk_get_ops(dev);
-
-	if (!ops->read)
-		return -ENOSYS;
-
-	return ops->read_prepare(dev, start, blkcnt, buffer);
-}
-#endif
 
 unsigned long blk_dwrite(struct blk_desc *block_dev, lbaint_t start,
 			 lbaint_t blkcnt, const void *buffer)

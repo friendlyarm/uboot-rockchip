@@ -42,9 +42,9 @@
 #define STRIDE_TYPE(n)			(((n) >> 16) & 0xff)
 
 #define DDR_2T_INFO(n)			((n) & 1)
-#define SSMOD_SPREAD(n)			(((n) >> 1) & 0x1f)
-#define SSMOD_DIV(n)			(((n) >> 6) & 0xf)
-#define SSMOD_DOWNSPREAD(n)		(((n) >> 10) & 0x1)
+#define PLL_SSMOD_SPREAD(n)		(((n) >> 1) & 0xff)
+#define PLL_SSMOD_DIV(n)		(((n) >> 9) & 0xff)
+#define PLL_SSMOD_DOWNSPREAD(n)		(((n) >> 17) & 0x3)
 
 /* sdram_head_info_v2 define */
 /* for *_drv_odten and *_drv_odtoff */
@@ -171,6 +171,9 @@ struct sdram_head_info_index_v2 {
 
 	struct index_info skew_index;
 	struct index_info dq_map_index;
+
+	struct index_info lp4x_index;
+	struct index_info reserved;
 };
 
 struct global_info {
@@ -228,8 +231,12 @@ struct sdram_cap_info {
 	unsigned int row_3_4;
 	unsigned int cs0_row;
 	unsigned int cs1_row;
+	unsigned int cs2_row;
+	unsigned int cs3_row;
 	unsigned int cs0_high16bit_row;
 	unsigned int cs1_high16bit_row;
+	unsigned int cs2_high16bit_row;
+	unsigned int cs3_high16bit_row;
 	unsigned int ddrconfig;
 };
 
@@ -240,6 +247,47 @@ struct sdram_base_params {
 	unsigned int stride;
 	unsigned int odt;
 };
+
+/* store result of read and write training, for ddr_dq_eye tool in u-boot */
+#define DDR_DQ_EYE_FLAG	0xdddeefa0
+
+#define FSP_NUM		4
+#define CS_NUM		4
+#define BYTE_NUM	5
+
+struct dqs_rw_trn_result {
+	u16 dq_deskew[8];
+	u16 dqs_deskew;
+	u16 dq_min[8];
+	u16 dq_max[8];
+};
+
+struct cs_rw_trn_result {
+	struct dqs_rw_trn_result dqs[BYTE_NUM];
+};
+
+struct fsp_rw_trn_result {
+	u16 min_val;
+	struct cs_rw_trn_result cs[CS_NUM];
+};
+
+struct rw_trn_result {
+	u32 flag;
+	u8 cs_num;
+	u8 byte_en;
+	u16 fsp_mhz[FSP_NUM];
+	struct fsp_rw_trn_result rd_fsp[FSP_NUM];
+	struct fsp_rw_trn_result wr_fsp[FSP_NUM];
+};
+
+/* for modify tRFC and related timing */
+#define DIE_CAP_512MBIT	64
+#define DIE_CAP_1GBIT	128
+#define DIE_CAP_2GBIT	256
+#define DIE_CAP_4GBIT	512
+#define DIE_CAP_8GBIT	1024
+#define DIE_CAP_16GBIT	2048
+#define DIE_CAP_32GBIT	4096
 
 /*
  * sys_reg bitfield struct
@@ -268,6 +316,7 @@ struct sdram_base_params {
 #define SYS_REG_ENC_ROW_3_4(n, ch)	((n) << (30 + (ch)))
 #define SYS_REG_DEC_ROW_3_4(n, ch)	(((n) >> (30 + (ch))) & 0x1)
 #define SYS_REG_ENC_CHINFO(ch)		(1 << (28 + (ch)))
+#define SYS_REG_DEC_CHINFO(n, ch)	(((n) >> (28 + (ch))) & 0x1)
 #define SYS_REG_ENC_DDRTYPE(n)		((n) << 13)
 #define SYS_REG_DEC_DDRTYPE(n)		(((n) >> 13) & 0x7)
 #define SYS_REG_ENC_NUM_CH(n)		(((n) - 1) << 12)
@@ -287,6 +336,8 @@ struct sdram_base_params {
 #define SYS_REG_ENC_VERSION(n)		((n) << 28)
 #define SYS_REG_DEC_VERSION(n)		(((n) >> 28) & 0xf)
 #define SYS_REG_ENC_CS0_ROW(n, os_reg2, os_reg3, ch) do { \
+			(os_reg2) &= (~(0x3 << (6 + 16 * (ch)))); \
+			(os_reg3) &= (~(0x1 << (5 + 2 * (ch)))); \
 			(os_reg2) |= (((n) - 13) & 0x3) << (6 + 16 * (ch)); \
 			(os_reg3) |= ((((n) - 13) & 0x4) >> 2) << \
 				     (5 + 2 * (ch)); \
@@ -311,10 +362,66 @@ struct sdram_base_params {
 #define SYS_REG_ENC_CS1_COL(n, ch)	(((n) - 9) << (0 + 2 * (ch)))
 #define SYS_REG_DEC_CS1_COL(n, ch)	(9 + (((n) >> (0 + 2 * (ch))) & 0x3))
 
+/* DDR SYS REG Version 3 */
+#define DDR_SYS_REG_VERSION_3		(0x3)
+#define SYS_REG_ENC_ROW_3_4_V3(row3_4, ch)	SYS_REG_ENC_ROW_3_4(row3_4, ch)
+#define SYS_REG_DEC_ROW_3_4_V3(reg2, ch)	SYS_REG_DEC_ROW_3_4(reg2, ch)
+#define SYS_REG_ENC_CHINFO_V3(ch)	SYS_REG_ENC_CHINFO(ch)
+#define SYS_REG_DEC_CHINFO_V3(reg2, ch)	SYS_REG_DEC_CHINFO(reg2, ch)
+#define SYS_REG_ENC_DDRTYPE_V3(n, reg2, reg3)	do { \
+		(reg2) &= (~(0x7 << 13)); \
+		(reg3) &= (~(0x3 << 12)); \
+		(reg2) |= (((n) & 0x7) << 13); \
+		(reg3) |= (((n) >> 3) & 0x3) << 12; \
+	} while (0)
+#define SYS_REG_DEC_DDRTYPE_V3(reg2, reg3) \
+	((((reg2) >> 13) & 0x7) | \
+	 ((((reg3) >> 12) & 0x3) << 3))
+
+#define SYS_REG_ENC_NUM_CH_V3(n)		SYS_REG_ENC_NUM_CH(n)
+#define SYS_REG_DEC_NUM_CH_V3(reg2)		SYS_REG_DEC_NUM_CH(reg2)
+#define SYS_REG_ENC_CH1_3_RANK(cs)		SYS_REG_ENC_RANK(cs, 1)
+#define SYS_REG_DEC_CH1_3_RANK(reg2)		SYS_REG_DEC_RANK(reg2, 1)
+#define SYS_REG_ENC_CH0_2_RANK_V3(n, reg2, reg3)	do { \
+		(reg2) &= (~(1 << 11)); \
+		(reg3) &= (~(1 << 14)); \
+		(reg2) |= (((n) == 2) ? 1 : 0) << 11; \
+		(reg3) |= (((n) == 4) ? 1 : 0) << 14; \
+	} while (0)
+#define SYS_REG_DEC_CH0_2_RANK_V3(reg2, reg3) \
+		(1 << ((((reg2) >> 11) & 1) | ((((reg3) >> 14) & 1) << 1)))
+#define SYS_REG_ENC_COL_V3(col, ch)		SYS_REG_ENC_COL(col, ch)
+#define SYS_REG_DEC_COL_V3(reg2, ch)		SYS_REG_DEC_COL(reg2, ch)
+#define SYS_REG_ENC_BK_V3(bk, ch)		SYS_REG_ENC_BK(bk, ch)
+#define SYS_REG_DEC_BK_V3(reg2, ch)		SYS_REG_DEC_BK(reg2, ch)
+#define SYS_REG_ENC_BW_V3(bw, ch)		SYS_REG_ENC_BW(bw, ch)
+#define SYS_REG_DEC_BW_V3(reg2, ch)		SYS_REG_DEC_BW(reg2, ch)
+#define SYS_REG_ENC_DBW_V3(dbw, ch)		SYS_REG_ENC_DBW(dbw, ch)
+#define SYS_REG_DEC_DBW_V3(reg2, ch)		SYS_REG_DEC_DBW(reg2, ch)
+#define SYS_REG_ENC_VERSION_V3(n)		SYS_REG_ENC_VERSION(n)
+#define SYS_REG_DEC_VERSION_V3(reg3)		SYS_REG_DEC_VERSION(reg3)
+#define SYS_REG_ENC_CS0_ROW_V3(row, reg2, reg3, ch) \
+		SYS_REG_ENC_CS0_ROW(row, reg2, reg3, ch)
+#define SYS_REG_DEC_CS0_ROW_V3(reg2, reg3, ch) \
+		SYS_REG_DEC_CS0_ROW(reg2, reg3, ch)
+#define SYS_REG_ENC_CS1_ROW_V3(row, reg2, reg3, ch) \
+		SYS_REG_ENC_CS1_ROW(row, reg2, reg3, ch)
+#define SYS_REG_DEC_CS1_ROW_V3(reg2, reg3, ch) \
+		SYS_REG_DEC_CS1_ROW(reg2, reg3, ch)
+#define SYS_REG_ENC_CS2_DELTA_ROW_V3(row_del)	((row_del) << 15)
+#define SYS_REG_DEC_CS2_DELTA_ROW_V3(reg3)	(((reg3) >> 15) & 1)
+#define SYS_REG_ENC_CS3_DELTA_ROW_V3(row_del)	((row_del) << 16)
+#define SYS_REG_DEC_CS3_DELTA_ROW_V3(reg3)	(((reg3) >> 16) & 1)
+
+#define SYS_REG_ENC_CS1_COL_V3(col, ch)		SYS_REG_ENC_CS1_COL(col, ch)
+#define SYS_REG_DEC_CS1_COL_V3(reg3, ch)	SYS_REG_DEC_CS1_COL(reg3, ch)
+
 void sdram_org_config(struct sdram_cap_info *cap_info,
 		      struct sdram_base_params *base,
 		      u32 *p_os_reg2, u32 *p_os_reg3, u32 channel);
-
+void sdram_org_config_v3(struct sdram_cap_info *cap_info,
+			 struct sdram_base_params *base,
+			 u32 *p_os_reg2, u32 *p_os_reg3, u32 channel);
 int sdram_detect_bw(struct sdram_cap_info *cap_info);
 int sdram_detect_cs(struct sdram_cap_info *cap_info);
 int sdram_detect_col(struct sdram_cap_info *cap_info,
@@ -328,7 +435,7 @@ int sdram_detect_row(struct sdram_cap_info *cap_info,
 		     u32 coltmp, u32 bktmp, u32 rowtmp);
 int sdram_detect_row_3_4(struct sdram_cap_info *cap_info,
 			 u32 coltmp, u32 bktmp);
-int sdram_detect_high_row(struct sdram_cap_info *cap_info);
+int sdram_detect_high_row(struct sdram_cap_info *cap_info, u32 dramtype);
 int sdram_detect_cs1_row(struct sdram_cap_info *cap_info, u32 dram_type);
 
 void sdram_print_dram_type(unsigned char dramtype);

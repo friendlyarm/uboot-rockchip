@@ -14,6 +14,7 @@
 
 #include <common.h>
 #include <command.h>
+#include <amp.h>
 #include <dm.h>
 #include <dm/root.h>
 #include <image.h>
@@ -32,6 +33,7 @@
 #include <asm/armv7.h>
 #endif
 #include <asm/setup.h>
+#include <asm/arch/rockchip_smccc.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -316,6 +318,28 @@ static void switch_to_el1(void)
 #endif
 #endif
 
+#ifdef CONFIG_ARM64_SWITCH_TO_AARCH32
+int arm64_switch_aarch32(bootm_headers_t *images)
+{
+	int es_flag;
+	int ret = 0;
+
+	images->os.arch = IH_ARCH_ARM;
+
+	/* arm aarch32 SVC */
+	es_flag = PE_STATE(0, 0, 0, 0);
+	ret |= sip_smc_amp_cfg(AMP_PE_STATE, 0x100, es_flag);
+	ret |= sip_smc_amp_cfg(AMP_PE_STATE, 0x200, es_flag);
+	ret |= sip_smc_amp_cfg(AMP_PE_STATE, 0x300, es_flag);
+	if (ret) {
+		printf("ARM64 switch aarch32 SiP call failed, ret=%d\n", ret);
+		return 0;
+	}
+
+	return es_flag;
+}
+#endif
+
 /* Subcommand: GO */
 static void boot_jump_linux(bootm_headers_t *images, int flag)
 {
@@ -323,7 +347,13 @@ static void boot_jump_linux(bootm_headers_t *images, int flag)
 	void (*kernel_entry)(void *fdt_addr, void *res0, void *res1,
 			void *res2);
 	int fake = (flag & BOOTM_STATE_OS_FAKE_GO);
+	int es_flag = 0;
 
+#if defined(CONFIG_AMP)
+	es_flag = arm64_switch_amp_pe(images);
+#elif defined(CONFIG_ARM64_SWITCH_TO_AARCH32)
+	es_flag = arm64_switch_aarch32(images);
+#endif
 	kernel_entry = (void (*)(void *fdt_addr, void *res0, void *res1,
 				void *res2))images->ep;
 
@@ -348,11 +378,11 @@ static void boot_jump_linux(bootm_headers_t *images, int flag)
 		if ((IH_ARCH_DEFAULT == IH_ARCH_ARM64) &&
 		    (images->os.arch == IH_ARCH_ARM))
 			armv8_switch_to_el2(0, (u64)gd->bd->bi_arch_number,
-					    (u64)images->ft_addr, 0,
+					    (u64)images->ft_addr, es_flag,
 					    (u64)images->ep,
 					    ES_TO_AARCH32);
 		else
-			armv8_switch_to_el2((u64)images->ft_addr, 0, 0, 0,
+			armv8_switch_to_el2((u64)images->ft_addr, 0, 0, es_flag,
 					    images->ep,
 					    ES_TO_AARCH64);
 #endif

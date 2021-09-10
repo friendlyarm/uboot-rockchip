@@ -88,7 +88,7 @@ static inline int serial_in_shift(void *addr, int shift)
 #ifdef CONFIG_DM_SERIAL
 
 #ifndef CONFIG_SYS_NS16550_CLK
-#define CONFIG_SYS_NS16550_CLK  24000000
+#define CONFIG_SYS_NS16550_CLK  0
 #endif
 
 static void ns16550_writeb(NS16550_t port, int offset, int value)
@@ -246,6 +246,12 @@ static inline void _debug_uart_init(void)
 	struct NS16550 *com_port = (struct NS16550 *)CONFIG_DEBUG_UART_BASE;
 	int baud_divisor;
 
+	if (gd && gd->flags & GD_FLG_DISABLE_CONSOLE)
+		return;
+
+	if (gd && gd->serial.using_pre_serial)
+		return;
+
 	/*
 	 * We copy the code from above because it is already horribly messy.
 	 * Trying to refactor to nicely remove the duplication doesn't seem
@@ -254,13 +260,6 @@ static inline void _debug_uart_init(void)
 	 */
 	baud_divisor = ns16550_calc_divisor(com_port, CONFIG_DEBUG_UART_CLOCK,
 					    CONFIG_BAUDRATE);
-
-	if (gd && gd->serial.using_pre_serial) {
-		com_port = (struct NS16550 *)gd->serial.addr;
-		baud_divisor = ns16550_calc_divisor(com_port,
-			CONFIG_DEBUG_UART_CLOCK, gd->serial.baudrate);
-	}
-
 	serial_dout(&com_port->ier, CONFIG_SYS_NS16550_IER);
 	serial_dout(&com_port->mcr, UART_MCRVAL);
 	serial_dout(&com_port->fcr, UART_FCR_DEFVAL);
@@ -273,14 +272,107 @@ static inline void _debug_uart_init(void)
 
 static inline void _debug_uart_putc(int ch)
 {
-	struct NS16550 *com_port = (struct NS16550 *)CONFIG_DEBUG_UART_BASE;
+	struct NS16550 *com_port;
 
-	if (gd && gd->serial.using_pre_serial)
+	if (gd && gd->flags & GD_FLG_DISABLE_CONSOLE)
+		return;
+
+	if (gd && gd->serial.addr)
 		com_port = (struct NS16550 *)gd->serial.addr;
+	else
+		com_port = (struct NS16550 *)CONFIG_DEBUG_UART_BASE;
 
 	while (!(serial_din(&com_port->lsr) & UART_LSR_THRE))
 		;
 	serial_dout(&com_port->thr, ch);
+}
+
+static inline int _debug_uart_getc(void)
+{
+	struct NS16550 *com_port;
+
+	if (gd && gd->flags & GD_FLG_DISABLE_CONSOLE)
+		return 0;
+
+	if (gd && gd->serial.addr)
+		com_port = (struct NS16550 *)gd->serial.addr;
+	else
+		com_port = (struct NS16550 *)CONFIG_DEBUG_UART_BASE;
+
+	while (!(serial_din(&com_port->lsr) & UART_LSR_DR))
+		;
+
+	return serial_din(&com_port->rbr);
+}
+
+static inline int _debug_uart_tstc(int input)
+{
+	struct NS16550 *com_port;
+
+	if (gd && gd->flags & GD_FLG_DISABLE_CONSOLE)
+		return 0;
+
+	if (gd && gd->serial.addr)
+		com_port = (struct NS16550 *)gd->serial.addr;
+	else
+		com_port = (struct NS16550 *)CONFIG_DEBUG_UART_BASE;
+
+	if (input)
+		return serial_din(&com_port->lsr) & UART_LSR_DR ? 1 : 0;
+	else
+		return serial_din(&com_port->lsr) & UART_LSR_THRE ? 0 : 1;
+}
+
+static inline int _debug_uart_clrc(void)
+{
+	struct NS16550 *com_port;
+
+	if (gd && gd->flags & GD_FLG_DISABLE_CONSOLE)
+		return 0;
+
+	if (gd && gd->serial.addr)
+		com_port = (struct NS16550 *)gd->serial.addr;
+	else
+		com_port = (struct NS16550 *)CONFIG_DEBUG_UART_BASE;
+
+	/*
+	 * Wait fifo flush.
+	 *
+	 * UART_USR: bit2 trans_fifo_empty:
+	 *	0 = Transmit FIFO is not empty
+	 *	1 = Transmit FIFO is empty
+	 */
+	while (!(serial_din(&com_port->rbr + 0x1f) & 0x04))
+		;
+
+	return 0;
+}
+
+/* should use gd->baudrate, it can be updated by env callback: on_baudrate() */
+static inline int _debug_uart_setbrg(void)
+{
+	struct NS16550 *com_port;
+	int baud_divisor;
+
+	if (gd && gd->flags & GD_FLG_DISABLE_CONSOLE)
+		return 0;
+
+	if (gd && gd->serial.addr) {
+		com_port = (struct NS16550 *)gd->serial.addr;
+		baud_divisor = ns16550_calc_divisor(com_port,
+			CONFIG_DEBUG_UART_CLOCK, gd->baudrate);
+	} else {
+		com_port = (struct NS16550 *)CONFIG_DEBUG_UART_BASE;
+		baud_divisor = ns16550_calc_divisor(com_port,
+			CONFIG_DEBUG_UART_CLOCK, CONFIG_BAUDRATE);
+	}
+
+	serial_dout(&com_port->lcr, UART_LCR_BKSE | UART_LCRVAL);
+	serial_dout(&com_port->dll, baud_divisor & 0xff);
+	serial_dout(&com_port->dlm, (baud_divisor >> 8) & 0xff);
+	serial_dout(&com_port->lcr, UART_LCRVAL);
+
+	return 0;
 }
 
 DEBUG_UART_FUNCS
@@ -298,13 +390,6 @@ static inline void _debug_uart_init(void)
 
 	baud_divisor = ns16550_calc_divisor(com_port, CONFIG_DEBUG_UART_CLOCK,
 					    CONFIG_BAUDRATE);
-
-	if (gd && gd->serial.using_pre_serial) {
-		com_port = (struct NS16550 *)gd->serial.addr;
-		baud_divisor = ns16550_calc_divisor(com_port,
-			CONFIG_DEBUG_UART_CLOCK, gd->serial.baudrate);
-	}
-
 	serial_dout(&com_port->ier, CONFIG_SYS_NS16550_IER);
 	serial_dout(&com_port->mdr1, 0x7);
 	serial_dout(&com_port->mcr, UART_MCRVAL);
@@ -321,9 +406,6 @@ static inline void _debug_uart_putc(int ch)
 {
 	struct NS16550 *com_port = (struct NS16550 *)CONFIG_DEBUG_UART_BASE;
 
-	if (gd && gd->serial.using_pre_serial)
-		com_port = (struct NS16550 *)gd->serial.addr;
-
 	while (!(serial_din(&com_port->lsr) & UART_LSR_THRE))
 		;
 	serial_dout(&com_port->thr, ch);
@@ -338,7 +420,6 @@ static int ns16550_serial_putc(struct udevice *dev, const char ch)
 {
 	struct NS16550 *const com_port = dev_get_priv(dev);
 
-#ifdef CONFIG_ARCH_ROCKCHIP
 	/*
 	 * Use fifo function.
 	 *
@@ -348,10 +429,6 @@ static int ns16550_serial_putc(struct udevice *dev, const char ch)
 	 */
 	while (!(serial_in(&com_port->rbr + 0x1f) & 0x02))
 		;
-#else
-	if (!(serial_in(&com_port->lsr) & UART_LSR_THRE))
-		return -EAGAIN;
-#endif
 	serial_out(ch, &com_port->thr);
 
 	/*
@@ -401,7 +478,6 @@ static int ns16550_serial_setbrg(struct udevice *dev, int baudrate)
 
 static int ns16550_serial_clear(struct udevice *dev)
 {
-#ifdef CONFIG_ARCH_ROCKCHIP
 	struct NS16550 *const com_port = dev_get_priv(dev);
 
 	/*
@@ -413,7 +489,7 @@ static int ns16550_serial_clear(struct udevice *dev)
 	 */
 	while (!(serial_in(&com_port->rbr + 0x1f) & 0x04))
 		;
-#endif
+
 	return 0;
 }
 
@@ -445,7 +521,7 @@ int ns16550_serial_ofdata_to_platdata(struct udevice *dev)
 
 	/* try Processor Local Bus device first */
 	addr = dev_read_addr(dev);
-#if defined(CONFIG_PCI) && defined(CONFIG_DM_PCI)
+#if defined(CONFIG_PCI) && CONFIG_IS_ENABLED(DM_PCI)
 	if (addr == FDT_ADDR_T_NONE) {
 		/* then try pci device */
 		struct fdt_pci_addr pci_addr;
@@ -480,10 +556,6 @@ int ns16550_serial_ofdata_to_platdata(struct udevice *dev)
 #ifdef CONFIG_SYS_NS16550_PORT_MAPPED
 	plat->base = addr;
 #else
-
-	if (gd && gd->serial.using_pre_serial && gd->serial.id == dev->req_seq)
-		addr = gd->serial.addr;
-
 	plat->base = (unsigned long)map_physmem(addr, 0, MAP_NOCACHE);
 #endif
 

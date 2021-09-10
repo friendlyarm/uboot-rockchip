@@ -12,8 +12,9 @@
 #include <edid.h>
 #include <dm/ofnode.h>
 
-#define ROCKCHIP_OUTPUT_DSI_DUAL_CHANNEL	BIT(0)
-#define ROCKCHIP_OUTPUT_DSI_DUAL_LINK		BIT(1)
+#define ROCKCHIP_OUTPUT_DUAL_CHANNEL_LEFT_RIGHT_MODE	BIT(0)
+#define ROCKCHIP_OUTPUT_DUAL_CHANNEL_ODD_EVEN_MODE	BIT(1)
+#define ROCKCHIP_OUTPUT_DATA_SWAP			BIT(2)
 
 enum data_format {
 	ROCKCHIP_FMT_ARGB8888 = 0,
@@ -44,14 +45,30 @@ enum rockchip_mcu_cmd {
 /*
  * display output interface supported by rockchip lcdc
  */
-#define ROCKCHIP_OUT_MODE_P888	0
-#define ROCKCHIP_OUT_MODE_P666	1
-#define ROCKCHIP_OUT_MODE_P565	2
+#define ROCKCHIP_OUT_MODE_P888		0
+#define ROCKCHIP_OUT_MODE_BT1120	0
+#define ROCKCHIP_OUT_MODE_P666		1
+#define ROCKCHIP_OUT_MODE_P565		2
+#define ROCKCHIP_OUT_MODE_BT656		5
 #define ROCKCHIP_OUT_MODE_S888		8
 #define ROCKCHIP_OUT_MODE_S888_DUMMY	12
 #define ROCKCHIP_OUT_MODE_YUV420	14
 /* for use special outface */
-#define ROCKCHIP_OUT_MODE_AAAA	15
+#define ROCKCHIP_OUT_MODE_AAAA		15
+
+#define VOP_OUTPUT_IF_RGB	BIT(0)
+#define VOP_OUTPUT_IF_BT1120	BIT(1)
+#define VOP_OUTPUT_IF_BT656	BIT(2)
+#define VOP_OUTPUT_IF_LVDS0	BIT(3)
+#define VOP_OUTPUT_IF_LVDS1	BIT(4)
+#define VOP_OUTPUT_IF_MIPI0	BIT(5)
+#define VOP_OUTPUT_IF_MIPI1	BIT(6)
+#define VOP_OUTPUT_IF_eDP0	BIT(7)
+#define VOP_OUTPUT_IF_eDP1	BIT(8)
+#define VOP_OUTPUT_IF_DP0	BIT(9)
+#define VOP_OUTPUT_IF_DP1	BIT(10)
+#define VOP_OUTPUT_IF_HDMI0	BIT(11)
+#define VOP_OUTPUT_IF_HDMI1	BIT(12)
 
 struct rockchip_mcu_timing {
 	int mcu_pix_total;
@@ -72,6 +89,7 @@ struct crtc_state {
 	struct rockchip_crtc *crtc;
 	void *private;
 	ofnode node;
+	struct device_node *ports_node; /* if (ports_node) it's vop2; */
 	int crtc_id;
 
 	int format;
@@ -90,6 +108,7 @@ struct crtc_state {
 	bool yuv_overlay;
 	struct rockchip_mcu_timing mcu_timing;
 	u32 dual_channel_swap;
+	u32 feature;
 	struct vop_rect max_output;
 };
 
@@ -121,8 +140,12 @@ struct connector_state {
 	int bus_format;
 	int output_mode;
 	int type;
-	int output_type;
+	int output_if;
+	int output_flags;
 	int color_space;
+	unsigned int bpc;
+
+	struct base2_disp_info *disp_info; /* disp_info from baseparameter 2.0 */
 
 	struct {
 		u32 *lut;
@@ -181,8 +204,10 @@ int drm_mode_vrefresh(const struct drm_display_mode *mode);
 int display_send_mcu_cmd(struct display_state *state, u32 type, u32 val);
 bool drm_mode_is_420(const struct drm_display_info *display,
 		     struct drm_display_mode *mode);
+struct base2_disp_info *rockchip_get_disp_info(int type, int id);
 
 void drm_mode_max_resolution_filter(struct hdmi_edid_data *edid_data,
 				    struct vop_rect *max_output);
+unsigned long get_cubic_lut_buffer(int crtc_id);
 
 #endif

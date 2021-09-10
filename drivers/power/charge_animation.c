@@ -29,7 +29,9 @@
 #include <irq-generic.h>
 #include <rk_timer_irq.h>
 #endif
-
+#ifdef CONFIG_ROCKCHIP_EINK_DISPLAY
+#include <rk_eink.h>
+#endif
 DECLARE_GLOBAL_DATA_PTR;
 
 #define IMAGE_RESET_IDX				-1
@@ -90,6 +92,8 @@ static int charge_animation_ofdata_to_platdata(struct udevice *dev)
 	pdata->android_charge =
 		dev_read_u32_default(dev, "rockchip,android-charge-on", 0);
 
+	pdata->auto_exit_charge =
+		dev_read_u32_default(dev, "rockchip,uboot-exit-charge-auto", 0);
 	pdata->exit_charge_level =
 		dev_read_u32_default(dev, "rockchip,uboot-exit-charge-level", 0);
 	pdata->exit_charge_voltage =
@@ -113,6 +117,9 @@ static int charge_animation_ofdata_to_platdata(struct udevice *dev)
 
 	if (pdata->screen_on_voltage > pdata->exit_charge_voltage)
 		pdata->screen_on_voltage = pdata->exit_charge_voltage;
+
+	if (pdata->auto_exit_charge && !pdata->auto_wakeup_interval)
+		pdata->auto_wakeup_interval = 10;
 
 	debug("mode: uboot=%d, android=%d; exit: soc=%d%%, voltage=%dmv;\n"
 	      "lp_voltage=%d%%, screen_on=%dmv\n",
@@ -203,14 +210,16 @@ static int system_suspend_enter(struct udevice *dev)
 	if (pdata->system_suspend && IS_ENABLED(CONFIG_ARM_SMCCC)) {
 		printf("\nSystem suspend: ");
 		putc('0');
-		regulators_enable_state_mem(false);
-		putc('1');
 		local_irq_disable();
+		putc('1');
+		regulators_enable_state_mem(false);
 		putc('2');
-		irqs_suspend();
+		pmic_suspend(priv->pmic);
 		putc('3');
-		device_suspend();
+		irqs_suspend();
 		putc('4');
+		device_suspend();
+		putc('5');
 		putc('\n');
 
 		/* Trap into ATF for low power mode */
@@ -222,8 +231,10 @@ static int system_suspend_enter(struct udevice *dev)
 		putc('3');
 		irqs_resume();
 		putc('2');
-		local_irq_enable();
+		pmic_resume(priv->pmic);
 		putc('1');
+		local_irq_enable();
+		putc('0');
 		putc('\n');
 	} else {
 		irqs_suspend();
@@ -276,6 +287,9 @@ static void autowakeup_timer_init(struct udevice *dev, uint32_t seconds)
 
 static void autowakeup_timer_uninit(void)
 {
+	writel(0, TIMER_BASE + TIMER_CTRL);
+
+	irq_handler_disable(TIMER_IRQ);
 	irq_free_handler(TIMER_IRQ);
 }
 #endif
@@ -435,6 +449,7 @@ static int charge_animation_show(struct udevice *dev)
 	int i, charging = 1, ret;
 	int boot_mode;
 	int first_poll_fg = 1;
+	bool exit_charge = false;
 
 /*
  * Check sequence:
@@ -474,9 +489,31 @@ static int charge_animation_show(struct udevice *dev)
 		return 0;
 	}
 #endif
+	charging = fg_charger_get_chrg_online(dev);
+	/* Not charger online and low power, shutdown */
+	if (charging <= 0 && pdata->auto_exit_charge) {
+		soc = fuel_gauge_update_get_soc(fg);
+		voltage = fuel_gauge_get_voltage(fg);
+		if (soc < pdata->exit_charge_level) {
+			printf("soc(%d%%) < exit_charge_level(%d%%)\n",
+			       soc, pdata->exit_charge_level);
+			exit_charge = true;
+		}
+		if (voltage < pdata->exit_charge_voltage) {
+			printf("voltage(%d) < exit_charge_voltage(%d)\n",
+			       voltage, pdata->exit_charge_voltage);
+			exit_charge = true;
+		}
+		if (exit_charge) {
+			printf("Not charging and low power, Shutdown...\n");
+			show_idx = IMAGE_LOWPOWER_IDX(image_num);
+			charge_show_bmp(image[show_idx].name);
+			mdelay(1000);
+			pmic_shutdown(pmic);
+		}
+	}
 
 	/* Not charger online, exit */
-	charging = fg_charger_get_chrg_online(dev);
 	if (charging <= 0) {
 		printf("Exit charge: due to charger offline\n");
 		return 0;
@@ -549,7 +586,23 @@ static int charge_animation_show(struct udevice *dev)
 		if (charging <= 0) {
 			printf("Not charging, online=%d. Shutdown...\n",
 			       charging);
-
+#ifdef CONFIG_ROCKCHIP_EINK_DISPLAY
+			/*
+			 * If charger is plug out during charging, display poweroff
+			 * image before device power off.
+			 * Irq must be enable if CONFIG_IRQ is defined, because
+			 * ebc need to wait irq to indicate frame is complete.
+			 */
+#ifdef CONFIG_IRQ
+			local_irq_enable();
+#endif
+			ret = rockchip_eink_show_charge_logo(EINK_LOGO_POWEROFF);
+			if (ret != 0)
+				printf("Eink display reset logo failed\n");
+#ifdef CONFIG_IRQ
+			local_irq_disable();
+#endif
+#endif
 			/* wait uart flush before shutdown */
 			mdelay(5);
 
@@ -583,6 +636,22 @@ static int charge_animation_show(struct udevice *dev)
 
 		first_poll_fg = 0;
 		local_irq_enable();
+
+		if (pdata->auto_exit_charge) {
+			/* Is able to boot now ? */
+			if (pdata->exit_charge_level &&
+			    soc >= pdata->exit_charge_level) {
+				printf("soc(%d%%) exit charge animation...\n",
+				       soc);
+				break;
+			}
+			if (pdata->exit_charge_voltage &&
+			    voltage >= pdata->exit_charge_voltage) {
+				printf("vol(%d) exit charge animation...\n",
+				       voltage);
+				break;
+			}
+		}
 
 show_images:
 		/*
@@ -655,10 +724,61 @@ show_images:
 
 		debug("step3 (%d)... show_idx=%d\n", screen_on, show_idx);
 
+#ifdef CONFIG_ROCKCHIP_EINK_DISPLAY
+		/*
+		 * Device is auto wakeup from suspend, if it's eink display,
+		 * screen will display the last image after suspend, so
+		 * we should update the image to show the approximate
+		 * battery power if battery is charging to next level.
+		 */
+		if (pdata->auto_wakeup_interval &&
+		    priv->auto_wakeup_key_state == KEY_PRESS_DOWN &&
+		    !screen_on) {
+			if (soc >= image[old_show_idx + 1].soc &&
+			    soc < 100) {
+				int ret;
+				int logo_type = EINK_LOGO_CHARGING_0;
+
+				logo_type = logo_type << (old_show_idx + 1);
+				ret = rockchip_eink_show_charge_logo(logo_type);
+				/*
+				 * only change the logic if eink is
+				 * actually exist
+				 */
+				if (ret == 0) {
+					printf("Update image id[%d] for eink\n",
+					       old_show_idx + 1);
+					old_show_idx++;
+				}
+			}
+		}
+		/*
+		 * If battery capacity is charged to 100%, exit charging
+		 * animation and boot android system.
+		 */
+		if (soc >= 100) {
+			int ret;
+			int logo_type = EINK_LOGO_CHARGING_5;
+
+			ret = rockchip_eink_show_charge_logo(logo_type);
+			/* Only change the logic if eink is acutally exist */
+			if (ret == 0) {
+				printf("battery FULL,exit charge animation\n");
+				mdelay(20);
+				break;
+			}
+		}
+#endif
 		/* Step3: show images */
 		if (screen_on) {
 			/* Don't call 'charge_show_bmp' unless image changed */
 			if (old_show_idx != show_idx) {
+#ifdef CONFIG_ROCKCHIP_EINK_DISPLAY
+				int logo_type = EINK_LOGO_CHARGING_0;
+
+				rockchip_eink_show_charge_logo(logo_type <<
+							       show_idx);
+#endif
 				old_show_idx = show_idx;
 				debug("SHOW: %s\n", image[show_idx].name);
 				charge_show_bmp(image[show_idx].name);
@@ -709,6 +829,20 @@ show_images:
 			 * event turn off the screen and we never show images.
 			 */
 			if (screen_on) {
+#ifdef CONFIG_ROCKCHIP_EINK_DISPLAY
+				int type = EINK_LOGO_CHARGING_0 << start_idx;
+				/*
+				 * Show current battery capacity before suspend
+				 * if it's eink display, because eink screen
+				 * will continue to display the last image
+				 * after suspend, so user can get the
+				 * approximate capacity by image displayed.
+				 */
+				ret = rockchip_eink_show_charge_logo(type);
+				/* only change the logic if eink display ok */
+				if (ret == 0)
+					old_show_idx = start_idx;
+#endif
 				charge_show_bmp(NULL); /* Turn off screen */
 				screen_on = false;
 				priv->suspend_delay_timeout = get_timer(0);
