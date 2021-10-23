@@ -705,7 +705,7 @@ static int android_get_dtbo(ulong *fdt_dtbo,
 	}
 
 	/* Check dt table header */
-	if (!strcmp(part_dtbo, PART_RECOVERY))
+	if (hdr && !strcmp(part_dtbo, PART_RECOVERY))
 		blk_offset = part_info.start +
 			     (hdr->recovery_dtbo_offset / part_info.blksz);
 	else
@@ -811,27 +811,29 @@ int android_fdt_overlay_apply(void *fdt_addr)
 		return ret;
 
 	hdr = populate_andr_img_hdr(dev_desc, &part_info);
-	if (!hdr) {
-		if (part_get_info_by_name(dev_desc, PART_DTBO, &part_info) < 0)
-			return -EINVAL;
-	}
-
+	if (hdr) {
 #ifdef DEBUG
-	android_print_contents(hdr);
+		android_print_contents(hdr);
 #endif
 
-	/*
-	 * recovery_dtbo fields
-	 *
-	 * boot_img_hdr_v0: unsupported
-	 * boot_img_hdr_v1,2: supported
-	 * boot_img_hdr_v3 + boot.img: supported
-	 * boot_img_hdr_v3 + recovery.img: unsupported
-	 */
-	if ((hdr->header_version == 0) ||
-	    (hdr->header_version == 3 && !strcmp(part_boot, PART_RECOVERY)) ||
-	    (hdr->header_version > 3))
-		goto out;
+		/*
+		 * recovery_dtbo fields
+		 *
+		 * boot_img_hdr_v0: unsupported
+		 * boot_img_hdr_v1,2: supported
+		 * boot_img_hdr_v3 + boot.img: supported
+		 * boot_img_hdr_v3 + recovery.img: unsupported
+		 */
+		if ((hdr->header_version == 0) ||
+			(hdr->header_version == 3 && !strcmp(part_boot, PART_RECOVERY)) ||
+			(hdr->header_version > 3))
+			goto out;
+
+	} else {
+		if (part_get_info_by_name(dev_desc, PART_DTBO, &part_info) < 0)
+			return -EINVAL;
+		part_dtbo = PART_DTBO;
+	}
 
 	ret = android_get_dtbo(&fdt_dtbo, (void *)hdr, &index, part_dtbo);
 	if (!ret) {
