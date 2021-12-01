@@ -145,6 +145,10 @@ static int rockchip_dwmmc_probe(struct udevice *dev)
 	}
 #endif
 	dwmci_setup_cfg(&plat->cfg, host, priv->minmax[1], priv->minmax[0]);
+#ifdef CONFIG_SPL_BUILD
+	if (dev_read_bool(dev, "u-boot,spl-broken-hs"))
+		plat->cfg.host_caps &= ~MMC_MODE_HS;
+#endif
 	host->mmc = &plat->mmc;
 	host->mmc->priv = &priv->host;
 	host->mmc->dev = dev;
