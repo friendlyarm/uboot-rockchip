@@ -155,3 +155,9 @@ void board_debug_uart_init(void)
 #endif
 #endif
 }
+
+int rockchip_reset_status(void)
+{
+#define CRU_GLB_RST_ST	0xff760514
+	return readl(CRU_GLB_RST_ST);
+}
