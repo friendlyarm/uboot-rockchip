@@ -56,6 +56,8 @@ int board_mmc_dm_reinit(struct udevice *dev)
 __weak void mmc_gpio_init_direct(void) {}
 #endif
 
+__weak int rockchip_reset_status(void) { return 0; }
+
 static uint rockchip_dwmmc_get_mmc_clk(struct dwmci_host *host, uint freq)
 {
 	struct udevice *dev = host->priv;
@@ -231,7 +233,8 @@ static int rockchip_dwmmc_probe(struct udevice *dev)
 	}
 #endif
 	dwmci_setup_cfg(&plat->cfg, host, priv->minmax[1], priv->minmax[0]);
-	if (dev_read_bool(dev, "mmc-broken-hs"))
+	if (rockchip_reset_status() &&
+	    dev_read_bool(dev, "mmc-broken-hs"))
 		plat->cfg.host_caps &= ~MMC_MODE_HS;
 	if (dev_read_bool(dev, "mmc-hs200-1_8v"))
 		plat->cfg.host_caps |= MMC_MODE_HS200;
