@@ -12,6 +12,13 @@ F:      configs/nanopi-r2s-rk3328_defconfig
 F:      arch/arm/dts/rk3328-nanopi-r2s-u-boot.dtsi
 F:      arch/arm/dts/rk3328-nanopi-r2s.dts
 
+NANOPI-R2C-RK3328
+M:      jensen <jensenhuang@friendlyarm.com>
+S:      Maintained
+F:      configs/nanopi-r2c-rk3328_defconfig
+F:      arch/arm/dts/rk3328-nanopi-r2c-u-boot.dtsi
+F:      arch/arm/dts/rk3328-nanopi-r2c.dts
+
 ROC-RK3328-CC
 M:      Loic Devulder <ldevulder@suse.com>
 M:      Chen-Yu Tsai <wens@csie.org>
