@@ -13,6 +13,12 @@
 #include <bouncebuf.h>
 #include <asm/cache.h>
 
+__weak int arch_addr_aligned(void *ubuf)
+{
+	/* Aligned */
+	return 1;
+}
+
 static int addr_aligned(struct bounce_buffer *state)
 {
 	const ulong align_mask = ARCH_DMA_MINALIGN - 1;
@@ -29,8 +35,7 @@ static int addr_aligned(struct bounce_buffer *state)
 		return 0;
 	}
 
-	/* Aligned */
-	return 1;
+	return arch_addr_aligned(state->user_buffer);
 }
 
 int bounce_buffer_start_extalign(struct bounce_buffer *state, void *data,

@@ -111,6 +111,19 @@ int arch_cpu_init(void)
 	return 0;
 }
 
+int arch_addr_aligned(void *ubuf)
+{
+#define DRAM_END	0xf8000000
+
+	if ((uintptr_t)ubuf < DRAM_END) {
+		/* Aligned for DRAM area */
+		return 1;
+	}
+
+	debug("Unsupported buffer for DMA transfer\n");
+	return 0;
+}
+
 #ifdef CONFIG_DEBUG_UART_BOARD_INIT
 void board_debug_uart_init(void)
 {
