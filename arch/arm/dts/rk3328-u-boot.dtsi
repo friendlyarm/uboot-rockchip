@@ -52,16 +52,10 @@
 
 &emmc {
 	u-boot,dm-pre-reloc;
-
-	/* mmc to sram can't do dma, prevent aborts transfering TF-A parts */
-	u-boot,spl-fifo-mode;
 };
 
 &sdmmc {
 	u-boot,dm-pre-reloc;
-
-	/* mmc to sram can't do dma, prevent aborts transfering TF-A parts */
-	u-boot,spl-fifo-mode;
 };
 
 &usb20_otg {
