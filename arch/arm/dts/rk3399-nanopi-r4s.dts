@@ -136,3 +136,19 @@
 &vcc3v3_sys {
 	vin-supply = <&vcc5v0_sys>;
 };
+
+&vopb {
+	status = "disabled";
+};
+
+&vopb_mmu {
+	status = "disabled";
+};
+
+&vopl {
+	status = "disabled";
+};
+
+&vopl_mmu {
+	status = "disabled";
+};
