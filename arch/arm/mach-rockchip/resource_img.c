@@ -880,22 +880,25 @@ static struct resource_file *rockchip_read_hwid_dtb(void)
 
 int rockchip_read_resource_dtb(void *fdt_addr, char **hash, int *hash_size)
 {
-	struct resource_file *file;
-	char *def_dtb;
+	struct resource_file *file = NULL;
+	char *dtb_name;
 	int ret;
 
-	def_dtb = env_get("dtb_name");
-	if (!def_dtb)
-		def_dtb = DTB_FILE;
+	dtb_name = env_get("dtb_name");
+	if (dtb_name) {
+		file = get_file_info(dtb_name);
+		if (!file)
+			printf("Failed to get %s\n", dtb_name);
+	}
 
 #ifdef CONFIG_ROCKCHIP_HWID_DTB
-	file = rockchip_read_hwid_dtb();
-	/* If dtbs matched hardware id(GPIO/ADC) not found, try the default */
 	if (!file)
-		file = get_file_info(def_dtb);
-#else
-	file = get_file_info(def_dtb);
+		file = rockchip_read_hwid_dtb();
+	/* If dtbs matched hardware id(GPIO/ADC) not found, try the default */
 #endif
+	if (!file)
+		file = get_file_info(DTB_FILE);
+
 	if (!file)
 		return -ENODEV;
 
