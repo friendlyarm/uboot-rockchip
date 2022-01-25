@@ -89,10 +89,9 @@ __weak int rk_board_init(void)
 
 #define MAX_ETHERNET	0x2
 
-static int rockchip_set_ethaddr(void)
+static int __maybe_unused rockchip_set_ethaddr(void)
 {
 #ifdef CONFIG_ROCKCHIP_VENDOR_PARTITION
-	char buf[ARP_HLEN_ASCII + 1], mac[16];
 	u8 ethaddr[ARP_HLEN * MAX_ETHERNET] = {0};
 	int ret, i;
 	bool need_write = false, randomed = false;
@@ -117,12 +116,7 @@ static int rockchip_set_ethaddr(void)
 		}
 
 		if (is_valid_ethaddr(&ethaddr[i * ARP_HLEN])) {
-			sprintf(buf, "%pM", &ethaddr[i * ARP_HLEN]);
-			if (i == 0)
-				memcpy(mac, "ethaddr", sizeof("ethaddr"));
-			else
-				sprintf(mac, "eth%daddr", i);
-			env_set(mac, buf);
+			eth_env_set_enetaddr_by_index("eth", i, &ethaddr[i * ARP_HLEN]);
 		}
 	}
 
