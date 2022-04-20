@@ -6,12 +6,14 @@
 #include <common.h>
 #include <clk.h>
 #include <dm.h>
+#include <fdt_support.h>
 #include <asm/io.h>
 #include <asm/arch/cru_px30.h>
 #include <asm/arch/grf_px30.h>
 #include <asm/arch/hardware.h>
 #include <asm/arch/uart.h>
 #include <asm/arch/clock.h>
+#include <asm/arch/cpu.h>
 #include <asm/arch/cru_px30.h>
 #include <dt-bindings/clock/px30-cru.h>
 
@@ -63,6 +65,11 @@ struct mm_region *mem_map = px30_mem_map;
 #define QOS_PRIORITY			0x08
 
 #define QOS_PRIORITY_LEVEL(h, l)	((((h) & 3) << 8) | ((l) & 3))
+
+#define GRF_GPIO1A_DS2			0x0090
+#define GRF_GPIO1B_DS2			0x0094
+#define GRF_GPIO1A_E			0x00F0
+#define GRF_GPIO1B_E			0x00F4
 
 /* GRF_GPIO1CL_IOMUX */
 enum {
@@ -194,6 +201,16 @@ int arch_cpu_init(void)
 	/* We do some SoC one time setting here. */
 	/* Disable the ddr secure region setting to make it non-secure */
 	writel(0x0, FW_DDR_CON_REG);
+
+	if (soc_is_px30s()) {
+		/* set the emmc data(GPIO1A0-A7) drive strength to 14.2ma */
+		writel(0xFFFF0000, GRF_BASE + GRF_GPIO1A_DS2);
+		writel(0xFFFFFFFF, GRF_BASE + GRF_GPIO1A_E);
+		/* set the emmc clock(GPIO1B1) drive strength to 23.7ma */
+		/* set the emmc cmd(GPIO1B2) drive strength to 14.2ma */
+		writel(0x00060002, GRF_BASE + GRF_GPIO1B_DS2);
+		writel(0x003C0038, GRF_BASE + GRF_GPIO1B_E);
+	}
 #endif
 	/* Enable PD_VO (default disable at reset) */
 	rk_clrreg(PMU_PWRDN_CON, 1 << 13);
@@ -339,3 +356,287 @@ int set_armclk_rate(void)
 
 	return 0;
 }
+
+static int fdt_fixup_cpu_opp_table(const void *blob)
+{
+	int opp_node, cpu_node, sub_node;
+	int len;
+	u32 phandle;
+	u32 *pp;
+
+	/* Replace opp table */
+	opp_node = fdt_path_offset(blob, "/px30s-cpu0-opp-table");
+	if (opp_node < 0) {
+		printf("Failed to get px30s-cpu0-opp-table node\n");
+		return -EINVAL;
+	}
+
+	phandle = fdt_get_phandle(blob, opp_node);
+	if (!phandle) {
+		printf("Failed to get cpu opp table phandle\n");
+		return -EINVAL;
+	}
+
+	cpu_node = fdt_path_offset(blob, "/cpus");
+	if (cpu_node < 0) {
+		printf("Failed to get cpus node\n");
+		return -EINVAL;
+	}
+
+	fdt_for_each_subnode(sub_node, blob, cpu_node) {
+		pp = (u32 *)fdt_getprop(blob, sub_node, "operating-points-v2",
+					&len);
+		if (!pp)
+			continue;
+		pp[0] = cpu_to_fdt32(phandle);
+	}
+
+	return 0;
+}
+
+static int fdt_fixup_dmc_opp_table(const void *blob)
+{
+	int opp_node, dmc_node;
+	int len;
+	u32 phandle;
+	u32 *pp;
+
+	opp_node = fdt_path_offset(blob, "/px30s-dmc-opp-table");
+	if (opp_node < 0) {
+		printf("Failed to get px30s-dmc-opp-table node\n");
+		return -EINVAL;
+	}
+
+	phandle = fdt_get_phandle(blob, opp_node);
+	if (!phandle) {
+		printf("Failed to get dmc opp table phandle\n");
+		return -EINVAL;
+	}
+
+	dmc_node = fdt_path_offset(blob, "/dmc");
+	if (dmc_node < 0) {
+		printf("Failed to get dmc node\n");
+		return -EINVAL;
+	}
+
+	pp = (u32 *)fdt_getprop(blob, dmc_node, "operating-points-v2", &len);
+	if (!pp)
+		return 0;
+	pp[0] = cpu_to_fdt32(phandle);
+
+	return 0;
+}
+
+static int fdt_fixup_gpu_opp_table(const void *blob)
+{
+	int opp_node, gpu_node;
+	int len;
+	u32 phandle;
+	u32 *pp;
+
+	opp_node = fdt_path_offset(blob, "/px30s-gpu-opp-table");
+	if (opp_node < 0) {
+		printf("Failed to get px30s-gpu-opp-table node\n");
+		return -EINVAL;
+	}
+
+	phandle = fdt_get_phandle(blob, opp_node);
+	if (!phandle) {
+		printf("Failed to get gpu opp table phandle\n");
+		return -EINVAL;
+	}
+
+	gpu_node = fdt_path_offset(blob, "/gpu@ff400000");
+	if (gpu_node < 0) {
+		printf("Failed to get gpu node\n");
+		return -EINVAL;
+	}
+
+	pp = (u32 *)fdt_getprop(blob, gpu_node, "operating-points-v2", &len);
+	if (!pp)
+		return 0;
+	pp[0] = cpu_to_fdt32(phandle);
+
+	return 0;
+}
+
+static void fixup_pcfg_drive_strength(const void *blob, int noffset)
+{
+	u32 *ds, *dss;
+	u32 val;
+
+	dss = (u32 *)fdt_getprop(blob, noffset, "drive-strength-s", NULL);
+	if (!dss)
+		return;
+
+	val = dss[0];
+	ds = (u32 *)fdt_getprop(blob, noffset, "drive-strength", NULL);
+	if (ds) {
+		ds[0] = val;
+	} else {
+		if (fdt_setprop((void *)blob, noffset,
+				"drive-strength", &val, 4) < 0)
+			printf("Failed to add drive-strength prop\n");
+	}
+}
+
+static int fdt_fixup_pcfg(const void *blob)
+{
+	int depth1_node;
+	int depth2_node;
+	int root_node;
+
+	root_node = fdt_path_offset(blob, "/");
+	if (root_node < 0)
+		return root_node;
+
+	fdt_for_each_subnode(depth1_node, blob, root_node) {
+		debug("depth1: %s\n", fdt_get_name(blob, depth2_node, NULL));
+		fixup_pcfg_drive_strength(blob, depth1_node);
+		fdt_for_each_subnode(depth2_node, blob, depth1_node) {
+			debug("    depth2: %s\n",
+			      fdt_get_name(blob, depth2_node, NULL));
+			fixup_pcfg_drive_strength(blob, depth2_node);
+		}
+	}
+
+	return 0;
+}
+
+static int fdt_fixup_bus_apll(const void *blob)
+{
+	char path[] = "/bus-apll";
+
+	do_fixup_by_path((void *)blob, path, "status", "disabled", sizeof("disabled"), 0);
+
+	return 0;
+}
+
+static int fdt_fixup_cpu_gpu_clk(const void *blob)
+{
+	int cpu_node, gpu_node, scmi_clk_node;
+	int len;
+	u32 phandle;
+	u32 *pp;
+
+	scmi_clk_node = fdt_path_offset(blob, "/firmware/scmi/protocol@14");
+	if (scmi_clk_node < 0) {
+		printf("Failed to get px30s scmi clk node\n");
+		return -EINVAL;
+	}
+
+	phandle = fdt_get_phandle(blob, scmi_clk_node);
+	if (!phandle)
+		return 0;
+
+	cpu_node = fdt_path_offset(blob, "/cpus/cpu@0");
+	if (cpu_node < 0) {
+		printf("Failed to get px30s cpu node\n");
+		return -EINVAL;
+	}
+	/*
+	 * before fixed:
+	 *	clocks = <&cru ARMCLK>;
+	 * after fixed:
+	 *	clocks = <&scmi_clk 0>;
+	 */
+	pp = (u32 *)fdt_getprop(blob, cpu_node,
+				"clocks",
+				&len);
+	if (!pp)
+		return 0;
+	if ((len / 8) >= 1) {
+		pp[0] = cpu_to_fdt32(phandle);
+		pp[1] = cpu_to_fdt32(0);
+	}
+
+	gpu_node = fdt_path_offset(blob, "/gpu@ff400000");
+	if (gpu_node < 0) {
+		printf("Failed to get px30s gpu node\n");
+		return -EINVAL;
+	}
+	/*
+	 * before fixed:
+	 *	clocks = <&cru SCLK_GPU>;
+	 * after fixed:
+	 *	clocks = <&scmi_clk 1>;
+	 */
+	pp = (u32 *)fdt_getprop(blob, gpu_node,
+				"clocks",
+				&len);
+	if (!pp)
+		return 0;
+	if ((len / 8) >= 1) {
+		pp[0] = cpu_to_fdt32(phandle);
+		pp[1] = cpu_to_fdt32(1);
+	}
+	return 0;
+}
+
+static int fdt_fixup_i2s_soft_reset(const void *blob)
+{
+	int node;
+	int len;
+	u32 *pp;
+
+	node = fdt_path_offset(blob, "/i2s@ff060000");
+	if (node < 0) {
+		printf("Failed to get px30s i2s node\n");
+		return -EINVAL;
+	}
+
+	/*
+	 * before fixed:
+	 *	resets = <&cru SRST_I2S0_TX>, <&cru SRST_I2S0_RX>;
+	 * after fixed:
+	 *	resets = <&cru SRST_I2S0_TX>, <&cru 128>;
+	 */
+	pp = (u32 *)fdt_getprop(blob, node,
+				"resets",
+				&len);
+	if (!pp)
+		return 0;
+	if ((len / 8) >= 2)
+		pp[3] = cpu_to_fdt32(128);
+
+	return 0;
+}
+
+int rk_board_fdt_fixup(const void *blob)
+{
+	if (soc_is_px30s()) {
+		fdt_increase_size((void *)blob, SZ_8K);
+		fdt_fixup_cpu_opp_table(blob);
+		fdt_fixup_dmc_opp_table(blob);
+		fdt_fixup_gpu_opp_table(blob);
+		fdt_fixup_pcfg(blob);
+		fdt_fixup_bus_apll(blob);
+		fdt_fixup_cpu_gpu_clk(blob);
+		fdt_fixup_i2s_soft_reset(blob);
+	}
+
+	return 0;
+}
+
+int rk_board_early_fdt_fixup(const void *blob)
+{
+	rk_board_fdt_fixup(blob);
+
+	return 0;
+}
+
+#if !defined(CONFIG_SPL_BUILD) && defined(CONFIG_ROCKCHIP_DMC_FSP)
+int rk_board_init(void)
+{
+	struct udevice *dev;
+	u32 ret = 0;
+
+	ret = uclass_get_device_by_driver(UCLASS_DMC, DM_GET_DRIVER(dmc_fsp), &dev);
+	if (ret) {
+		printf("dmc_fsp failed, ret=%d\n", ret);
+		return 0;
+	}
+
+	return 0;
+}
+#endif

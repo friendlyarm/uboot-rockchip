@@ -18,6 +18,13 @@
 struct memblock *param_parse_ddr_mem(int *out_count);
 
 /**
+ * param_simple_parse_ddr_mem() - Simple parse ddr memory region
+ */
+#ifndef CONFIG_BIDRAM
+phys_size_t param_simple_parse_ddr_mem(int init_bank);
+#endif
+
+/**
  * param_parse_atf_mem() - Parse atf memory region
  *
  * @return memblock structure which contains base and size info.
@@ -47,5 +54,19 @@ struct memblock param_parse_common_resv_mem(void);
  * @return 0 on success, otherwise failed.
  */
 int param_parse_bootdev(char **devtype, char **devtnum);
+
+/**
+ * param_parse_pre_serial() - Parse and Init serial according to pre-loader serial.
+ *
+ * @return 0 on success, otherwise failed.
+ */
+int param_parse_pre_serial(void);
+
+/**
+ * param_parse_pubkey_fuse_programmed() - Parse and pass fuse programmed state.
+ *
+ * @return 0 on success, otherwise failed.
+ */
+int param_parse_pubkey_fuse_programmed(void);
 
 #endif

@@ -838,6 +838,7 @@ static int mmc_select_bus_width(struct mmc *mmc)
 	return err;
 }
 
+#ifndef CONFIG_MMC_SIMPLE
 static const u8 tuning_blk_pattern_4bit[] = {
 	0xff, 0x0f, 0xff, 0x00, 0xff, 0xcc, 0xc3, 0xcc,
 	0xc3, 0x3c, 0xcc, 0xff, 0xfe, 0xff, 0xfe, 0xef,
@@ -940,6 +941,12 @@ static int mmc_hs200_tuning(struct mmc *mmc)
 	return mmc_execute_tuning(mmc);
 }
 
+#else
+int mmc_send_tuning(struct mmc *mmc, u32 opcode) { return 0; }
+int mmc_execute_tuning(struct mmc *mmc) { return 0; }
+static int mmc_hs200_tuning(struct mmc *mmc) { return 0; }
+#endif
+
 static int mmc_select_hs(struct mmc *mmc)
 {
 	int ret;
@@ -974,6 +981,7 @@ static int mmc_select_hs_ddr(struct mmc *mmc)
 	return 0;
 }
 
+#ifndef CONFIG_MMC_SIMPLE
 static int mmc_select_hs200(struct mmc *mmc)
 {
 	int ret;
@@ -1002,6 +1010,9 @@ static int mmc_select_hs400(struct mmc *mmc)
 {
 	int ret;
 
+	/* Reduce frequency to HS frequency */
+	mmc_set_clock(mmc, MMC_HIGH_52_MAX_DTR);
+
 	/* Switch card to HS mode */
 	ret = __mmc_switch(mmc, EXT_CSD_CMD_SET_NORMAL,
 			   EXT_CSD_HS_TIMING, EXT_CSD_TIMING_HS, false);
@@ -1010,9 +1021,6 @@ static int mmc_select_hs400(struct mmc *mmc)
 
 	/* Set host controller to HS timing */
 	mmc_set_timing(mmc, MMC_TIMING_MMC_HS);
-
-	/* Reduce frequency to HS frequency */
-	mmc_set_clock(mmc, MMC_HIGH_52_MAX_DTR);
 
 	ret = mmc_send_status(mmc, 1000);
 	if (ret)
@@ -1036,6 +1044,10 @@ static int mmc_select_hs400(struct mmc *mmc)
 
 	return ret;
 }
+#else
+static int mmc_select_hs200(struct mmc *mmc) { return 0; }
+static int mmc_select_hs400(struct mmc *mmc) { return 0; }
+#endif
 
 static u32 mmc_select_card_type(struct mmc *mmc, u8 *ext_csd)
 {
@@ -2002,9 +2014,9 @@ static int mmc_startup(struct mmc *mmc)
 			return err;
 
 		if (mmc->card_caps & MMC_MODE_HS)
-			tran_speed = 50000000;
+			tran_speed = MMC_HIGH_52_MAX_DTR;
 		else
-			tran_speed = 25000000;
+			tran_speed = MMC_HIGH_26_MAX_DTR;
 
 		mmc_set_clock(mmc, tran_speed);
 	}

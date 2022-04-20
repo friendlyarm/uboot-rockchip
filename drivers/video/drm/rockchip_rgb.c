@@ -160,6 +160,7 @@ static int rockchip_rgb_connector_init(struct display_state *state)
 	case MEDIA_BUS_FMT_VYUY8_1X16:
 		conn_state->output_mode = ROCKCHIP_OUT_MODE_BT1120;
 		conn_state->output_if = VOP_OUTPUT_IF_BT1120;
+		break;
 	case MEDIA_BUS_FMT_RGB888_1X24:
 	case MEDIA_BUS_FMT_RGB666_1X24_CPADHI:
 	default:
@@ -282,7 +283,7 @@ static const struct rockchip_connector rk3368_rgb_driver_data = {
 
 static void rk3568_rgb_prepare(struct rockchip_rgb *rgb, int pipe)
 {
-	regmap_write(rgb->grf, RK3568_GRF_VO_CON1, RK3568_RGB_DATA_BYPASS(0));
+	regmap_write(rgb->grf, RK3568_GRF_VO_CON1, RK3568_RGB_DATA_BYPASS(rgb->data_sync_bypass));
 }
 
 static const struct rockchip_rgb_funcs rk3568_rgb_funcs = {

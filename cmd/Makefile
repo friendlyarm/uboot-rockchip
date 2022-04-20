@@ -18,6 +18,7 @@ obj-$(CONFIG_CMD_AMBAPP) += ambapp.o
 obj-$(CONFIG_CMD_ANDROID_AB_SELECT) += android_ab_select.o android_cmds.o
 obj-$(CONFIG_CMD_ARMFLASH) += armflash.o
 obj-y += blk_common.o
+obj-y += blk.o
 obj-$(CONFIG_SOURCE) += source.o
 obj-$(CONFIG_CMD_SOURCE) += source.o
 obj-$(CONFIG_CMD_BDI) += bdinfo.o
@@ -135,6 +136,7 @@ obj-$(CONFIG_CMD_SPI) += spi.o
 obj-$(CONFIG_CMD_STRINGS) += strings.o
 obj-$(CONFIG_CMD_TERMINAL) += terminal.o
 obj-$(CONFIG_CMD_TIME) += time.o
+obj-$(CONFIG_CMD_TFTP_UPDATE) += tftp_update.o
 obj-$(CONFIG_CMD_TRACE) += trace.o
 obj-$(CONFIG_HUSH_PARSER) += test.o
 obj-$(CONFIG_CMD_TPM) += tpm.o
@@ -174,6 +176,7 @@ obj-$(CONFIG_CMD_DVFS) += dvfs.o
 obj-$(CONFIG_CMD_BLOB) += blob.o
 
 obj-$(CONFIG_ARCH_ROCKCHIP) += rkimgtest.o
+obj-$(CONFIG_CMD_ATAGS) += atags.o
 
 endif # !CONFIG_SPL_BUILD
 

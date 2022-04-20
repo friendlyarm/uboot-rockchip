@@ -53,7 +53,7 @@ typedef volatile unsigned char	vu_char;
 # define static_assert _Static_assert
 #endif
 
-#ifndef CONFIG_IRQ
+#if !CONFIG_IS_ENABLED(IRQ)
 typedef void (interrupt_handler_t)(void *);
 #else
 typedef void (interrupt_handler_t)(int, void *);
@@ -349,6 +349,20 @@ int env_set(const char *varname, const char *value);
 int env_update_filter(const char *varname, const char *varvalue,
 		      const char *ignore);
 
+/**
+ * env_update_extract_subset() - extract subset value from an environment variable
+ *
+ * This extract subset value from an environment variable
+ *
+ * @varname: Parent Variable where to extract subset value, the subset value
+ *	     will be removed from it.
+ * @subset_varname: Variable to save subset value
+ * @subset_key: Key value to find out subset value
+ * @return 0 if OK, 1 on error
+ */
+int env_update_extract_subset(const char *varname,
+			      const char *subset_varname,
+			      const char *subset_key);
 /**
  * env_update() - update sub value of an environment variable
  *
@@ -667,9 +681,7 @@ int gzwrite(unsigned char *src, int len,
 	    u64 startoffs,
 	    u64 szexpected);
 
-/* lib/lz4_wrapper.c */
-bool lz4_is_valid_header(const unsigned char *h);
-int ulz4fn(const void *src, size_t srcn, void *dst, size_t *dstn);
+#include <u-boot/lz4.h>
 
 /* lib/qsort.c */
 void qsort(void *base, size_t nmemb, size_t size,

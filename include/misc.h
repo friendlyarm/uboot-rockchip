@@ -153,18 +153,16 @@ struct decom_param {
 	u64 size_src;	/* compressed */
 	u64 size_dst;	/* decompressed, to be filled for output */
 	enum misc_mode mode;
+	u32 flags;
 };
 
-struct udevice *misc_decompress_get_device(u32 capability);
-int misc_decompress_start(struct udevice *dev, unsigned long src,
-			  unsigned long dst, unsigned long size);
-int misc_decompress_stop(struct udevice *dev);
-bool misc_decompress_is_complete(struct udevice *dev);
+/* function flags for decompress */
+#define DCOMP_FLG_IRQ_ONESHOT	BIT(0)
 
 void misc_decompress_async(u8 comp);
 void misc_decompress_sync(u8 comp);
 int misc_decompress_cleanup(void);
 int misc_decompress_process(unsigned long dst, unsigned long src,
 			    unsigned long src_len, u32 cap, bool sync,
-			    u64 *size);
+			    u64 *size, u32 flags);
 #endif	/* _MISC_H_ */

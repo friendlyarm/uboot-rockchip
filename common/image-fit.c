@@ -1188,17 +1188,23 @@ int fit_calculate_hash(const void *data, int data_len,
 							CHUNKSZ_CRC32);
 		*((uint32_t *)value) = cpu_to_uimage(*((uint32_t *)value));
 		*value_len = 4;
+#ifdef CONFIG_SHA1
 	} else if (IMAGE_ENABLE_SHA1 && strcmp(algo, "sha1") == 0) {
 		sha1_csum_wd((unsigned char *)data, data_len,
 			     (unsigned char *)value, CHUNKSZ_SHA1);
 		*value_len = 20;
+#endif
+#ifdef CONFIG_SHA256
 	} else if (IMAGE_ENABLE_SHA256 && strcmp(algo, "sha256") == 0) {
 		sha256_csum_wd((unsigned char *)data, data_len,
 			       (unsigned char *)value, CHUNKSZ_SHA256);
 		*value_len = SHA256_SUM_LEN;
+#endif
+#ifdef CONFIG_MD5
 	} else if (IMAGE_ENABLE_MD5 && strcmp(algo, "md5") == 0) {
 		md5_wd((unsigned char *)data, data_len, value, CHUNKSZ_MD5);
 		*value_len = 16;
+#endif
 	} else {
 		debug("Unsupported hash alogrithm\n");
 		return -1;
@@ -1299,6 +1305,7 @@ int fit_image_check_hash(const void *fit, int noffset, const void *data,
 	uint8_t *fit_value;
 	int fit_value_len;
 	int ignore;
+	int i;
 
 	*err_msgp = NULL;
 
@@ -1331,8 +1338,6 @@ int fit_image_check_hash(const void *fit, int noffset, const void *data,
 		*err_msgp = "Bad hash value len";
 		return -1;
 	} else if (memcmp(value, fit_value, value_len) != 0) {
-		int i;
-
 		printf(" Bad hash: ");
 		for (i = 0; i < value_len; i++)
 			printf("%02x", value[i]);
@@ -1341,6 +1346,13 @@ int fit_image_check_hash(const void *fit, int noffset, const void *data,
 		*err_msgp = "Bad hash value";
 		return -1;
 	}
+
+#ifdef CONFIG_SPL_BUILD
+	printf("(");
+	for (i = 0; i < 5; i++)
+		printf("%02x", value[i]);
+	printf("...) ");
+#endif
 
 	return 0;
 }
@@ -1923,8 +1935,13 @@ void fit_conf_print(const void *fit, int noffset, const char *p)
 
 static int fit_image_select(const void *fit, int rd_noffset, int verify)
 {
+#ifdef USE_HOSTCC
 	fit_image_print(fit, rd_noffset, "   ");
-
+#else
+#if CONFIG_IS_ENABLED(FIT_PRINT)
+	fit_image_print(fit, rd_noffset, "   ");
+#endif
+#endif
 	if (verify) {
 		puts("   Verifying Hash Integrity ... ");
 		if (!fit_image_verify(fit, rd_noffset)) {
@@ -2191,7 +2208,7 @@ int fit_image_load_index(bootm_headers_t *images, ulong addr,
 
 	/* perform any post-processing on the image data */
 	board_fit_image_post_process((void *)fit, noffset,
-				     &load, (ulong **)&buf, &size);
+				     &load, (ulong **)&buf, &size, NULL);
 #endif
 
 	len = (ulong)size;

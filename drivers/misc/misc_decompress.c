@@ -63,28 +63,68 @@ static int misc_gzip_parse_header(const unsigned char *src, unsigned long len)
 	return i;
 }
 
-static u32 misc_get_data_size(unsigned long src, unsigned long len, u32 cap)
+static int misc_lz4_header_is_valid(const unsigned char *h)
 {
-	if (cap == DECOM_GZIP)
-		return *(u32 *)(src + len - 4);
+	const struct lz4_frame_header *hdr  = (const struct lz4_frame_header *)h;
+	/* We assume there's always only a single, standard frame. */
+	if (le32_to_cpu(hdr->magic) != LZ4F_MAGIC || hdr->version != 1)
+		return 0;        /* unknown format */
+	if (hdr->reserved0 || hdr->reserved1 || hdr->reserved2)
+		return 0; /* reserved must be zero */
+	if (!hdr->independent_blocks)
+		return 0; /* we can't support this yet */
 
-	return 0;
+	return 1;
 }
 
-struct udevice *misc_decompress_get_device(u32 capability)
+static u64 misc_get_data_size(unsigned long src, unsigned long len, u32 comp)
 {
-	return misc_get_device_by_capability(capability);
+	u64 size = 0;
+
+	if (comp == DECOM_GZIP) {
+		size = *(u32 *)(src + len - 4);
+	} else if (comp == DECOM_LZ4) {
+		const struct lz4_frame_header *hdr =
+			(const struct lz4_frame_header *)src;
+		/*
+		 * Here is the way to add size information in image:
+		 *
+		 * 1. lz4 command use arg: --content-size.
+		 * 2. append u32 size at the end of image as kernel does.
+		 */
+		size = hdr->has_content_size ?
+			*(u64 *)(src + sizeof(*hdr)) : *(u32 *)(src + len - 4);
+	}
+
+	return size;
 }
 
-int misc_decompress_start(struct udevice *dev, unsigned long dst,
-			  unsigned long src, unsigned long src_len)
+static void misc_setup_default_sync(u32 comp)
+{
+	if (comp == DECOM_GZIP)
+		misc_decompress_sync(IH_COMP_GZIP);
+	else if (comp == DECOM_LZ4)
+		misc_decompress_sync(IH_COMP_LZ4);
+}
+
+static struct udevice *misc_decompress_get_device(u32 comp)
+{
+	return misc_get_device_by_capability(comp);
+}
+
+static int misc_decompress_start(struct udevice *dev, unsigned long dst,
+				 unsigned long src, unsigned long src_len,
+				 u32 flags)
 {
 	struct decom_param param;
 
 	param.addr_dst = dst;
 	param.addr_src = src;
+	param.flags = flags;
 	if (misc_gzip_parse_header((unsigned char *)src, 0xffff) > 0) {
 		param.mode = DECOM_GZIP;
+	} else if (misc_lz4_header_is_valid((void *)src)) {
+		param.mode = DECOM_LZ4;
 	} else {
 		printf("Unsupported decompression format.\n");
 		return -EPERM;
@@ -99,12 +139,12 @@ int misc_decompress_start(struct udevice *dev, unsigned long dst,
 	return misc_ioctl(dev, IOCTL_REQ_START, &param);
 }
 
-int misc_decompress_stop(struct udevice *dev)
+static int misc_decompress_stop(struct udevice *dev)
 {
 	return misc_ioctl(dev, IOCTL_REQ_STOP, NULL);
 }
 
-bool misc_decompress_is_complete(struct udevice *dev)
+static bool misc_decompress_is_complete(struct udevice *dev)
 {
 	if (misc_ioctl(dev, IOCTL_REQ_POLL, NULL))
 		return false;
@@ -112,12 +152,12 @@ bool misc_decompress_is_complete(struct udevice *dev)
 		return true;
 }
 
-int misc_decompress_data_size(struct udevice *dev, u64 *size, u32 cap)
+static int misc_decompress_data_size(struct udevice *dev, u64 *size, u32 comp)
 {
 	struct decom_param param;
 	int ret;
 
-	param.mode = cap;
+	param.mode = comp;
 	param.size_dst = 0; /* clear */
 
 	ret = misc_ioctl(dev, IOCTL_REQ_DATA_SIZE, &param);
@@ -127,13 +167,13 @@ int misc_decompress_data_size(struct udevice *dev, u64 *size, u32 cap)
 	return ret;
 }
 
-static int misc_decompress_finish(struct udevice *dev, u32 cap)
+static int misc_decompress_finish(struct udevice *dev, u32 comp)
 {
-	int timeout = 10000;
+	int timeout = 200000;	/* 2s */
 
 	while (!misc_decompress_is_complete(dev)) {
 		if (timeout < 0)
-			return -EIO;
+			return -ETIMEDOUT;
 		timeout--;
 		udelay(10);
 	}
@@ -147,7 +187,7 @@ int misc_decompress_cleanup(void)
 	struct udevice *dev;
 	struct uclass *uc;
 	int ret;
-	u32 cap;
+	u32 comp;
 
 	ret = uclass_get(UCLASS_MISC, &uc);
 	if (ret)
@@ -160,13 +200,13 @@ int misc_decompress_cleanup(void)
 		ops = device_get_ops(dev);
 		if (!ops || !ops->ioctl)
 			continue;
-		else if (ops->ioctl(dev, IOCTL_REQ_CAPABILITY, &cap))
+		else if (ops->ioctl(dev, IOCTL_REQ_CAPABILITY, &comp))
 			continue;
-		else if (misc_decomp_async & cap)
+		else if (misc_decomp_async & comp)
 			continue;
 
-		if (misc_decomp_sync & cap) {
-			ret = misc_decompress_finish(dev, cap);
+		if (misc_decomp_sync & comp) {
+			ret = misc_decompress_finish(dev, comp);
 			if (ret) {
 				printf("Failed to stop decompress: %s, ret=%d\n",
 				       dev->name, ret);
@@ -179,22 +219,34 @@ int misc_decompress_cleanup(void)
 }
 
 int misc_decompress_process(unsigned long dst, unsigned long src,
-			    unsigned long src_len, u32 cap, bool sync,
-			    u64 *size)
+			    unsigned long src_len, u32 comp, bool sync,
+			    u64 *size, u32 flags)
 {
 	struct udevice *dev;
+	ulong dst_org = dst;
+	u64 dst_size = 0;
 	int ret;
 
-	dev = misc_decompress_get_device(cap);
+	dev = misc_decompress_get_device(comp);
 	if (!dev)
 		return -ENODEV;
 
 	/* Wait last finish */
-	ret = misc_decompress_finish(dev, cap);
+	ret = misc_decompress_finish(dev, comp);
 	if (ret)
 		return ret;
 
-	ret = misc_decompress_start(dev, dst, src, src_len);
+	/*
+	 * Check if ARCH_DMA_MINALIGN aligned, otherwise use sync action
+	 * for output data memcpy.
+	 */
+	if (!IS_ALIGNED(dst, ARCH_DMA_MINALIGN)) {
+		dst_org = dst;
+		dst = ALIGN(dst, ARCH_DMA_MINALIGN);
+		sync = true;
+	}
+
+	ret = misc_decompress_start(dev, dst, src, src_len, flags);
 	if (ret)
 		return ret;
 
@@ -205,14 +257,31 @@ int misc_decompress_process(unsigned long dst, unsigned long src,
 	 * otherwise return from compressed file information.
 	 */
 	if (sync) {
-		ret = misc_decompress_finish(dev, cap);
+		ret = misc_decompress_finish(dev, comp);
 		if (ret)
 			return ret;
-		if (size)
-			ret = misc_decompress_data_size(dev, size, cap);
+
+		if (size || (dst != dst_org)) {
+			ret = misc_decompress_data_size(dev, &dst_size, comp);
+			if (size)
+				*size = dst_size;
+			if (dst != dst_org)
+				memcpy((char *)dst_org,
+				       (const char *)dst, dst_size);
+		}
 	} else {
+		/*
+		 * setup cleanup sync flags by default if this is a sync request,
+		 * unless misc_decompress_async() is called by manual.
+		 *
+		 * This avoid caller to forget to setup cleanup sync flags when
+		 * they use a async operation, otherwise cpu jump to kernel
+		 * before decompress done.
+		 */
+		misc_setup_default_sync(comp);
+
 		if (size)
-			*size = misc_get_data_size(src, src_len, cap);
+			*size = misc_get_data_size(src, src_len, comp);
 	}
 
 	return ret;

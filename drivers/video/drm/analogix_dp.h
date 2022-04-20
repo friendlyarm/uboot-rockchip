@@ -8,6 +8,7 @@
 #define __DRM_ANALOGIX_DP_H__
 
 #include <generic-phy.h>
+#include <regmap.h>
 #include <reset.h>
 
 #include <drm/drm_dp_helper.h>
@@ -28,6 +29,7 @@
 #define ANALOGIX_DP_PLL_REG_4			0x9ec
 #define ANALOGIX_DP_PLL_REG_5			0xa00
 
+#define ANALOGIX_DP_BIAS			0x124
 #define ANALOGIX_DP_PD				0x12c
 
 #define ANALOGIX_DP_LANE_MAP			0x35C
@@ -294,6 +296,7 @@
 #define LINK_QUAL_PATTERN_SET_D10_2		(0x1 << 2)
 #define LINK_QUAL_PATTERN_SET_DISABLE		(0x0 << 2)
 #define SW_TRAINING_PATTERN_SET_MASK		(0x3 << 0)
+#define SW_TRAINING_PATTERN_SET_PTN3		(0x3 << 0)
 #define SW_TRAINING_PATTERN_SET_PTN2		(0x2 << 0)
 #define SW_TRAINING_PATTERN_SET_PTN1		(0x1 << 0)
 #define SW_TRAINING_PATTERN_SET_NORMAL		(0x0 << 0)
@@ -435,6 +438,7 @@ enum pattern_set {
 	D10_2,
 	TRAINING_PTN1,
 	TRAINING_PTN2,
+	TRAINING_PTN3,
 	DP_NONE
 };
 
@@ -531,6 +535,7 @@ enum analogix_dp_sub_devtype {
 	RK3368_EDP,
 	RK3399_EDP,
 	RK3568_EDP,
+	RK3588_EDP
 };
 
 struct analogix_dp_plat_data {
@@ -543,6 +548,7 @@ struct analogix_dp_device {
 	int id;
 	struct udevice *dev;
 	void *reg_base;
+	struct regmap *grf;
 	struct phy phy;
 	struct reset_ctl_bulk resets;
 	struct gpio_desc hpd_gpio;
@@ -552,6 +558,7 @@ struct analogix_dp_device {
 	struct drm_display_mode *mode;
 	struct analogix_dp_plat_data plat_data;
 	unsigned char edid[EDID_BLOCK_LENGTH * 2];
+	u8 dpcd[DP_RECEIVER_CAP_SIZE];
 };
 
 /* analogix_dp_reg.c */
@@ -577,6 +584,7 @@ enum dp_irq_type analogix_dp_get_irq_type(struct analogix_dp_device *dp);
 void analogix_dp_clear_hotplug_interrupts(struct analogix_dp_device *dp);
 void analogix_dp_reset_aux(struct analogix_dp_device *dp);
 void analogix_dp_init_aux(struct analogix_dp_device *dp);
+int analogix_dp_get_plug_in_status(struct analogix_dp_device *dp);
 int analogix_dp_detect(struct analogix_dp_device *dp);
 void analogix_dp_enable_sw_function(struct analogix_dp_device *dp);
 int analogix_dp_start_aux_transaction(struct analogix_dp_device *dp);

@@ -342,6 +342,18 @@ ulong blk_write_devnum(enum if_type if_type, int devnum, lbaint_t start,
 	return blk_dwrite(desc, start, blkcnt, buffer);
 }
 
+ulong blk_erase_devnum(enum if_type if_type, int devnum, lbaint_t start,
+		       lbaint_t blkcnt)
+{
+	struct blk_desc *desc;
+	int ret;
+
+	ret = get_desc(if_type, devnum, &desc);
+	if (ret)
+		return ret;
+	return blk_derase(desc, start, blkcnt);
+}
+
 int blk_select_hwpart(struct udevice *dev, int hwpart)
 {
 	const struct blk_ops *ops = blk_get_ops(dev);
@@ -566,7 +578,17 @@ static int blk_claim_devnum(enum if_type if_type, int devnum)
 
 			if (next < 0)
 				return next;
+#ifdef CONFIG_USING_KERNEL_DTB_V2
+			/*
+			 * Not allow devnum to be forced distributed.
+			 * See commit (e48eeb9ea3 dm: blk: Improve block device claiming).
+			 *
+			 * fix like: "Device 'dwmmc@fe2b0000': seq 0 is in use by 'sdhci@fe310000'"
+			 */
+			if (!(gd->flags & GD_FLG_KDTB_READY))
+#endif
 			desc->devnum = next;
+
 			return 0;
 		}
 	}

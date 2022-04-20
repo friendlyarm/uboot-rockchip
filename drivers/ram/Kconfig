@@ -44,8 +44,14 @@ config DM_RAMDISK
 config RAMDISK_RO
 	bool "Enable read only ramdisk support"
 	depends on DM_RAMDISK
-	select RKPARM_PARTITION
+	select RKRAM_PARTITION
 	help
 	  This enables the read only ramdisk support.
+
+config DM_DMC
+	bool "Enable Driver Model for DMC drivers"
+	depends on DM
+	help
+	  This config enables the driver-model DMC support.
 
 source "drivers/ram/rockchip/Kconfig"

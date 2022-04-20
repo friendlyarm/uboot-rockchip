@@ -121,7 +121,7 @@ static int spl_mmc_get_device_index(u32 boot_device)
 	return -ENODEV;
 }
 
-static int spl_mmc_find_device(struct mmc **mmcp, u32 boot_device)
+int spl_mmc_find_device(struct mmc **mmcp, u32 boot_device)
 {
 	int err, mmc_dev;
 
@@ -184,12 +184,7 @@ static int mmc_load_image_raw_partition(struct spl_image_info *spl_image,
 		return -1;
 	}
 
-#ifdef CONFIG_SYS_MMCSD_RAW_MODE_U_BOOT_USE_SECTOR
-	return mmc_load_image_raw_sector(spl_image, mmc,
-			info.start + CONFIG_SYS_MMCSD_RAW_MODE_U_BOOT_SECTOR);
-#else
 	return mmc_load_image_raw_sector(spl_image, mmc, info.start);
-#endif
 }
 #endif
 
@@ -304,6 +299,9 @@ int spl_mmc_load_image(struct spl_image_info *spl_image,
 		return err;
 	}
 
+#ifdef CONFIG_SPL_ENVF
+	envf_load(mmc_get_blk_desc(mmc));
+#endif
 #ifdef CONFIG_SPL_LOAD_RKFW
 	struct spl_load_info load;
 

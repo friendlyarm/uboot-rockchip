@@ -6,12 +6,23 @@
 
 #include <common.h>
 #include <compiler.h>
+#include <misc.h>
 #include <linux/kernel.h>
 #include <linux/types.h>
+#include <asm/unaligned.h>
 
-static u16 LZ4_readLE16(const void *src) { return le16_to_cpu(*(u16 *)src); }
-static void LZ4_copy4(void *dst, const void *src) { memcpy(dst, src, 4); }
-static void LZ4_copy8(void *dst, const void *src) { memcpy(dst, src, 8); }
+static u16 LZ4_readLE16(const void *src)
+{
+	return get_unaligned_le16(src);
+}
+static void LZ4_copy4(void *dst, const void *src)
+{
+	put_unaligned(get_unaligned((const u32 *)src), (u32 *)dst);
+}
+static void LZ4_copy8(void *dst, const void *src)
+{
+	put_unaligned(get_unaligned((const u64 *)src), (u64 *)dst);
+}
 
 typedef  uint8_t BYTE;
 typedef uint16_t U16;
@@ -23,45 +34,6 @@ typedef uint64_t U64;
 
 /* Unaltered (except removing unrelated code) from github.com/Cyan4973/lz4. */
 #include "lz4.c"	/* #include for inlining, do not link! */
-
-#define LZ4F_MAGIC 0x184D2204
-
-struct lz4_frame_header {
-	u32 magic;
-	union {
-		u8 flags;
-		struct {
-			u8 reserved0:2;
-			u8 has_content_checksum:1;
-			u8 has_content_size:1;
-			u8 has_block_checksum:1;
-			u8 independent_blocks:1;
-			u8 version:2;
-		};
-	};
-	union {
-		u8 block_descriptor;
-		struct {
-			u8 reserved1:4;
-			u8 max_block_size:3;
-			u8 reserved2:1;
-		};
-	};
-	/* + u64 content_size iff has_content_size is set */
-	/* + u8 header_checksum */
-} __packed;
-
-struct lz4_block_header {
-	union {
-		u32 raw;
-		struct {
-			u32 size:31;
-			u32 not_compressed:1;
-		};
-	};
-	/* + size bytes of data */
-	/* + u32 block_checksum iff has_block_checksum is set */
-} __packed;
 
 bool lz4_is_valid_header(const unsigned char *h)
 {
@@ -86,6 +58,18 @@ int ulz4fn(const void *src, size_t srcn, void *dst, size_t *dstn)
 	int ret;
 	*dstn = 0;
 
+#if defined(CONFIG_MISC_DECOMPRESS) && !defined(CONFIG_SPL_BUILD)
+	u64 len;
+
+	ret = misc_decompress_process((ulong)dst, (ulong)src, (ulong)srcn,
+				      DECOM_LZ4, false, &len, 0);
+	if (!ret) {
+		*dstn = len;
+		return 0;
+	}
+
+	printf("hw ulz4fn failed(%d), fallback to soft ulz4fn\n", ret);
+#endif
 	{ /* With in-place decompression the header may become invalid later. */
 		const struct lz4_frame_header *h = in;
 

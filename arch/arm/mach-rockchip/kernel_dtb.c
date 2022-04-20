@@ -13,6 +13,7 @@
 
 DECLARE_GLOBAL_DATA_PTR;
 
+#ifndef CONFIG_USING_KERNEL_DTB_V2
 /* Here, only fixup cru phandle, pmucru is not included */
 static int phandles_fixup_cru(const void *fdt)
 {
@@ -193,6 +194,7 @@ static int phandles_fixup_gpio(const void *fdt, void *ufdt)
 
 	return 0;
 }
+#endif
 
 __weak int board_mmc_dm_reinit(struct udevice *dev)
 {
@@ -217,47 +219,48 @@ static int mmc_dm_reinit(void)
 	return 0;
 }
 
-/*
- * Simply check cru node:
- * This kernel dtb is belong to current platform ?
- */
-static int dtb_check_ok(void *fdt, void *ufdt)
+/* Check by property: "/compatible" */
+static int dtb_check_ok(void *kfdt, void *ufdt)
 {
-	const char *compare[2] = { NULL, NULL, };
 	const char *compat;
-	void *blob = fdt;
-	int offset;
-	int i;
+	int index;
 
-	for (i = 0; i < 2; i++) {
-		for (offset = fdt_next_node(blob, 0, NULL);
-		     offset >= 0;
-		     offset = fdt_next_node(blob, offset, NULL)) {
-			compat = fdt_getprop(blob, offset, "compatible", NULL);
-			if (!compat)
-				continue;
-			debug("[%d] compat: %s\n", i, compat);
-			if (strstr(compat, "-cru")) {
-				compare[i] = compat;
-				blob = ufdt;
-				break;
-			}
-		}
+	/* TODO */
+	return 1;
+
+	for (index = 0;
+	     compat = fdt_stringlist_get(ufdt, 0, "compatible",
+					 index, NULL), compat;
+	     index++) {
+		debug("u-compat: %s\n", compat);
+		if (!fdt_node_check_compatible(kfdt, 0, compat))
+			return 1;
 	}
-
-	if (compare[0] && compare[1])
-		return !memcmp(compare[0], compare[1], strlen(compare[0]));
 
 	return 0;
 }
 
 int init_kernel_dtb(void)
 {
-	ulong fdt_addr;
-	void *ufdt_blob;
+#ifndef CONFIG_USING_KERNEL_DTB_V2
+	void *ufdt_blob = (void *)gd->fdt_blob;
+#endif
+	ulong fdt_addr = 0;
 	int ret = -ENODEV;
 
-	fdt_addr = env_get_ulong("fdt_addr_r", 16, 0);
+#ifdef CONFIG_USING_KERNEL_DTB_V2
+	printf("DM: v2\n");
+#else
+	printf("DM: v1\n");
+#endif
+	/*
+	 * If memory size <= 128MB, we firstly try to get "fdt_addr1_r".
+	 */
+	if (gd->ram_size <= SZ_128M)
+		fdt_addr = env_get_ulong("fdt_addr1_r", 16, 0);
+
+	if (!fdt_addr)
+		fdt_addr = env_get_ulong("fdt_addr_r", 16, 0);
 	if (!fdt_addr) {
 		printf("No Found FDT Load Address.\n");
 		return -ENODEV;
@@ -279,7 +282,7 @@ int init_kernel_dtb(void)
 	}
 
 dtb_embed:
-	if (!fdt_check_header(gd->fdt_blob_kern)) {
+	if (gd->fdt_blob_kern) {
 		if (!dtb_check_ok((void *)gd->fdt_blob_kern, (void *)gd->fdt_blob)) {
 			printf("Embedded kernel dtb mismatch this platform!\n");
 			return -EINVAL;
@@ -297,19 +300,16 @@ dtb_embed:
 		memcpy((void *)fdt_addr, gd->fdt_blob_kern,
 		       fdt_totalsize(gd->fdt_blob_kern));
 		printf("DTB: %s\n", CONFIG_EMBED_KERNEL_DTB_PATH);
-	}
-
-	if (fdt_check_header((void *)fdt_addr)) {
+	} else {
 		printf("Failed to get kernel dtb, ret=%d\n", ret);
-		return ret;
+		return -ENOENT;
 	}
 
 dtb_okay:
-	ufdt_blob = (void *)gd->fdt_blob;
 	gd->fdt_blob = (void *)fdt_addr;
-
 	hotkey_run(HK_FDT);
 
+#ifndef CONFIG_USING_KERNEL_DTB_V2
 	/*
 	 * There is a phandle miss match between U-Boot and kernel dtb node,
 	 * we fixup it in U-Boot live dt nodes.
@@ -319,8 +319,10 @@ dtb_okay:
 	 */
 	phandles_fixup_cru((void *)gd->fdt_blob);
 	phandles_fixup_gpio((void *)gd->fdt_blob, (void *)ufdt_blob);
+#endif
 
 	gd->flags |= GD_FLG_KDTB_READY;
+	gd->of_root_f = gd->of_root;
 	of_live_build((void *)gd->fdt_blob, (struct device_node **)&gd->of_root);
 	dm_scan_fdt((void *)gd->fdt_blob, false);
 
@@ -337,3 +339,4 @@ dtb_okay:
 
 	return 0;
 }
+

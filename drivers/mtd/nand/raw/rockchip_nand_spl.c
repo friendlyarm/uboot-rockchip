@@ -373,8 +373,13 @@ static int rockchip_nandc_probe(struct udevice *dev)
 			nand_page_num = 128;
 			nand_block_num = 4096;
 		} else if (id[1] == 0xD3) {
-			nand_page_size = 4096;
-			nand_block_num = 4096;
+			if ((id[2] == 0xD1 && id[4] == 0x5a) || /* S34ML08G2 */
+			    (id[3] == 0x05 && id[4] == 0x04)) { /* S34ML08G3 */
+				nand_block_num = 8192;
+			} else {
+				nand_page_size = 4096;
+				nand_block_num = 4096;
+			}
 		}
 
 		g_rk_nand->chipnr = 1;
@@ -527,13 +532,13 @@ int nand_spl_load_image(u32 offs, u32 size, void *buf)
 		 * Check if we have crossed a block boundary, and if so
 		 * check for bad block.
 		 */
-		if (!(page % nand_page_size)) {
+		if (!(page % nand_page_num)) {
 			/*
 			 * Yes, new block. See if this block is good. If not,
 			 * loop until we find a good block.
 			 */
 			while (is_badblock(page)) {
-				page = page + nand_page_size;
+				page = page + nand_page_num;
 				/* Check i we've reached the end of flash. */
 				if (page >= maxpages)
 					return -EIO;

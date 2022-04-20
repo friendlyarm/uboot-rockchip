@@ -14,7 +14,7 @@ DECLARE_GLOBAL_DATA_PTR;
 
 #define SZ_4GB				0x100000000ULL
 
-#if !defined(CONFIG_SPL_BUILD) && !defined(CONFIG_TPL_BUILD)
+#ifndef CONFIG_SPL_BUILD
 #define SDRAM_OFFSET(offset)		(CONFIG_SYS_SDRAM_BASE + (offset))
 #define PARAM_DRAM_INFO_OFFSET		(SZ_32M)
 #define PARAM_OPTEE_INFO_OFFSET		(SZ_32M + SZ_2M)
@@ -280,6 +280,11 @@ struct memblock *param_parse_ddr_mem(int *out_count)
 
 	t = atags_get_tag(ATAG_DDR_MEM);
 	if (t && t->u.ddr_mem.count) {
+		/* extend top ram size */
+		if (t->u.ddr_mem.flags & DDR_MEM_FLG_EXT_TOP)
+			gd->ram_top_ext_size = t->u.ddr_mem.data[0];
+
+		/* normal ram size */
 		count = t->u.ddr_mem.count;
 		mem = calloc(count + MEM_RESV_COUNT, sizeof(*mem));
 		if (!mem) {
@@ -344,3 +349,89 @@ struct memblock *param_parse_ddr_mem(int *out_count)
 	*out_count = count;
 	return mem;
 }
+
+#ifndef CONFIG_BIDRAM
+/*
+ * init_bank=0: called from dram_init_banksize()
+ * init_bank=0: called from dram_init()
+ */
+phys_size_t param_simple_parse_ddr_mem(int init_bank)
+{
+	struct memblock *list;
+	int i, count;
+
+	list = param_parse_ddr_mem(&count);
+	if (!list) {
+		printf("Can't get dram banks\n");
+		return 0;
+	}
+
+	if (count > CONFIG_NR_DRAM_BANKS) {
+		printf("Dram banks num=%d, over %d\n", count, CONFIG_NR_DRAM_BANKS);
+		return 0;
+	}
+
+	if (!init_bank) {
+		i = count - 1;
+		return ddr_mem_get_usable_size(list[i].base, list[i].size);
+	}
+
+	for (i = 0; i < count; i++) {
+		gd->bd->bi_dram[i].start = list[i].base;
+		gd->bd->bi_dram[i].size =
+			ddr_mem_get_usable_size(list[i].base, list[i].size);
+		debug("bank[%d]: 0x%08lx - 0x%08lx\n", i,
+		      (ulong)gd->bd->bi_dram[i].start,
+		      (ulong)gd->bd->bi_dram[i].start +
+		      (ulong)gd->bd->bi_dram[i].size);
+	}
+
+	return 0;
+}
+#endif
+
+int param_parse_pre_serial(void)
+{
+#if defined(CONFIG_ROCKCHIP_PRELOADER_SERIAL) && \
+    defined(CONFIG_ROCKCHIP_PRELOADER_ATAGS)
+	struct tag *t;
+
+	t = atags_get_tag(ATAG_SERIAL);
+	if (t) {
+		gd->serial.using_pre_serial = 1;
+		gd->serial.enable = t->u.serial.enable;
+		gd->serial.baudrate = t->u.serial.baudrate;
+		gd->serial.addr = t->u.serial.addr;
+		gd->serial.id = t->u.serial.id;
+		gd->baudrate = CONFIG_BAUDRATE;
+		debug("preloader: enable=%d, addr=0x%lx, baudrate=%d, id=%d\n",
+		      gd->serial.enable, gd->serial.addr,
+		      gd->serial.baudrate, gd->serial.id);
+	} else
+#endif
+	{
+		gd->baudrate = CONFIG_BAUDRATE;
+		gd->serial.baudrate = CONFIG_BAUDRATE;
+		gd->serial.addr = CONFIG_DEBUG_UART_BASE;
+	}
+
+	return 0;
+}
+
+int param_parse_pubkey_fuse_programmed(void)
+{
+#ifdef CONFIG_ROCKCHIP_PRELOADER_ATAGS
+	struct tag *t;
+
+	t = atags_get_tag(ATAG_PUB_KEY);
+	if (t) {
+		/* Pass if efuse/otp programmed */
+		if (t->u.pub_key.flag == PUBKEY_FUSE_PROGRAMMED)
+			env_update("bootargs", "fuse.programmed=1");
+		else
+			env_update("bootargs", "fuse.programmed=0");
+	}
+#endif
+	return 0;
+}
+

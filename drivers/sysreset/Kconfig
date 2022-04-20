@@ -31,6 +31,16 @@ config TPL_SYSRESET
 	  to effect a reset. The uclass will try all available drivers when
 	  reset_walk() is called.
 
+config SYSRESET_REG
+	hex "The sysreset register for the sysreset"
+	depends on !SYSRESET
+	default 0xff490408
+
+config SYSRESET_VAL
+	hex "The sysreset value for the sysreset"
+	depends on !SYSRESET
+	default 0x0000fdb9
+
 if SYSRESET
 
 config SYSRESET_PSCI
@@ -49,6 +59,12 @@ config SYSRESET_SYSCON
 	select SYSCON
 	help
 	  Reboot support for generic SYSCON mapped register reset.
+
+config SYSRESET_SYSCON_REBOOT
+	bool "Enable support for syscon reboot mode driver"
+	default y if ARCH_ROCKCHIP
+	help
+	  Reboot mode command, like: reboot bootloader, etc.
 
 config SYSRESET_WATCHDOG
 	bool "Enable support for watchdog reboot driver"

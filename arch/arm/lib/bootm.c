@@ -82,11 +82,6 @@ static void announce_and_cleanup(bootm_headers_t *images, int fake)
 {
 	ulong us;
 
-	us = (get_ticks() - gd->sys_start_tick) / (COUNTER_FREQUENCY / 1000000);
-	printf("Total: %ld.%ld ms\n", us / 1000, us % 1000);
-
-	printf("\nStarting kernel ...%s\n\n", fake ?
-		"(fake run for tracing)" : "");
 	bootstage_mark_name(BOOTSTAGE_ID_BOOTM_HANDOFF, "start_kernel");
 #ifdef CONFIG_BOOTSTAGE_FDT
 	bootstage_fdt_add_report();
@@ -112,6 +107,12 @@ static void announce_and_cleanup(bootm_headers_t *images, int fake)
 	dm_remove_devices_flags(DM_REMOVE_ACTIVE_ALL);
 
 	cleanup_before_linux();
+
+	us = (get_ticks() - gd->sys_start_tick) / (COUNTER_FREQUENCY / 1000000);
+	printf("Total: %ld.%ld ms\n", us / 1000, us % 1000);
+
+	printf("\nStarting kernel ...%s\n\n", fake ?
+		"(fake run for tracing)" : "");
 }
 
 static void setup_start_tag (bd_t *bd)
@@ -319,21 +320,50 @@ static void switch_to_el1(void)
 #endif
 
 #ifdef CONFIG_ARM64_SWITCH_TO_AARCH32
-int arm64_switch_aarch32(bootm_headers_t *images)
+static int arm64_switch_aarch32(bootm_headers_t *images)
 {
-	int es_flag;
-	int ret = 0;
-
-	images->os.arch = IH_ARCH_ARM;
+	void *fdt = images->ft_addr;
+	ulong mpidr;
+	int ret, es_flag;
+	int nodeoff, tmp;
+	int num = -1;
 
 	/* arm aarch32 SVC */
+	images->os.arch = IH_ARCH_ARM;
 	es_flag = PE_STATE(0, 0, 0, 0);
-	ret |= sip_smc_amp_cfg(AMP_PE_STATE, 0x100, es_flag);
-	ret |= sip_smc_amp_cfg(AMP_PE_STATE, 0x200, es_flag);
-	ret |= sip_smc_amp_cfg(AMP_PE_STATE, 0x300, es_flag);
-	if (ret) {
-		printf("ARM64 switch aarch32 SiP call failed, ret=%d\n", ret);
-		return 0;
+
+	nodeoff = fdt_path_offset(fdt, "/cpus");
+	if (nodeoff < 0) {
+		printf("couldn't find /cpus\n");
+		return nodeoff;
+	}
+
+	/* config all nonboot cpu state */
+	for (tmp = fdt_first_subnode(fdt, nodeoff);
+	     tmp >= 0;
+	     tmp = fdt_next_subnode(fdt, tmp)) {
+		const struct fdt_property *prop;
+		int len;
+
+		prop = fdt_get_property(fdt, tmp, "device_type", &len);
+		if (!prop)
+			continue;
+		if (len < 4)
+			continue;
+		if (strcmp(prop->data, "cpu"))
+			continue;
+		/* skip boot(first) cpu */
+		num++;
+		if (num == 0)
+			continue;
+
+		mpidr = (ulong)fdtdec_get_addr_size_auto_parent(fdt,
+					nodeoff, tmp, "reg", 0, NULL, false);
+		ret = sip_smc_amp_cfg(AMP_PE_STATE, mpidr, es_flag, 0);
+		if (ret) {
+			printf("CPU@%lx init AArch32 failed: %d\n", mpidr, ret);
+			continue;
+		}
 	}
 
 	return es_flag;

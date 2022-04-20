@@ -188,7 +188,8 @@ static const struct dw_hdmi_phy_config rockchip_phy_config[] = {
 
 static unsigned int drm_rk_select_color(struct hdmi_edid_data *edid_data,
 					struct base_screen_info *screen_info,
-					enum dw_hdmi_devtype dev_type)
+					enum dw_hdmi_devtype dev_type,
+					bool output_bus_format_rgb)
 {
 	struct drm_display_info *info = &edid_data->display_info;
 	struct drm_display_mode *mode = edid_data->preferred_mode;
@@ -236,6 +237,9 @@ static unsigned int drm_rk_select_color(struct hdmi_edid_data *edid_data,
 	default:
 		break;
 	}
+
+	if (output_bus_format_rgb)
+		color_format = DRM_HDMI_OUTPUT_DEFAULT_RGB;
 
 	if (color_format == DRM_HDMI_OUTPUT_DEFAULT_RGB &&
 	    info->edid_hdmi_dc_modes & DRM_EDID_HDMI_DC_30)
@@ -326,7 +330,8 @@ void drm_rk_selete_output(struct hdmi_edid_data *edid_data,
 			  struct connector_state *conn_state,
 			  unsigned int *bus_format,
 			  struct overscan *overscan,
-			  enum dw_hdmi_devtype dev_type)
+			  enum dw_hdmi_devtype dev_type,
+			  bool output_bus_format_rgb)
 {
 	int ret, i, screen_size;
 	struct base_disp_info base_parameter;
@@ -336,6 +341,8 @@ void drm_rk_selete_output(struct hdmi_edid_data *edid_data,
 	struct base2_screen_info *screen_info2 = NULL;
 	int max_scan = 100;
 	int min_scan = 51;
+	int offset = 0;
+	bool found = false;
 	struct blk_desc *dev_desc;
 	disk_partition_t part_info;
 	char baseparameter_buf[8 * RK_BLK_SIZE] __aligned(ARCH_DMA_MINALIGN);
@@ -345,7 +352,7 @@ void drm_rk_selete_output(struct hdmi_edid_data *edid_data,
 	overscan->top_margin = max_scan;
 	overscan->bottom_margin = max_scan;
 
-	if (dev_type == RK3288_HDMI)
+	if (dev_type == RK3288_HDMI || output_bus_format_rgb)
 		*bus_format = MEDIA_BUS_FMT_RGB888_1X24;
 	else
 		*bus_format = MEDIA_BUS_FMT_YUV8_1X24;
@@ -354,21 +361,22 @@ void drm_rk_selete_output(struct hdmi_edid_data *edid_data,
 		dev_desc = rockchip_get_bootdev();
 		if (!dev_desc) {
 			printf("%s: Could not find device\n", __func__);
-			return;
+			goto null_basep;
 		}
 
 		ret = part_get_info_by_name(dev_desc, "baseparameter",
 					    &part_info);
 		if (ret < 0) {
 			printf("Could not find baseparameter partition\n");
-			return;
+			goto null_basep;
 		}
 
-		ret = blk_dread(dev_desc, part_info.start, 1,
+read_aux:
+		ret = blk_dread(dev_desc, part_info.start + offset, 1,
 				(void *)baseparameter_buf);
 		if (ret < 0) {
 			printf("read baseparameter failed\n");
-			return;
+			goto null_basep;
 		}
 
 		memcpy(&base_parameter, baseparameter_buf,
@@ -381,9 +389,16 @@ void drm_rk_selete_output(struct hdmi_edid_data *edid_data,
 		for (i = 0; i < screen_size; i++) {
 			if (base_parameter.screen_list[i].type ==
 			    DRM_MODE_CONNECTOR_HDMIA) {
+				found = true;
 				screen_info = &base_parameter.screen_list[i];
 				break;
 			}
+		}
+
+		if (!found && !offset) {
+			printf("hdmi info isn't saved in main block\n");
+			offset += 16;
+			goto read_aux;
 		}
 	} else {
 		scan = &base2_parameter->overscan_info;
@@ -427,7 +442,7 @@ void drm_rk_selete_output(struct hdmi_edid_data *edid_data,
 	else if (scan->bottomscale < max_scan && scan->bottomscale > 0)
 		overscan->bottom_margin = scan->bottomscale;
 
-
+null_basep:
 
 	if (screen_info)
 		printf("base_parameter.mode:%dx%d\n",
@@ -436,7 +451,7 @@ void drm_rk_selete_output(struct hdmi_edid_data *edid_data,
 	drm_rk_select_mode(edid_data, screen_info);
 
 	*bus_format = drm_rk_select_color(edid_data, screen_info,
-					  dev_type);
+					  dev_type, output_bus_format_rgb);
 }
 
 void inno_dw_hdmi_set_domain(void *grf, int status)

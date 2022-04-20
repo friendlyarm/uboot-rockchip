@@ -156,7 +156,7 @@ void board_init_f(ulong dummy)
 	struct udevice *dev;
 #endif
 #endif
-
+	gd->flags = dummy;
 	rockchip_stimer_init();
 #define EARLY_UART
 #if defined(EARLY_UART) && defined(CONFIG_DEBUG_UART)
@@ -422,7 +422,7 @@ int fit_read_otp_rollback_index(uint32_t fit_index, uint32_t *otp_index)
 	int ret = 0;
 
 	*otp_index = 0;
-#if defined(CONFIG_SPL_ROCKCHIP_SECURE_OTP_V2) || defined(CONFIG_SPL_ROCKCHIP_SECURE_OTP_V1)
+#if defined(CONFIG_SPL_ROCKCHIP_SECURE_OTP)
 	struct udevice *dev;
 	u32 index, i, otp_version;
 	u32 bit_count;
@@ -451,7 +451,7 @@ int fit_read_otp_rollback_index(uint32_t fit_index, uint32_t *otp_index)
 
 static int fit_write_otp_rollback_index(u32 fit_index)
 {
-#if defined(CONFIG_SPL_ROCKCHIP_SECURE_OTP_V2) || defined(CONFIG_SPL_ROCKCHIP_SECURE_OTP_V1)
+#if defined(CONFIG_SPL_ROCKCHIP_SECURE_OTP)
 	struct udevice *dev;
 	u32 index, i, otp_index;
 

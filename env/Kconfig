@@ -40,6 +40,31 @@ config ENV_IS_NOWHERE
 	  stored. U-Boot will therefore always start up with a default
 	  environment.
 
+config ENVF
+	bool "Environment fragment is store in envf partition"
+	depends on ENV_IS_NOWHERE
+	select ENV_PARTITION
+	help
+	  Use this if you want to add a env fragment partition to overlay/store
+	  some specific environments.
+
+config SPL_ENVF
+	bool "Environment fragment is store in envf partition in SPL"
+	depends on ENVF && SPL
+	default y
+	select SPL_ENV_PARTITION
+	help
+	  Use this if you want to add a env fragment partition to overlay/store
+	  some specific environments in SPL. But now only parse env partition
+	  table.
+
+config ENVF_LIST
+	string "Specific environments white list of env fragment"
+	depends on ENVF
+	default "blkdevparts mtdparts sys_bootargs app reserved"
+	help
+	  The environment white list.
+
 config ENV_IS_IN_EEPROM
 	bool "Environment in EEPROM"
 	depends on !CHAIN_OF_TRUST
@@ -474,7 +499,8 @@ if ARCH_ROCKCHIP
 config ENV_OFFSET
 	hex "Environment offset"
 	depends on !ENV_IS_IN_UBI
-	depends on !ENV_IS_NOWHERE
+	depends on !ENV_IS_NOWHERE || ENVF
+	default 0x0 if ENVF
 	default 0x3f8000
 	help
 	  Offset from the start of the device (or partition)
@@ -485,6 +511,26 @@ config ENV_SIZE
 	help
 	  Size of the environment storage area
 
+if ENVF
+config ENV_OFFSET_REDUND
+	hex "Environment redundant(backup) offset"
+	default ENV_OFFSET
+	help
+	  Redundant(backup) offset from the start of the device (or partition),
+	  this size must be ENV_SIZE.
+
+config ENV_NAND_OFFSET
+	hex "Environment offset in Nand"
+	default 0x0
+
+config ENV_NAND_OFFSET_REDUND
+	hex "Environment redundant(backup) offset in Nand"
+	default ENV_NAND_OFFSET
+
+config ENV_NAND_SIZE
+	hex "Environment size in Nand"
+	default 0x40000
+endif
 endif
 
 endmenu

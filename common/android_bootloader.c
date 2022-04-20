@@ -259,7 +259,9 @@ static int sysmem_alloc_uncomp_kernel(ulong andr_hdr,
 		kaddr -= hdr->page_size;
 		if (sysmem_free((phys_addr_t)kaddr))
 			return -EINVAL;
-
+#ifdef CONFIG_SKIP_RELOCATE_UBOOT
+		sysmem_free(CONFIG_SYS_TEXT_BASE);
+#endif
 		/*
 		 * Use smaller Ratio to get larger estimated uncompress
 		 * kernel size.
@@ -404,6 +406,7 @@ char *android_assemble_cmdline(const char *slot_suffix,
 	/* The |slot_suffix| needs to be passed to the kernel to know what
 	 * slot to boot from.
 	 */
+#ifdef CONFIG_ANDROID_AB
 	if (slot_suffix) {
 		allocated_suffix = malloc(strlen(ANDROID_ARG_SLOT_SUFFIX) +
 					  strlen(slot_suffix) + 1);
@@ -413,7 +416,7 @@ char *android_assemble_cmdline(const char *slot_suffix,
 		strcat(allocated_suffix, slot_suffix);
 		*(current_chunk++) = allocated_suffix;
 	}
-
+#endif
 	serialno = env_get("serial#");
 	if (serialno) {
 		allocated_serialno = malloc(strlen(ANDROID_ARG_SERIALNO) +
@@ -517,6 +520,15 @@ retry_verify:
 			flags,
 			AVB_HASHTREE_ERROR_MODE_RESTART,
 			&slot_data[0]);
+	if (verify_result != AVB_SLOT_VERIFY_RESULT_OK &&
+	    verify_result != AVB_SLOT_VERIFY_RESULT_ERROR_PUBLIC_KEY_REJECTED) {
+		if (retry_no_vbmeta_partition && strcmp(boot_partname, "recovery") == 0) {
+			printf("Verify recovery with vbmeta.\n");
+			flags &= ~AVB_SLOT_VERIFY_FLAGS_NO_VBMETA_PARTITION;
+			retry_no_vbmeta_partition = 0;
+			goto retry_verify;
+		}
+	}
 
 	strcat(verify_state, ANDROID_VERIFY_STATE);
 	switch (verify_result) {
@@ -546,16 +558,6 @@ retry_verify:
 		break;
 	}
 
-	if (verify_result != AVB_SLOT_VERIFY_RESULT_OK &&
-	    verify_result != AVB_SLOT_VERIFY_RESULT_ERROR_PUBLIC_KEY_REJECTED) {
-		if (retry_no_vbmeta_partition && strcmp(boot_partname, "recovery") == 0) {
-			printf("Verify recovery with vbmeta.\n");
-			flags &= ~AVB_SLOT_VERIFY_FLAGS_NO_VBMETA_PARTITION;
-			retry_no_vbmeta_partition = 0;
-			goto retry_verify;
-		}
-	}
-
 	if (!slot_data[0]) {
 		can_boot = 0;
 		goto out;
@@ -566,7 +568,10 @@ retry_verify:
 	    (unlocked & LOCK_MASK)) {
 		int len = 0;
 		char *bootargs, *newbootargs;
-
+#ifdef CONFIG_ANDROID_AVB_ROLLBACK_INDEX
+		if (rk_avb_update_stored_rollback_indexes_for_slot(ops, slot_data[0]))
+			printf("Fail to update the rollback indexes.\n");
+#endif
 		if (*slot_data[0]->cmdline) {
 			debug("Kernel command line: %s\n", slot_data[0]->cmdline);
 			len += strlen(slot_data[0]->cmdline);
@@ -595,15 +600,15 @@ retry_verify:
 		hdr = (void *)slot_data[0]->loaded_partitions->data;
 
 		/*
-		 *		populate boot_img_hdr_v3
+		 *		populate boot_img_hdr_v34
 		 *
 		 * If allow verification error: the image is loaded by
 		 * ops->get_preloaded_partition() which auto populates
-		 * boot_img_hdr_v3.
+		 * boot_img_hdr_v34.
 		 *
 		 * If not allow verification error: the image is full loaded
 		 * by ops->read_from_partition() which doesn't populate
-		 * boot_img_hdr_v3, we need to fix it here.
+		 * boot_img_hdr_v34, we need to fix it here.
 		 */
 		if (hdr->header_version >= 3 &&
 		    !(flags & AVB_SLOT_VERIFY_FLAGS_ALLOW_VERIFICATION_ERROR)) {
@@ -817,16 +822,19 @@ int android_fdt_overlay_apply(void *fdt_addr)
 #endif
 
 		/*
-		 * recovery_dtbo fields
+		 * Google requires a/b system mandory from Android Header v3 for
+		 * google authentication, that means there is not recovery.
 		 *
-		 * boot_img_hdr_v0: unsupported
-		 * boot_img_hdr_v1,2: supported
-		 * boot_img_hdr_v3 + boot.img: supported
-		 * boot_img_hdr_v3 + recovery.img: unsupported
+		 * But for the products that don't care about google authentication,
+		 * it's not mandory to use a/b system. So that we use the solution:
+		 * boot.img(v3+) with recovery(v2).
+		 *
+		 * [recovery_dtbo fields]
+		 *	recovery.img with boot_img_hdr_v1,2:  supported
+		 *	recovery.img with boot_img_hdr_v0,3+: illegal
 		 */
 		if ((hdr->header_version == 0) ||
-			(hdr->header_version == 3 && !strcmp(part_boot, PART_RECOVERY)) ||
-			(hdr->header_version > 3))
+		    (hdr->header_version >= 3 && !strcmp(part_boot, PART_RECOVERY)))
 			goto out;
 
 	} else {
@@ -1085,10 +1093,14 @@ int android_bootloader_boot_flow(struct blk_desc *dev_desc,
 		printf("Close optee client failed!\n");
 #endif
 
+#ifdef CONFIG_AMP
+	return android_bootloader_boot_kernel(load_address);
+#else
 	android_bootloader_boot_kernel(load_address);
 
 	/* TODO: If the kernel doesn't boot mark the selected slot as bad. */
 	return -1;
+#endif
 }
 
 int android_avb_boot_flow(unsigned long kernel_address)

@@ -20,8 +20,9 @@ int dm_mmc_send_cmd(struct udevice *dev, struct mmc_cmd *cmd,
 {
 	struct mmc *mmc = mmc_get_mmc_dev(dev);
 	struct dm_mmc_ops *ops = mmc_get_ops(dev);
-	int ret;
+	int ret, retry_time = 3;
 
+retry:
 	mmmc_trace_before_send(mmc, cmd);
 	if (ops->send_cmd)
 		ret = ops->send_cmd(dev, cmd, data);
@@ -29,9 +30,21 @@ int dm_mmc_send_cmd(struct udevice *dev, struct mmc_cmd *cmd,
 		ret = -ENOSYS;
 	mmmc_trace_after_send(mmc, cmd, ret);
 
-	if (ret && cmd->cmdidx != SD_CMD_SEND_IF_COND
-	    && cmd->cmdidx != MMC_CMD_APP_CMD)
+	if (ret && cmd->cmdidx != SD_CMD_SEND_IF_COND &&
+	    cmd->cmdidx != MMC_CMD_APP_CMD &&
+	    cmd->cmdidx != MMC_CMD_SEND_OP_COND &&
+	    cmd->cmdidx != MMC_SEND_TUNING_BLOCK_HS200) {
+		/* execute tuning at last retry. */
+		if (retry_time == 1 &&
+		    mmc->timing == MMC_TIMING_MMC_HS200 &&
+		    ops->execute_tuning) {
+			u32 opcode = MMC_SEND_TUNING_BLOCK_HS200;
+			ops->execute_tuning(mmc->dev, opcode);
+	    	}
+		if (retry_time-- > 0)
+			goto retry;
 		printf("MMC error: The cmd index is %d, ret is %d\n", cmd->cmdidx, ret);
+	}
 
 	return ret;
 }

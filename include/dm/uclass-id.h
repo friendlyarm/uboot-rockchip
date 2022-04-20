@@ -111,6 +111,8 @@ enum uclass_id {
 	UCLASS_EBC,		/* EBC Controller for eink screen */
 	UCLASS_EINK_DISPLAY,	/* EINK screen display driver */
 	UCLASS_RNG,		/* Random Number Generator */
+	UCLASS_DMC,		/* Dynamic Memory Interface */
+	UCLASS_PD,		/* power delivery */
 	UCLASS_COUNT,
 	UCLASS_INVALID = -1,
 };

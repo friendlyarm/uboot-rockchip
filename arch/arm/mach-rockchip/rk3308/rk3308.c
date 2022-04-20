@@ -4,6 +4,7 @@
  */
 
 #include <common.h>
+#include <fdt_support.h>
 #include <ram.h>
 #include <asm/io.h>
 #include <asm/arch/boot_mode.h>
@@ -276,7 +277,7 @@ int rk_board_init_f(void)
 		(GPIO3B3_SEL_SRC_CTRL_SEL_PLUS << GPIO3B3_SEL_SRC_CTRL_SHIFT);
 
 	if (get_bootdev_by_brom_bootsource() == BOOT_TYPE_NAND) {
-		if (soc_is_rk3308b())
+		if (soc_is_rk3308b() || soc_is_rk3308bs())
 			rk_clrsetreg(&grf->soc_con15, mask, value);
 	}
 
@@ -366,5 +367,188 @@ void board_debug_uart_init(void)
 	#error "Please select proper uart as debug uart !!!"
 #endif
 #endif /* defined(CONFIG_DEBUG_UART_BASE) */
+}
+
+static int fdt_fixup_cpu_idle(const void *blob)
+{
+	int cpu_node, sub_node, len;
+	u32 *pp;
+
+	cpu_node = fdt_path_offset(blob, "/cpus");
+	if (cpu_node < 0) {
+		printf("Failed to get cpus node\n");
+		return -EINVAL;
+	}
+
+	fdt_for_each_subnode(sub_node, blob, cpu_node) {
+		pp = (u32 *)fdt_getprop(blob, sub_node, "cpu-idle-states",
+					&len);
+		if (!pp)
+			continue;
+		if (fdt_delprop((void *)blob, sub_node, "cpu-idle-states") < 0)
+			printf("Failed to del cpu-idle-states prop\n");
+	}
+
+	return 0;
+}
+
+static int fdt_fixup_cpu_opp_table(const void *blob)
+{
+	int opp_node, cpu_node, sub_node;
+	int len;
+	u32 phandle;
+	u32 *pp;
+
+	/* Replace opp table */
+	opp_node = fdt_path_offset(blob, "/rk3308bs-cpu0-opp-table");
+	if (opp_node < 0) {
+		printf("Failed to get rk3308bs-cpu0-opp-table node\n");
+		return -EINVAL;
+	}
+
+	phandle = fdt_get_phandle(blob, opp_node);
+	if (!phandle) {
+		printf("Failed to get cpu opp table phandle\n");
+		return -EINVAL;
+	}
+
+	cpu_node = fdt_path_offset(blob, "/cpus");
+	if (cpu_node < 0) {
+		printf("Failed to get cpus node\n");
+		return -EINVAL;
+	}
+
+	fdt_for_each_subnode(sub_node, blob, cpu_node) {
+		pp = (u32 *)fdt_getprop(blob, sub_node, "operating-points-v2",
+					&len);
+		if (!pp)
+			continue;
+		pp[0] = cpu_to_fdt32(phandle);
+	}
+
+	return 0;
+}
+
+static int fdt_fixup_dmc_opp_table(const void *blob)
+{
+	int opp_node, dmc_node;
+	int len;
+	u32 phandle;
+	u32 *pp;
+
+	opp_node = fdt_path_offset(blob, "/rk3308bs-dmc-opp-table");
+	if (opp_node < 0) {
+		printf("Failed to get rk3308bs-dmc-opp-table node\n");
+		return -EINVAL;
+	}
+
+	phandle = fdt_get_phandle(blob, opp_node);
+	if (!phandle) {
+		printf("Failed to get dmc opp table phandle\n");
+		return -EINVAL;
+	}
+
+	dmc_node = fdt_path_offset(blob, "/dmc");
+	if (dmc_node < 0) {
+		printf("Failed to get dmc node\n");
+		return -EINVAL;
+	}
+
+	pp = (u32 *)fdt_getprop(blob, dmc_node, "operating-points-v2", &len);
+	if (!pp)
+		return 0;
+	pp[0] = cpu_to_fdt32(phandle);
+
+	return 0;
+}
+
+static void fixup_pcfg_drive_strength(const void *blob, int noffset)
+{
+	u32 *ds, *dss;
+	u32 val;
+
+	dss = (u32 *)fdt_getprop(blob, noffset, "drive-strength-s", NULL);
+	if (!dss)
+		return;
+
+	val = dss[0];
+	ds = (u32 *)fdt_getprop(blob, noffset, "drive-strength", NULL);
+	if (ds) {
+		ds[0] = val;
+	} else {
+		if (fdt_setprop((void *)blob, noffset,
+				"drive-strength", &val, 4) < 0)
+			printf("Failed to add drive-strength prop\n");
+	}
+}
+
+static int fdt_fixup_pcfg(const void *blob)
+{
+	int depth1_node;
+	int depth2_node;
+	int root_node;
+
+	root_node = fdt_path_offset(blob, "/");
+	if (root_node < 0)
+		return root_node;
+
+	fdt_for_each_subnode(depth1_node, blob, root_node) {
+		debug("depth1: %s\n", fdt_get_name(blob, depth2_node, NULL));
+		fixup_pcfg_drive_strength(blob, depth1_node);
+		fdt_for_each_subnode(depth2_node, blob, depth1_node) {
+			debug("    depth2: %s\n",
+			      fdt_get_name(blob, depth2_node, NULL));
+			fixup_pcfg_drive_strength(blob, depth2_node);
+		}
+	}
+
+	return 0;
+}
+
+static int fdt_fixup_thermal_zones(const void *blob)
+{
+	int thermal_node;
+	int len;
+	u32 *pp;
+	u32 val;
+
+	thermal_node = fdt_path_offset(blob, "/thermal-zones/soc-thermal");
+	if (thermal_node < 0) {
+		printf("Failed to get soc thermal node\n");
+		return -EINVAL;
+	}
+
+	pp = (u32 *)fdt_getprop(blob, thermal_node,
+				"rk3308bs-sustainable-power", &len);
+	if (pp) {
+		val = fdt32_to_cpu(*pp);
+		pp = (u32 *)fdt_getprop(blob, thermal_node,
+					"sustainable-power", &len);
+		if (pp)
+			pp[0] = cpu_to_fdt32(val);
+	}
+
+	return 0;
+}
+
+int rk_board_fdt_fixup(const void *blob)
+{
+	if (soc_is_rk3308bs()) {
+		fdt_increase_size((void *)blob, SZ_8K);
+		fdt_fixup_cpu_idle(blob);
+		fdt_fixup_cpu_opp_table(blob);
+		fdt_fixup_dmc_opp_table(blob);
+		fdt_fixup_pcfg(blob);
+		fdt_fixup_thermal_zones(blob);
+	}
+
+	return 0;
+}
+
+int rk_board_early_fdt_fixup(const void *blob)
+{
+	rk_board_fdt_fixup(blob);
+
+	return 0;
 }
 

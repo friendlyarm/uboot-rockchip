@@ -94,6 +94,12 @@ int __weak spl_board_prepare_for_jump(struct spl_image_info *spl_image)
 	return 0;
 }
 
+/* Fix storages, like iomux  */
+__weak void spl_board_storages_fixup(struct spl_image_loader *loader)
+{
+	/* Nothing to do! */
+}
+
 void spl_fixup_fdt(void)
 {
 #if defined(CONFIG_SPL_OF_LIBFDT) && defined(CONFIG_SYS_SPL_ARGS_ADDR)
@@ -449,6 +455,8 @@ static int boot_from_devices(struct spl_image_info *spl_image,
 			spl_image->boot_device = spl_boot_list[i];
 			return 0;
 		}
+
+		spl_board_storages_fixup(loader);
 	}
 
 	return -ENODEV;
@@ -610,7 +618,7 @@ void board_init_r(gd_t *dummy1, ulong dummy2)
 		debug("Failed to stash bootstage: err=%d\n", ret);
 #endif
 
-	debug("loaded - jumping to U-Boot...\n");
+	printf("Jumping to U-Boot(0x%08lx)\n", spl_image.entry_point);
 	spl_board_prepare_for_boot();
 	jump_to_image_no_args(&spl_image);
 }
@@ -691,6 +699,11 @@ void spl_cleanup_before_jump(struct spl_image_info *spl_image)
 
 	disable_interrupts();
 
+#ifdef CONFIG_ARM64
+	disable_serror();
+#else
+	disable_async_abort();
+#endif
 	/*
 	 * Turn off I-cache and invalidate it
 	 */

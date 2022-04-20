@@ -38,6 +38,13 @@
 #define ROCKCHIP_SIP_CONFIG_DRAM_CLR_IRQ	0x06
 #define ROCKCHIP_SIP_CONFIG_DRAM_SET_PARAM	0x07
 #define ROCKCHIP_SIP_CONFIG_DRAM_GET_VERSION	0x08
+#define ROCKCHIP_SIP_CONFIG_DRAM_POST_SET_RATE	0x09
+#define ROCKCHIP_SIP_CONFIG_DRAM_SET_NOC_RL	0x0a
+#define ROCKCHIP_SIP_CONFIG_DRAM_DEBUG		0x0b
+#define ROCKCHIP_SIP_CONFIG_DRAM_MCU_START	0x0c
+#define ROCKCHIP_SIP_CONFIG_DRAM_ECC		0x0d
+#define ROCKCHIP_SIP_CONFIG_DRAM_GET_FREQ_INFO	0x0e
+#define ROCKCHIP_SIP_CONFIG_DRAM_FSP_INIT	0x0f
 
 /* Rockchip Sip version */
 #define SIP_IMPLEMENT_V1                (1)
@@ -59,12 +66,18 @@
 
 /* SIP_AMP_CFG */
 #define AMP_PE_STATE			0x0
+#define AMP_BOOT_ARG01			0x1
+#define AMP_BOOT_ARG23			0x2
 
 /* Share mem page types */
 typedef enum {
 	SHARE_PAGE_TYPE_INVALID = 0,
 	SHARE_PAGE_TYPE_UARTDBG,
 	SHARE_PAGE_TYPE_DDR,
+	SHARE_PAGE_TYPE_DDRDBG,
+	SHARE_PAGE_TYPE_DDRECC,
+	SHARE_PAGE_TYPE_DDRFSP,
+	SHARE_PAGE_TYPE_LAST_LOG,
 	SHARE_PAGE_TYPE_MAX,
 } share_page_type_t;
 
@@ -80,7 +93,8 @@ int sip_smc_set_suspend_mode(unsigned long ctrl,
 /*
  * sip_smc_amp_cfg() - config AMP
  */
-int sip_smc_amp_cfg(unsigned long func, unsigned long arg0, unsigned long arg1);
+int sip_smc_amp_cfg(unsigned long func, unsigned long arg0, unsigned long arg1,
+		    unsigned long arg2);
 
 /*
  * sip_smc_dram() - Set dram configure for trust.

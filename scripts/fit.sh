@@ -18,7 +18,7 @@ SIG_UBOOT="${FIT_DIR}/uboot.data2sign"
 SIG_BOOT="${FIT_DIR}/boot.data2sign"
 SIG_RECOVERY="${FIT_DIR}/recovery.data2sign"
 # offs
-OFFS_DATA="0xE00"
+OFFS_DATA="0x1000"
 # file
 CHIP_FILE="arch/arm/lib/.asm-offsets.s.cmd"
 # placeholder address
@@ -33,7 +33,8 @@ CHECK_SIGN="./tools/fit_check_sign"
 # key
 KEY_DIR="keys/"
 RSA_PRI_KEY="keys/dev.key"
-RSA_PUB_KEY="keys/dev.crt"
+RSA_PUB_KEY="keys/dev.pubkey"
+RSA_CRT_KEY="keys/dev.crt"
 SIGNATURE_KEY_NODE="/signature/key-dev"
 SPL_DTB="spl/u-boot-spl.dtb"
 UBOOT_DTB="u-boot.dtb"
@@ -93,6 +94,20 @@ function check_its()
 			exit 1
 		fi
 	done
+}
+
+function check_rsa_keys()
+{
+	if [ ! -f ${RSA_PRI_KEY} ]; then
+		echo "ERROR: No ${RSA_PRI_KEY} "
+		exit 1
+	elif [ ! -f ${RSA_PUB_KEY} ]; then
+		echo "ERROR: No ${RSA_PUB_KEY} "
+		exit 1
+	elif [ ! -f ${RSA_CRT_KEY} ]; then
+		echo "ERROR: No ${RSA_CRT_KEY} "
+		exit 1
+	fi
 }
 
 function validate_arg()
@@ -228,13 +243,7 @@ function fit_gen_uboot_itb()
 			./make.sh loader ${ARG_INI_LOADER}
 		fi
 	else
-		if [ ! -f ${RSA_PRI_KEY} ]; then
-			echo "ERROR: No ${RSA_PRI_KEY} "
-			exit 1
-		elif [ ! -f ${RSA_PUB_KEY} ]; then
-			echo "ERROR: No ${RSA_PUB_KEY} "
-			exit 1
-		fi
+		check_rsa_keys
 
 		if ! grep -q '^CONFIG_SPL_FIT_SIGNATURE=y' .config ; then
 			echo "ERROR: CONFIG_SPL_FIT_SIGNATURE is disabled"
@@ -268,7 +277,12 @@ function fit_gen_uboot_itb()
 
 		# burn-key-hash
 		if [ "${ARG_BURN_KEY_HASH}" == "y" ]; then
-			fdtput -tx ${SPL_DTB} ${SIGNATURE_KEY_NODE} burn-key-hash 0x1
+			if grep -q '^CONFIG_SPL_FIT_HW_CRYPTO=y' .config ; then
+				fdtput -tx ${SPL_DTB} ${SIGNATURE_KEY_NODE} burn-key-hash 0x1
+			else
+				echo "ERROR: --burn-key-hash requires CONFIG_SPL_FIT_HW_CRYPTO=y"
+				exit 1
+			fi
 		fi
 
 		# rollback-index read back check
@@ -323,7 +337,6 @@ function fit_gen_uboot_itb()
 		fi
 
 		# repack spl
-		rm -f *_loader_*.bin
 		if [ "${ARG_SPL_NEW}" == "y" ]; then
 			cat spl/u-boot-spl-nodtb.bin > spl/u-boot-spl.bin
 			if ! grep -q '^CONFIG_SPL_SEPARATE_BSS=y' .config ; then
@@ -363,13 +376,7 @@ function fit_gen_boot_itb()
 	if [ "${ARG_SIGN}" != "y" ]; then
 		${MKIMAGE} -f ${ITS_BOOT} -E -p ${OFFS_DATA} ${ITB_BOOT} -v ${ARG_VER_BOOT}
 	else
-		if [ ! -f ${RSA_PRI_KEY}  ]; then
-			echo "ERROR: No ${RSA_PRI_KEY}"
-			exit 1
-		elif [ ! -f ${RSA_PUB_KEY}  ]; then
-			echo "ERROR: No ${RSA_PUB_KEY}"
-			exit 1
-		fi
+		check_rsa_keys
 
 		if ! grep -q '^CONFIG_FIT_SIGNATURE=y' .config ; then
 			echo "ERROR: CONFIG_FIT_SIGNATURE is disabled"
@@ -451,13 +458,7 @@ function fit_gen_recovery_itb()
 	if [ "${ARG_SIGN}" != "y" ]; then
 		${MKIMAGE} -f ${ITS_RECOVERY} -E -p ${OFFS_DATA} ${ITB_RECOVERY} -v ${ARG_VER_RECOVERY}
 	else
-		if [ ! -f ${RSA_PRI_KEY}  ]; then
-			echo "ERROR: No ${RSA_PRI_KEY}"
-			exit 1
-		elif [ ! -f ${RSA_PUB_KEY}  ]; then
-			echo "ERROR: No ${RSA_PUB_KEY}"
-			exit 1
-		fi
+		check_rsa_keys
 
 		if ! grep -q '^CONFIG_FIT_SIGNATURE=y' .config ; then
 			echo "ERROR: CONFIG_FIT_SIGNATURE is disabled"
@@ -582,7 +583,16 @@ function fit_gen_loader()
 {
 	if grep -Eq '^CONFIG_FIT_SIGNATURE=y' .config ; then
 		${RK_SIGN_TOOL} cc --chip ${ARG_CHIP: 2: 6}
-		${RK_SIGN_TOOL} sl --key ./keys/dev.key --pubkey ./keys/dev.pubkey --loader *_loader_*.bin
+		${RK_SIGN_TOOL} lk --key ${RSA_PRI_KEY} --pubkey ${RSA_PUB_KEY}
+		if ls *loader*.bin >/dev/null 2>&1 ; then
+			${RK_SIGN_TOOL} sl --loader *loader*.bin
+		fi
+		if ls *download*.bin >/dev/null 2>&1 ; then
+			${RK_SIGN_TOOL} sl --loader *download*.bin
+		fi
+		if ls *idblock*.img >/dev/null 2>&1 ; then
+			${RK_SIGN_TOOL} sb --idb *idblock*.img
+		fi
 	fi
 }
 
@@ -656,12 +666,18 @@ function fit_msg_recovery()
 
 function fit_msg_loader()
 {
-	LOADER=`ls *loader*.bin`
+	if ls *loader*.bin >/dev/null 2>&1 ; then
+		LOADER=`ls *loader*.bin`
+	fi
+
+	if ls *idblock*.img >/dev/null 2>&1 ; then
+		LOADER=`ls *idblock*.img`
+	fi
 
 	if grep -q '^CONFIG_FIT_SIGNATURE=y' .config ; then
-		echo "Image(signed):  ${LOADER} (with spl, ddr, usbplug) is ready"
+		echo "Image(signed):  ${LOADER} (with spl, ddr...) is ready"
 	else
-		echo "Image(no-signed):  ${LOADER} (with spl, ddr, usbplug) is ready"
+		echo "Image(no-signed):  ${LOADER} (with spl, ddr...) is ready"
 	fi
 }
 

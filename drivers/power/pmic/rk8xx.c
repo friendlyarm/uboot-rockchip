@@ -14,7 +14,7 @@
 
 DECLARE_GLOBAL_DATA_PTR;
 
-#if defined(CONFIG_IRQ) && !defined(CONFIG_SPL_BUILD)
+#if CONFIG_IS_ENABLED(IRQ)
 /* RK805 */
 static const struct virq_reg rk805_irqs[] = {
 	[RK8XX_IRQ_PWRON_FALL] = {
@@ -31,8 +31,8 @@ static struct virq_chip rk805_irq_chip = {
 	.status_base		= RK805_INT_STS_REG,
 	.mask_base		= RK805_INT_MSK_REG,
 	.num_regs		= 1,
-	.i2c_read		= pmic_reg_read,
-	.i2c_write		= pmic_reg_write,
+	.read			= pmic_reg_read,
+	.write			= pmic_reg_write,
 	.irqs			= rk805_irqs,
 	.num_irqs		= ARRAY_SIZE(rk805_irqs),
 };
@@ -50,8 +50,8 @@ static struct virq_chip rk808_irq_chip = {
 	.mask_base		= RK808_INT_MSK_REG1,
 	.irq_reg_stride		= 2,
 	.num_regs		= 2,
-	.i2c_read		= pmic_reg_read,
-	.i2c_write		= pmic_reg_write,
+	.read			= pmic_reg_read,
+	.write			= pmic_reg_write,
 	.irqs			= rk808_irqs,
 	.num_irqs		= ARRAY_SIZE(rk808_irqs),
 };
@@ -83,8 +83,8 @@ static struct virq_chip rk816_irq_chip = {
 	.irq_unalign_reg_stride	= 3,
 	.irq_reg_stride		= 2,	/* idx > 1, stride = 2 */
 	.num_regs		= 3,
-	.i2c_read		= pmic_reg_read,
-	.i2c_write		= pmic_reg_write,
+	.read			= pmic_reg_read,
+	.write			= pmic_reg_write,
 	.irqs			= rk816_irqs,
 	.num_irqs		= ARRAY_SIZE(rk816_irqs),
 };
@@ -106,8 +106,8 @@ static struct virq_chip rk818_irq_chip = {
 	.mask_base		= RK818_INT_MSK_REG1,
 	.irq_reg_stride		= 2,
 	.num_regs		= 2,
-	.i2c_read		= pmic_reg_read,
-	.i2c_write		= pmic_reg_write,
+	.read			= pmic_reg_read,
+	.write			= pmic_reg_write,
 	.irqs			= rk818_irqs,
 	.num_irqs		= ARRAY_SIZE(rk818_irqs),
 };
@@ -137,8 +137,8 @@ static struct virq_chip rk817_irq_chip = {
 	.mask_base		= RK817_INT_MSK_REG0,
 	.irq_reg_stride		= 2,
 	.num_regs		= 3,
-	.i2c_read		= pmic_reg_read,
-	.i2c_write		= pmic_reg_write,
+	.read			= pmic_reg_read,
+	.write			= pmic_reg_write,
 	.irqs			= rk817_irqs,
 	.num_irqs		= ARRAY_SIZE(rk817_irqs),
 };
@@ -148,7 +148,7 @@ static struct reg_data rk817_init_reg[] = {
 /* enable the under-voltage protection,
  * the under-voltage protection will shutdown the LDO3 and reset the PMIC
  */
-	{ RK817_BUCK4_CMIN, 0x60, 0x60},
+	{ RK817_BUCK4_CMIN, 0x6b, 0x6e},
 	{ RK817_PMIC_SYS_CFG1, 0x20, 0x70},
 	/* Set pmic_sleep as none function */
 	{ RK817_PMIC_SYS_CFG3, 0x00, 0x18 },
@@ -301,20 +301,14 @@ static int rk8xx_shutdown(struct udevice *dev)
 		return -EINVAL;
 	}
 
-	ret = dm_i2c_read(dev, devctrl_reg, &val, 1);
-	if (ret) {
-		printf("%s: read reg 0x%02x failed, ret=%d\n",
-		       __func__, devctrl_reg, ret);
+	ret = rk8xx_read(dev, devctrl_reg, &val, 1);
+	if (ret)
 		return ret;
-	}
 
 	val |= dev_off;
-	ret = dm_i2c_write(dev, devctrl_reg, &val, 1);
-	if (ret) {
-		printf("%s: write reg 0x%02x failed, ret=%d\n",
-		       __func__, devctrl_reg, ret);
+	ret = rk8xx_write(dev, devctrl_reg, &val, 1);
+	if (ret)
 		return ret;
-	}
 
 	return 0;
 }
@@ -359,7 +353,7 @@ static int rk8xx_bind(struct udevice *dev)
 }
 #endif
 
-#if defined(CONFIG_IRQ) && !defined(CONFIG_SPL_BUILD)
+#if CONFIG_IS_ENABLED(IRQ)
 /*
  * When system suspend during U-Boot charge, make sure the plugout event
  * be able to wakeup cpu in wfi/wfe state.
@@ -486,6 +480,7 @@ static int rk8xx_probe(struct udevice *dev)
 	uint8_t on_source = 0, off_source = 0;
 	uint8_t pwron_key = 0, lp_off_msk = 0, lp_act_msk = 0;
 	uint8_t power_en0, power_en1, power_en2, power_en3;
+	uint8_t on, off;
 	uint8_t value;
 
 	/* read Chip variant */
@@ -545,15 +540,24 @@ static int rk8xx_probe(struct udevice *dev)
 		/* judge whether save the PMIC_POWER_EN register */
 		if (priv->not_save_power_en)
 			break;
-		power_en0 = pmic_reg_read(dev, RK817_POWER_EN0);
-		power_en1 = pmic_reg_read(dev, RK817_POWER_EN1);
-		power_en2 = pmic_reg_read(dev, RK817_POWER_EN2);
-		power_en3 = pmic_reg_read(dev, RK817_POWER_EN3);
+
+		ret = rk8xx_read(dev, RK817_POWER_EN0, &power_en0, 1);
+		if (ret)
+			return ret;
+		ret = rk8xx_read(dev, RK817_POWER_EN1, &power_en1, 1);
+		if (ret)
+			return ret;
+		ret = rk8xx_read(dev, RK817_POWER_EN2, &power_en2, 1);
+		if (ret)
+			return ret;
+		ret = rk8xx_read(dev, RK817_POWER_EN3, &power_en3, 1);
+		if (ret)
+			return ret;
 
 		value = (power_en0 & 0x0f) | ((power_en1 & 0x0f) << 4);
-		pmic_reg_write(dev, RK817_POWER_EN_SAVE0, value);
+		rk8xx_write(dev, RK817_POWER_EN_SAVE0, &value, 1);
 		value = (power_en2 & 0x0f) | ((power_en3 & 0x0f) << 4);
-		pmic_reg_write(dev, RK817_POWER_EN_SAVE1, value);
+		rk8xx_write(dev, RK817_POWER_EN_SAVE1, &value, 1);
 		break;
 	default:
 		printf("Unknown PMIC: RK%x!!\n", priv->variant);
@@ -586,20 +590,23 @@ static int rk8xx_probe(struct udevice *dev)
 
 	printf("PMIC:  RK%x ", show_variant);
 
-	if (on_source && off_source)
-		printf("(on=0x%02x, off=0x%02x)",
-		       pmic_reg_read(dev, on_source),
-		       pmic_reg_read(dev, off_source));
+	if (on_source && off_source) {
+		rk8xx_read(dev, on_source, &on, 1);
+		rk8xx_read(dev, off_source, &off, 1);
+		printf("(on=0x%02x, off=0x%02x)", on, off);
+	}
 	printf("\n");
 
 	if (pwron_key) {
-		value = pmic_reg_read(dev, pwron_key);
+		ret = rk8xx_read(dev, pwron_key, &value, 1);
+		if (ret)
+			return ret;
 		value &= ~(lp_off_msk | lp_act_msk);
 		if (lp_off_msk)
 			value |= priv->lp_off_time;
 		if (lp_act_msk)
 			value |= priv->lp_action;
-		pmic_reg_write(dev, pwron_key, value);
+		rk8xx_write(dev, pwron_key, &value, 1);
 	}
 
 	ret = rk8xx_irq_chip_init(dev);

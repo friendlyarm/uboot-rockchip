@@ -49,7 +49,6 @@ struct rk_crypto_soc_data {
 
 struct rockchip_crypto_priv {
 	fdt_addr_t			reg;
-	struct clk			clk;
 	u32				frequency;
 	char				*clocks;
 	u32				*frequencies;
@@ -94,7 +93,7 @@ struct rockchip_crypto_priv {
 #define phys_to_virt(addr, area)	((unsigned long)addr)
 
 #define align_malloc(bytes, alignment)	memalign(alignment, bytes)
-#define align_free(addr)		free(addr)
+#define align_free(addr)		do {if (addr) free(addr);} while (0)
 
 #define ROUNDUP(size, alignment)	round_up(size, alignment)
 #define cache_op_inner(type, addr, size) \
@@ -311,7 +310,7 @@ static int rk_hash_init(void *hw_ctx, u32 algo)
 	crypto_write(reg_ctrl | CRYPTO_WRITE_MASK_ALL, CRYPTO_FIFO_CTL);
 
 	/* enable src_item_done interrupt */
-	crypto_write(CRYPTO_SRC_ITEM_INT_EN, CRYPTO_DMA_INT_EN);
+	crypto_write(0, CRYPTO_DMA_INT_EN);
 
 	tmp_ctx->magic = RK_HASH_CTX_MAGIC;
 
@@ -382,8 +381,8 @@ static int rk_hash_direct_calc(void *hw_data, const u8 *data,
 	tmp = crypto_read(CRYPTO_DMA_INT_ST);
 	crypto_write(tmp, CRYPTO_DMA_INT_ST);
 
-	if (tmp != CRYPTO_SRC_ITEM_DONE_INT_ST &&
-	    tmp != CRYPTO_ZERO_LEN_INT_ST) {
+	if ((tmp & mask) != CRYPTO_SRC_ITEM_DONE_INT_ST &&
+	    (tmp & mask) != CRYPTO_ZERO_LEN_INT_ST) {
 		debug("[%s] %d: CRYPTO_DMA_INT_ST = 0x%x\n",
 		      __func__, __LINE__, tmp);
 		goto exit;
@@ -642,7 +641,10 @@ static inline bool is_des_mode(u32 rk_mode)
 		rk_mode == RK_MODE_OFB);
 }
 
-static void dump_crypto_state(struct crypto_lli_desc *desc, int ret)
+static void dump_crypto_state(struct crypto_lli_desc *desc,
+			      u32 tmp, u32 expt_int,
+			      const u8 *in, const u8 *out,
+			      u32 len, int ret)
 {
 	IMSG("%s\n", ret == -ETIME ? "timeout" : "dismatch");
 
@@ -810,8 +812,7 @@ static int hw_cipher_init(u32 chn, const u8 *key, const u8 *twk_key,
 
 	/* din_swap set 1, dout_swap set 1, default 1. */
 	crypto_write(0x00030003, CRYPTO_FIFO_CTL);
-	crypto_write(CRYPTO_LIST_DONE_INT_EN | CRYPTO_DST_ITEM_DONE_INT_EN,
-		     CRYPTO_DMA_INT_EN);
+	crypto_write(0, CRYPTO_DMA_INT_EN);
 
 	crypto_write(reg_ctrl | CRYPTO_WRITE_MASK_ALL, CRYPTO_BC_CTL);
 
@@ -921,12 +922,17 @@ static int hw_cipher_crypt(const u8 *in, u8 *out, u64 len,
 			       aad, aad_len);
 		} else {
 			aad_tmp_len = aad_len;
-			aad_tmp = align_malloc(aad_tmp_len,
-					       DATA_ADDR_ALIGN_SIZE);
-			if (!aad_tmp)
-				goto exit;
+			if (IS_ALIGNED((ulong)aad, DATA_ADDR_ALIGN_SIZE)) {
+				aad_tmp = (void *)aad;
+			} else {
+				aad_tmp = align_malloc(aad_tmp_len,
+						       DATA_ADDR_ALIGN_SIZE);
+				if (!aad_tmp)
+					goto exit;
 
-			memcpy(aad_tmp, aad, aad_tmp_len);
+				memcpy(aad_tmp, aad, aad_tmp_len);
+			}
+
 			set_aad_len_reg(key_chn, aad_tmp_len);
 			set_pc_len_reg(key_chn, tmp_len);
 		}
@@ -950,8 +956,7 @@ static int hw_cipher_crypt(const u8 *in, u8 *out, u64 len,
 
 	/* din_swap set 1, dout_swap set 1, default 1. */
 	crypto_write(0x00030003, CRYPTO_FIFO_CTL);
-	crypto_write(CRYPTO_DST_ITEM_DONE_INT_EN | CRYPTO_LIST_DONE_INT_EN,
-		     CRYPTO_DMA_INT_EN);
+	crypto_write(0, CRYPTO_DMA_INT_EN);
 
 	reg_ctrl = crypto_read(CRYPTO_BC_CTL) | CRYPTO_BC_ENABLE;
 	crypto_write(reg_ctrl | CRYPTO_WRITE_MASK_ALL, CRYPTO_BC_CTL);
@@ -974,7 +979,7 @@ static int hw_cipher_crypt(const u8 *in, u8 *out, u64 len,
 			get_tag_from_reg(key_chn, tag, AES_BLOCK_SIZE);
 		}
 	} else {
-		dump_crypto_state(data_desc, ret);
+		dump_crypto_state(data_desc, tmp, expt_int, in, out, len, ret);
 		ret = -1;
 	}
 
@@ -982,10 +987,12 @@ exit:
 	crypto_write(0xffff0000, CRYPTO_BC_CTL);//bc_ctl disable
 	align_free(data_desc);
 	align_free(aad_desc);
-	if (dma_in && dma_in != in)
+	if (dma_in != in)
 		align_free(dma_in);
-	if (dma_out && dma_out != out)
+	if (out && dma_out != out)
 		align_free(dma_out);
+	if (aad && aad != aad_tmp)
+		align_free(aad_tmp);
 
 	return ret;
 }
@@ -1312,9 +1319,18 @@ static int rockchip_crypto_ofdata_to_platdata(struct udevice *dev)
 	struct rockchip_crypto_priv *priv = dev_get_priv(dev);
 	int len, ret = -EINVAL;
 
+	memset(priv, 0x00, sizeof(*priv));
+
+	priv->reg = (fdt_addr_t)dev_read_addr_ptr(dev);
+	if (priv->reg == FDT_ADDR_T_NONE)
+		return -EINVAL;
+
+	crypto_base = priv->reg;
+
+	/* if there is no clocks in dts, just skip it */
 	if (!dev_read_prop(dev, "clocks", &len)) {
 		printf("Can't find \"clocks\" property\n");
-		return -EINVAL;
+		return 0;
 	}
 
 	memset(priv, 0x00, sizeof(*priv));
@@ -1350,10 +1366,6 @@ static int rockchip_crypto_ofdata_to_platdata(struct udevice *dev)
 		goto exit;
 	}
 
-	priv->reg = (fdt_addr_t)dev_read_addr_ptr(dev);
-
-	crypto_base = priv->reg;
-
 	return 0;
 exit:
 	if (priv->clocks)
@@ -1365,12 +1377,37 @@ exit:
 	return ret;
 }
 
+static int rk_crypto_set_clk(struct udevice *dev)
+{
+	struct rockchip_crypto_priv *priv = dev_get_priv(dev);
+	struct clk clk;
+	int i, ret;
+
+	if (!priv->clocks && priv->nclocks == 0)
+		return 0;
+
+	for (i = 0; i < priv->nclocks; i++) {
+		ret = clk_get_by_index(dev, i, &clk);
+		if (ret < 0) {
+			printf("Failed to get clk index %d, ret=%d\n", i, ret);
+			return ret;
+		}
+		ret = clk_set_rate(&clk, priv->frequencies[i]);
+		if (ret < 0) {
+			printf("%s: Failed to set clk(%ld): ret=%d\n",
+			       __func__, clk.id, ret);
+			return ret;
+		}
+	}
+
+	return 0;
+}
+
 static int rockchip_crypto_probe(struct udevice *dev)
 {
 	struct rockchip_crypto_priv *priv = dev_get_priv(dev);
 	struct rk_crypto_soc_data *sdata;
-	int i, ret = 0;
-	u32* clocks;
+	int ret = 0;
 
 	sdata = (struct rk_crypto_soc_data *)dev_get_driver_data(dev);
 	priv->soc_data = sdata;
@@ -1380,22 +1417,9 @@ static int rockchip_crypto_probe(struct udevice *dev)
 	if (!priv->hw_ctx)
 		return -ENOMEM;
 
-	ret = rockchip_get_clk(&priv->clk.dev);
-	if (ret) {
-		printf("Failed to get clk device, ret=%d\n", ret);
+	ret = rk_crypto_set_clk(dev);
+	if (ret)
 		return ret;
-	}
-
-	clocks = (u32 *)priv->clocks;
-	for (i = 0; i < priv->nclocks; i++) {
-		priv->clk.id = clocks[i * 2 + 1];
-		ret = clk_set_rate(&priv->clk, priv->frequencies[i]);
-		if (ret < 0) {
-			printf("%s: Failed to set clk(%ld): ret=%d\n",
-			       __func__, priv->clk.id, ret);
-			return ret;
-		}
-	}
 
 	hw_crypto_reset();
 
@@ -1474,6 +1498,10 @@ static const struct udevice_id rockchip_crypto_ids[] = {
 	},
 	{
 		.compatible = "rockchip,rk3568-crypto",
+		.data = (ulong)&soc_data_base_sm
+	},
+	{
+		.compatible = "rockchip,rk3588-crypto",
 		.data = (ulong)&soc_data_base_sm
 	},
 	{ }

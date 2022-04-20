@@ -320,9 +320,9 @@ static int env_append(const char *varname, const char *varvalue)
 	if (oldvalue)
 		len += strlen(oldvalue);
 
-	newvalue = malloc(len + 2);
+	newvalue = calloc(1, len + 2);
 	if (!newvalue) {
-		printf("Error: malloc in %s failed!\n", __func__);
+		printf("Error: calloc in %s failed!\n", __func__);
 		return 1;
 	}
 
@@ -370,9 +370,9 @@ static int env_replace(const char *varname, const char *substr,
 	else
 		len = oldvalue_len + substr_len - replace_len;
 
-	newvalue = malloc(len);
+	newvalue = calloc(1, len);
 	if (!newvalue) {
-		printf("Error: malloc in %s failed!\n", __func__);
+		printf("Error: calloc in %s failed!\n", __func__);
 		return 1;
 	}
 
@@ -444,7 +444,7 @@ int env_update_filter(const char *varname, const char *varvalue,
 		return 1;
 	}
 
-	/* Splite varargs into items containing "=" by the blank */
+	/* Splite varargs into items containing "=" by the space */
 	a_item = strtok(a_string_tok, " ");
 	while (a_item && i < ARGS_ITEM_NUM) {
 		debug("%s: [a_item %d]: %s\n", __func__, i, a_item);
@@ -454,7 +454,7 @@ int env_update_filter(const char *varname, const char *varvalue,
 	}
 
 	/*
-	 * Splite varvalue into items containing "=" by the blank.
+	 * Splite varvalue into items containing "=" by the space.
 	 * parse varvalue title, eg: "bootmode=emmc", title is "bootmode"
 	 */
 	v_item = strtok(v_string_tok, " ");
@@ -539,66 +539,115 @@ int env_update(const char *varname, const char *varvalue)
 	return env_update_filter(varname, varvalue, NULL);
 }
 
-#define VARVALUE_BUF_SIZE	512
+int env_update_extract_subset(const char *varname,
+			      const char *subset_varname,
+			      const char *subset_key)
+{
+	char *subset_varvalue;
+	char *tmp_varvalue;
+	char *new_varvalue;
+	char *varvalue;
+	char *p, *item;
+	int ret = 0;
+	u32 len;
+
+	varvalue = env_get(varname);
+	if (!varvalue)
+		return 0;
+
+	len = strlen(varvalue) + 1;
+	new_varvalue = calloc(1, len);
+	subset_varvalue = calloc(1, len);
+	tmp_varvalue = strdup(varvalue);
+	if (!new_varvalue || !tmp_varvalue || !subset_varvalue) {
+		ret = -ENOMEM;
+		goto out;
+	}
+
+	item = strtok(tmp_varvalue, " ");
+	while (item) {
+		p = strstr(item, subset_key) ? subset_varvalue : new_varvalue;
+		strcat(p, item);
+		strcat(p, " ");
+		debug("%s: [item]: %s\n", __func__, item);
+		item = strtok(NULL, " ");
+	}
+
+	env_set(varname, new_varvalue);
+	env_set(subset_varname, subset_varvalue);
+out:
+	if (new_varvalue)
+		free(new_varvalue);
+	if (subset_varvalue)
+		free(subset_varvalue);
+	if (tmp_varvalue)
+		free(tmp_varvalue);
+
+	return ret;
+}
 
 char *env_exist(const char *varname, const char *varvalue)
 {
-	int len;
+	char *buf, *ptr = NULL;
 	char *oldvalue, *p;
-	char buf[VARVALUE_BUF_SIZE];
+	int len;
 
 	/* before import into hashtable */
 	if (!(gd->flags & GD_FLG_ENV_READY) || !varname)
 		return NULL;
 
+	len = strlen(varvalue) + 8; /* extra 8 byte is enough*/
+	buf = calloc(1, len);
+	if (!buf)
+		return NULL;
+
 	oldvalue = env_get(varname);
 	if (oldvalue) {
-		if (strlen(varvalue) > VARVALUE_BUF_SIZE) {
-			printf("%s: '%s' is too long than 512\n",
-			       __func__, varvalue);
-			return NULL;
-		}
-
 		/* Match middle one ? */
-		snprintf(buf, VARVALUE_BUF_SIZE, " %s ", varvalue);
+		snprintf(buf, len, " %s ", varvalue);
 		p = strstr(oldvalue, buf);
 		if (p) {
 			debug("%s: '%s' is already exist in '%s'(middle)\n",
 			      __func__, varvalue, varname);
-			return (p + 1);
+			ptr = (p + 1);
+			goto out;
 		} else {
 			debug("%s: not find in middle one\n", __func__);
 		}
 
 		/* Match last one ? */
-		snprintf(buf, VARVALUE_BUF_SIZE, " %s", varvalue);
+		snprintf(buf, len, " %s", varvalue);
 		p = strstr(oldvalue, buf);
 		if (p) {
 			if (*(p + strlen(varvalue) + 1) == '\0') {
 				debug("%s: '%s' is already exist in '%s'(last)\n",
 				      __func__, varvalue, varname);
-				return (p + 1);
+				ptr = (p + 1);
+				goto out;
 			}
 		} else {
 			debug("%s: not find in last one\n", __func__);
 		}
 
 		/* Match first one ? */
-		snprintf(buf, VARVALUE_BUF_SIZE, "%s ", varvalue);
+		snprintf(buf, len, "%s ", varvalue);
 		p = strstr(oldvalue, buf);
 		if (p) {
 			len = strstr(p, " ") - oldvalue;
 			if (len == strlen(varvalue)) {
 				debug("%s: '%s' is already exist in '%s'(first)\n",
 				      __func__, varvalue, varname);
-				return p;
+				ptr = p;
+				goto out;
 			}
 		} else  {
 			debug("%s: not find in first one\n", __func__);
 		}
 	}
+out:
+	free(buf);
 
-	return NULL;
+	return ptr;
 }
 
 int env_delete(const char *varname, const char *varvalue, int complete_match)
@@ -1043,7 +1092,7 @@ ulong env_get_ulong(const char *name, int base, ulong default_val)
 }
 
 #ifndef CONFIG_SPL_BUILD
-#if defined(CONFIG_CMD_SAVEENV) && !defined(CONFIG_ENV_IS_NOWHERE)
+#if defined(CONFIG_CMD_SAVEENV)
 static int do_env_save(cmd_tbl_t *cmdtp, int flag, int argc,
 		       char * const argv[])
 {
@@ -1495,7 +1544,7 @@ static cmd_tbl_t cmd_env_sub[] = {
 #if defined(CONFIG_CMD_RUN)
 	U_BOOT_CMD_MKENT(run, CONFIG_SYS_MAXARGS, 1, do_run, "", ""),
 #endif
-#if defined(CONFIG_CMD_SAVEENV) && !defined(CONFIG_ENV_IS_NOWHERE)
+#if defined(CONFIG_CMD_SAVEENV)
 	U_BOOT_CMD_MKENT(save, 1, 0, do_env_save, "", ""),
 #endif
 	U_BOOT_CMD_MKENT(set, CONFIG_SYS_MAXARGS, 0, do_env_set, "", ""),
@@ -1568,7 +1617,7 @@ static char env_help_text[] =
 #if defined(CONFIG_CMD_RUN)
 	"env run var [...] - run commands in an environment variable\n"
 #endif
-#if defined(CONFIG_CMD_SAVEENV) && !defined(CONFIG_ENV_IS_NOWHERE)
+#if defined(CONFIG_CMD_SAVEENV)
 	"env save - save environment\n"
 #endif
 	"env set [-f] name [arg ...]\n";

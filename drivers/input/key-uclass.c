@@ -162,7 +162,7 @@ try_again:
 	return event;
 }
 
-#if defined(CONFIG_IRQ) && !defined(CONFIG_SPL_BUILD)
+#if CONFIG_IS_ENABLED(IRQ)
 #if defined(CONFIG_PWRKEY_DNL_TRIGGER_NUM) && \
 		(CONFIG_PWRKEY_DNL_TRIGGER_NUM > 0)
 static void power_key_download(struct dm_key_uclass_platdata *uc_key)
@@ -255,9 +255,12 @@ int key_bind_children(struct udevice *dev, const char *drv_name)
 static int key_post_probe(struct udevice *dev)
 {
 	struct dm_key_uclass_platdata *uc_key;
-	int margin = 30;
 	int ret;
-
+#ifdef CONFIG_SARADC_ROCKCHIP_V2
+	int margin = 120;
+#else
+	int margin = 30;
+#endif
 	uc_key = dev_get_uclass_platdata(dev);
 	if (!uc_key)
 		return -ENXIO;
@@ -272,7 +275,7 @@ static int key_post_probe(struct udevice *dev)
 					uc_key->adcval - margin : 0;
 	} else {
 		if (uc_key->code == KEY_POWER) {
-#if defined(CONFIG_IRQ) && !defined(CONFIG_SPL_BUILD)
+#if CONFIG_IS_ENABLED(IRQ)
 			int irq;
 
 			if (uc_key->skip_irq_init)
