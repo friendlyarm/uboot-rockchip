@@ -51,8 +51,17 @@ static int device_bind_common(struct udevice *parent, const struct driver *drv,
 		return ret;
 	}
 
-#if defined(CONFIG_USING_KERNEL_DTB) && !defined(CONFIG_USING_KERNEL_DTB_V2)
+#if defined(CONFIG_USING_KERNEL_DTB)
 	if (gd->flags & GD_FLG_RELOC) {
+#if defined(CONFIG_USING_KERNEL_DTB_V2)
+		if ((gd->flags & GD_FLG_KDTB_READY) &&
+			 (drv->id == UCLASS_MMC)) {
+			if (!uclass_find_device_by_name(drv->id, name, &dev)) {
+				debug("Ignore %s from kernel\n", name);
+				return 0;
+			}
+		}
+#else
 		/* For mmc/nand/spiflash, just update from kernel dtb instead bind again*/
 		if (drv->id == UCLASS_MMC || drv->id == UCLASS_RKNAND ||
 		    drv->id == UCLASS_SPI_FLASH || drv->id == UCLASS_MTD ||
@@ -108,8 +117,10 @@ static int device_bind_common(struct udevice *parent, const struct driver *drv,
 				}
 			}
 		}
-	}
 #endif
+	}
+#endif /* CONFIG_USING_KERNEL_DTB */
+
 	dev = calloc(1, sizeof(struct udevice));
 	if (!dev)
 		return -ENOMEM;
