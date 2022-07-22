@@ -6,6 +6,13 @@ config TARGET_EVB_RK3588
 	help
 	  RK3588 EVB is a evaluation board for Rockchp RK3588.
 
+config TARGET_NANOPI6
+	bool "FriendlyElec NanoPi 6 Series"
+	select BOARD_LATE_INIT
+	select VENDOR_FRIENDLYELEC
+	help
+	  Support for FriendlyElec boards based on RK3588.
+
 config SYS_SOC
 	default "rockchip"
 
@@ -13,5 +20,6 @@ config SYS_MALLOC_F_LEN
 	default 0x400
 
 source board/rockchip/evb_rk3588/Kconfig
+source board/rockchip/nanopi6/Kconfig
 
 endif
