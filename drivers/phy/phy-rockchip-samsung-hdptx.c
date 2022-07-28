@@ -347,9 +347,9 @@ struct tx_drv_ctrl {
 	u8 ana_tx_drv_idrv_iup_ctrl;
 	u8 ana_tx_drv_accdrv_en;
 	u8 ana_tx_drv_accdrv_ctrl;
-};
+} __packed;
 
-static const struct tx_drv_ctrl tx_drv_ctrl_rbr[4][4] = {
+static struct tx_drv_ctrl tx_drv_ctrl_rbr[4][4] = {
 	/* voltage swing 0, pre-emphasis 0->3 */
 	{
 		{ 0x1, 0x0, 0x4, 0x6, 0x0, 0x4 },
@@ -377,7 +377,7 @@ static const struct tx_drv_ctrl tx_drv_ctrl_rbr[4][4] = {
 	}
 };
 
-static const struct tx_drv_ctrl tx_drv_ctrl_hbr[4][4] = {
+static struct tx_drv_ctrl tx_drv_ctrl_hbr[4][4] = {
 	/* voltage swing 0, pre-emphasis 0->3 */
 	{
 		{ 0x2, 0x1, 0x4, 0x6, 0x0, 0x4 },
@@ -405,7 +405,7 @@ static const struct tx_drv_ctrl tx_drv_ctrl_hbr[4][4] = {
 	}
 };
 
-static const struct tx_drv_ctrl tx_drv_ctrl_hbr2[4][4] = {
+static struct tx_drv_ctrl tx_drv_ctrl_hbr2[4][4] = {
 	/* voltage swing 0, pre-emphasis 0->3 */
 	{
 		{ 0x2, 0x1, 0x4, 0x6, 0x0, 0x4 },
@@ -432,6 +432,45 @@ static const struct tx_drv_ctrl tx_drv_ctrl_hbr2[4][4] = {
 		{ 0xd, 0x0, 0x7, 0x7, 0x1, 0x4 },
 	}
 };
+
+static int rockchip_hdptx_phy_parse_training_table(struct udevice *dev)
+{
+	int size = sizeof(struct tx_drv_ctrl) * 10;
+	const uint8_t *prop;
+	u8 *buf, *training_table;
+	int i, j;
+
+	prop = dev_read_u8_array_ptr(dev, "training-table", size);
+	if (!prop)
+		return 0;
+
+	buf = kzalloc(size, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	memcpy(buf, prop, size);
+
+	training_table = buf;
+
+	for (i = 0; i < 4; i++) {
+		for (j = 0; j < 4; j++) {
+			struct tx_drv_ctrl *ctrl;
+
+			if (i + j > 3)
+				continue;
+
+			ctrl = (struct tx_drv_ctrl *)training_table;
+			tx_drv_ctrl_rbr[i][j] = *ctrl;
+			tx_drv_ctrl_hbr[i][j] = *ctrl;
+			tx_drv_ctrl_hbr2[i][j] = *ctrl;
+			training_table += sizeof(*ctrl);
+		}
+	}
+
+	kfree(buf);
+
+	return 0;
+}
 
 static inline void phy_write(struct rockchip_hdptx_phy *hdptx, uint reg,
 			     uint val)
@@ -511,30 +550,15 @@ static void rockchip_hdptx_phy_set_voltage(struct rockchip_hdptx_phy *hdptx,
 {
 	const struct tx_drv_ctrl *ctrl;
 
-	phy_update_bits(hdptx, LANE_REG(lane, 0x0c28), LN_ANA_TX_JEQ_EN,
-			FIELD_PREP(LN_ANA_TX_JEQ_EN, 0x1));
-
 	switch (dp->link_rate) {
 	case 1620:
 		ctrl = &tx_drv_ctrl_rbr[dp->voltage[lane]][dp->pre[lane]];
-		phy_update_bits(hdptx, LANE_REG(lane, 0x0c28),
-				LN_TX_JEQ_EVEN_CTRL_RBR,
-				FIELD_PREP(LN_TX_JEQ_EVEN_CTRL_RBR, 0x7));
-		phy_update_bits(hdptx, LANE_REG(lane, 0x0c30),
-				LN_TX_JEQ_ODD_CTRL_RBR,
-				FIELD_PREP(LN_TX_JEQ_ODD_CTRL_RBR, 0x7));
 		phy_update_bits(hdptx, LANE_REG(lane, 0x0c44),
 				LN_TX_SER_40BIT_EN_RBR,
 				FIELD_PREP(LN_TX_SER_40BIT_EN_RBR, 0x1));
 		break;
 	case 2700:
 		ctrl = &tx_drv_ctrl_hbr[dp->voltage[lane]][dp->pre[lane]];
-		phy_update_bits(hdptx, LANE_REG(lane, 0x0c2c),
-				LN_TX_JEQ_EVEN_CTRL_HBR,
-				FIELD_PREP(LN_TX_JEQ_EVEN_CTRL_HBR, 0x7));
-		phy_update_bits(hdptx, LANE_REG(lane, 0x0c34),
-				LN_TX_JEQ_ODD_CTRL_HBR,
-				FIELD_PREP(LN_TX_JEQ_ODD_CTRL_HBR, 0x7));
 		phy_update_bits(hdptx, LANE_REG(lane, 0x0c44),
 				LN_TX_SER_40BIT_EN_HBR,
 				FIELD_PREP(LN_TX_SER_40BIT_EN_HBR, 0x1));
@@ -542,12 +566,6 @@ static void rockchip_hdptx_phy_set_voltage(struct rockchip_hdptx_phy *hdptx,
 	case 5400:
 	default:
 		ctrl = &tx_drv_ctrl_hbr2[dp->voltage[lane]][dp->pre[lane]];
-		phy_update_bits(hdptx, LANE_REG(lane, 0x0c2c),
-				LN_TX_JEQ_EVEN_CTRL_HBR2,
-				FIELD_PREP(LN_TX_JEQ_EVEN_CTRL_HBR2, 0x7));
-		phy_update_bits(hdptx, LANE_REG(lane, 0x0c34),
-				LN_TX_JEQ_ODD_CTRL_HBR2,
-				FIELD_PREP(LN_TX_JEQ_ODD_CTRL_HBR2, 0x7));
 		phy_update_bits(hdptx, LANE_REG(lane, 0x0c44),
 				LN_TX_SER_40BIT_EN_HBR2,
 				FIELD_PREP(LN_TX_SER_40BIT_EN_HBR2, 0x1));
@@ -1017,6 +1035,7 @@ static int rockchip_hdptx_phy_probe(struct udevice *dev)
 {
 	struct rockchip_hdptx_phy *hdptx = dev_get_priv(dev);
 	struct udevice *syscon;
+	u32 prop[4];
 	int ret;
 
 	hdptx->base = dev_read_addr_ptr(dev);
@@ -1061,8 +1080,18 @@ static int rockchip_hdptx_phy_probe(struct udevice *dev)
 		return ret;
 	}
 
-	dev_read_u32_array(dev, "lane-polarity-invert",
-			   hdptx->lane_polarity_invert, 4);
+	ret = rockchip_hdptx_phy_parse_training_table(dev);
+	if (ret) {
+		dev_err(dev, "failed to parse training table: %d\n", ret);
+		return ret;
+	}
+
+	if (!dev_read_u32_array(dev, "lane-polarity-invert", prop, ARRAY_SIZE(prop))) {
+		hdptx->lane_polarity_invert[0] = prop[0];
+		hdptx->lane_polarity_invert[1] = prop[1];
+		hdptx->lane_polarity_invert[2] = prop[2];
+		hdptx->lane_polarity_invert[3] = prop[3];
+	}
 
 	return 0;
 }

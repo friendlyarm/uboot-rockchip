@@ -164,7 +164,26 @@ struct memblock param_parse_common_resv_mem(void)
 	return mem;
 }
 
-int param_parse_bootdev(char **devtype, char **devnum)
+int param_parse_assign_bootdev(char **devtype, char **devnum)
+{
+	char *bootdev_str = CONFIG_ROCKCHIP_BOOTDEV;
+	char *type, *num;
+
+	num = strchr(bootdev_str, ' ');
+	if (!num)
+		return -ENODEV;
+
+	type = strdup(bootdev_str);
+	type[num - bootdev_str] = 0;
+	num++;
+
+	*devtype = type;
+	*devnum = num;
+
+	return 0;
+}
+
+int param_parse_atags_bootdev(char **devtype, char **devnum)
 {
 #ifdef CONFIG_ROCKCHIP_PRELOADER_ATAGS
 	struct tag *t;
@@ -390,7 +409,7 @@ phys_size_t param_simple_parse_ddr_mem(int init_bank)
 }
 #endif
 
-int param_parse_pre_serial(void)
+int param_parse_pre_serial(int *flags)
 {
 #if defined(CONFIG_ROCKCHIP_PRELOADER_SERIAL) && \
     defined(CONFIG_ROCKCHIP_PRELOADER_ATAGS)
@@ -404,6 +423,8 @@ int param_parse_pre_serial(void)
 		gd->serial.addr = t->u.serial.addr;
 		gd->serial.id = t->u.serial.id;
 		gd->baudrate = CONFIG_BAUDRATE;
+		if (!gd->serial.enable && flags)
+			*flags |= GD_FLG_DISABLE_CONSOLE;
 		debug("preloader: enable=%d, addr=0x%lx, baudrate=%d, id=%d\n",
 		      gd->serial.enable, gd->serial.addr,
 		      gd->serial.baudrate, gd->serial.id);

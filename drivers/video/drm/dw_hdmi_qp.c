@@ -570,6 +570,7 @@ static void hdmi_config_AVI(struct dw_hdmi_qp *hdmi, struct drm_display_mode *mo
 	}
 
 	frame.scan_mode = HDMI_SCAN_MODE_NONE;
+	frame.video_code = hdmi->vic;
 
 	hdmi_avi_infoframe_pack_only(&frame, buff, 17);
 
@@ -593,6 +594,8 @@ static void hdmi_config_AVI(struct dw_hdmi_qp *hdmi, struct drm_display_mode *mo
 
 		hdmi_writel(hdmi, val, PKT_AVI_CONTENTS1 + i * 4);
 	}
+
+	hdmi_modb(hdmi, 0, PKTSCHED_AVI_FIELDRATE, PKTSCHED_PKT_CONFIG1);
 
 	hdmi_modb(hdmi, PKTSCHED_AVI_TX_EN | PKTSCHED_GCP_TX_EN,
 		  PKTSCHED_AVI_TX_EN | PKTSCHED_GCP_TX_EN,
@@ -784,6 +787,7 @@ static void hdmi_set_op_mode(struct dw_hdmi_qp *hdmi,
 			     bool scdc_support)
 {
 	int frl_rate;
+	int i;
 
 	hdmi_writel(hdmi, 0, FLT_CONFIG0);
 	if (scdc_support)
@@ -806,6 +810,12 @@ static void hdmi_set_op_mode(struct dw_hdmi_qp *hdmi,
 
 	frl_rate = link_cfg->frl_lanes * link_cfg->rate_per_lane;
 	hdmi_start_flt(hdmi, frl_rate);
+
+	for (i = 0; i < 50; i++) {
+		hdmi_modb(hdmi, PKTSCHED_NULL_TX_EN, PKTSCHED_NULL_TX_EN, PKTSCHED_PKT_EN);
+		mdelay(1);
+		hdmi_modb(hdmi, 0, PKTSCHED_NULL_TX_EN, PKTSCHED_PKT_EN);
+	}
 }
 
 static int dw_hdmi_setup(struct dw_hdmi_qp *hdmi,
@@ -824,7 +834,7 @@ static int dw_hdmi_setup(struct dw_hdmi_qp *hdmi,
 	else
 		printf("CEA mode used vic=%d\n", hdmi->vic);
 
-	vmode->mpixelclock = mode->crtc_clock * 1000;
+	vmode->mpixelclock = mode->clock * 1000;
 	vmode->mtmdsclock = hdmi_get_tmdsclock(hdmi, vmode->mpixelclock);
 	if (hdmi_bus_fmt_is_yuv420(hdmi->hdmi_data.enc_out_bus_format))
 		vmode->mtmdsclock /= 2;

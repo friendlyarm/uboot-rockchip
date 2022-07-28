@@ -22,6 +22,7 @@
 #include "rockchip_display.h"
 #include "rockchip_crtc.h"
 #include "rockchip_connector.h"
+#include "rockchip_panel.h"
 #include "analogix_dp.h"
 
 #define RK3588_GRF_VO1_CON0	0x0000
@@ -271,11 +272,6 @@ static int analogix_dp_process_clock_recovery(struct analogix_dp_device *dp)
 	if (retval)
 		return retval;
 
-	retval =  analogix_dp_read_bytes_from_dpcd(dp,
-			DP_ADJUST_REQUEST_LANE0_1, 2, adjust_request);
-	if (retval)
-		return retval;
-
 	if (analogix_dp_clock_recovery_ok(link_status, lane_count) == 0) {
 		if (analogix_dp_tps3_supported(dp))
 			training_pattern = TRAINING_PTN3;
@@ -292,7 +288,14 @@ static int analogix_dp_process_clock_recovery(struct analogix_dp_device *dp)
 
 		dev_info(dp->dev, "Link Training Clock Recovery success\n");
 		dp->link_train.lt_state = EQUALIZER_TRAINING;
+
+		return 0;
 	} else {
+		retval = analogix_dp_read_bytes_from_dpcd(dp,
+				DP_ADJUST_REQUEST_LANE0_1, 2, adjust_request);
+		if (retval)
+			return retval;
+
 		for (lane = 0; lane < lane_count; lane++) {
 			training_lane = analogix_dp_get_lane_link_training(
 							dp, lane);
@@ -351,17 +354,10 @@ static int analogix_dp_process_equalizer_training(struct analogix_dp_device *dp)
 		return -EIO;
 	}
 
-	retval = analogix_dp_read_bytes_from_dpcd(dp,
-			DP_ADJUST_REQUEST_LANE0_1, 2, adjust_request);
-	if (retval)
-		return retval;
-
 	retval = analogix_dp_read_byte_from_dpcd(dp,
 			DP_LANE_ALIGN_STATUS_UPDATED, &link_align);
 	if (retval)
 		return retval;
-
-	analogix_dp_get_adjust_training_lane(dp, adjust_request);
 
 	if (!analogix_dp_channel_eq_ok(link_status, link_align, lane_count)) {
 		/* traing pattern Set to Normal */
@@ -393,6 +389,12 @@ static int analogix_dp_process_equalizer_training(struct analogix_dp_device *dp)
 		return -EIO;
 	}
 
+	retval = analogix_dp_read_bytes_from_dpcd(dp,
+			DP_ADJUST_REQUEST_LANE0_1, 2, adjust_request);
+	if (retval)
+		return retval;
+
+	analogix_dp_get_adjust_training_lane(dp, adjust_request);
 	analogix_dp_set_lane_link_training(dp);
 
 	retval = analogix_dp_write_bytes_to_dpcd(dp, DP_TRAINING_LANE0_SET,
@@ -914,6 +916,11 @@ static int analogix_dp_connector_enable(struct display_state *state)
 	analogix_dp_enable_enhanced_mode(dp, 1);
 
 	analogix_dp_init_video(dp);
+	analogix_dp_set_video_format(dp, &conn_state->mode);
+
+	if (dp->video_bist_enable)
+		analogix_dp_video_bist_enable(dp);
+
 	ret = analogix_dp_config_video(dp);
 	if (ret) {
 		dev_err(dp->dev, "unable to config video\n");
@@ -943,9 +950,36 @@ static int analogix_dp_connector_disable(struct display_state *state)
 static int analogix_dp_connector_detect(struct display_state *state)
 {
 	struct connector_state *conn_state = &state->conn_state;
+	struct panel_state *panel_state = &state->panel_state;
 	struct analogix_dp_device *dp = dev_get_priv(conn_state->dev);
+	int ret;
 
-	return analogix_dp_detect(dp);
+	if (panel_state->panel)
+		rockchip_panel_prepare(panel_state->panel);
+
+	if (!analogix_dp_detect(dp))
+		goto unprepare_panel;
+
+	ret = analogix_dp_read_byte_from_dpcd(dp, DP_MAX_LINK_RATE,
+					      &dp->link_train.link_rate);
+	if (ret < 0) {
+		dev_err(dp->dev, "failed to read link rate: %d\n", ret);
+		goto unprepare_panel;
+	}
+
+	ret = analogix_dp_read_byte_from_dpcd(dp, DP_MAX_LANE_COUNT,
+					      &dp->link_train.lane_count);
+	if (ret < 0) {
+		dev_err(dp->dev, "failed to read lane count: %d\n", ret);
+		goto unprepare_panel;
+	}
+
+	return true;
+
+unprepare_panel:
+	if (panel_state->panel)
+		rockchip_panel_unprepare(panel_state->panel);
+	return false;
 }
 
 static const struct rockchip_connector_funcs analogix_dp_connector_funcs = {
@@ -996,6 +1030,7 @@ static int analogix_dp_probe(struct udevice *dev)
 	generic_phy_get_by_name(dev, "dp", &dp->phy);
 
 	dp->force_hpd = dev_read_bool(dev, "force-hpd");
+	dp->video_bist_enable = dev_read_bool(dev, "analogix,video-bist-enable");
 
 	dp->plat_data.dev_type = ROCKCHIP_DP;
 	dp->plat_data.subdev_type = pdata->chip_type;

@@ -34,7 +34,7 @@ struct spl_image_info {
 	uintptr_t entry_point_bl32;
 	uintptr_t entry_point_bl33;
 #endif
-#if CONFIG_IS_ENABLED(OPTEE)
+#if CONFIG_IS_ENABLED(OPTEE) || CONFIG_IS_ENABLED(KERNEL_BOOT)
 	uintptr_t entry_point_os;	/* point to uboot or kernel */
 #endif
 	void *fdt_addr;
@@ -344,13 +344,6 @@ int spl_board_prepare_for_jump(struct spl_image_info *spl_image);
 #ifdef CONFIG_SPL_KERNEL_BOOT
 const char *spl_kernel_partition(struct spl_image_info *spl,
 				 struct spl_load_info *info);
-#endif
-
-#ifdef CONFIG_SPL_ENVF
-/**
- * envf_load() - envf data load and init.
- */
-int envf_load(struct blk_desc *dev_desc);
 #endif
 
 #endif

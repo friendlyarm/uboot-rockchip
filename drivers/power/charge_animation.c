@@ -34,7 +34,7 @@
 #endif
 DECLARE_GLOBAL_DATA_PTR;
 
-#define IMAGE_RESET_IDX				-1
+#define IMAGE_RECALC_IDX				-1
 #define IMAGE_SOC_100_IDX(n)			((n) - 2)
 #define IMAGE_LOWPOWER_IDX(n)			((n) - 1)
 #define SYSTEM_SUSPEND_DELAY_MS			5000
@@ -82,6 +82,112 @@ static const struct charge_image image[] = {
 	{ .name = "battery_fail.bmp", .soc = -1, .period = 1000 },
 };
 
+static int regulators_parse_assigned_mem_state(struct udevice *dev)
+{
+	struct charge_animation_pdata *pdata = dev_get_platdata(dev);
+	struct regulator_mem *mem;
+	const fdt32_t *list1;
+	const fdt32_t *list2;
+	int size1, size2;
+	int i, ret;
+	uint32_t phandle;
+
+	/* Must be both exist or not */
+	list1 = dev_read_prop(dev, "regulator-on-in-mem", &size1);
+	list2 = dev_read_prop(dev, "regulator-off-in-mem", &size2);
+	if (!list1 && !list2)
+		return 0;
+	if (list1 && !list2)
+		return -EINVAL;
+	else if (!list1 && list2)
+		return -EINVAL;
+
+	size1 = size1 / sizeof(*list1);
+	size2 = size2 / sizeof(*list2);
+
+	pdata->regulators_mem =
+		calloc(size1 + size2, sizeof(*pdata->regulators_mem));
+	if (!pdata->regulators_mem)
+		return -ENOMEM;
+
+	mem = pdata->regulators_mem;
+
+	for (i = 0; i < size1; i++, mem++) {
+		mem->enable = true;
+		phandle = fdt32_to_cpu(*list1++);
+		ret = uclass_get_device_by_phandle_id(UCLASS_REGULATOR,
+						phandle, &mem->dev);
+		if (ret)
+			return ret;
+	}
+	for (i = 0; i < size2; i++, mem++) {
+		mem->enable = false;
+		phandle = fdt32_to_cpu(*list2++);
+		ret = uclass_get_device_by_phandle_id(UCLASS_REGULATOR,
+						phandle, &mem->dev);
+		if (ret)
+			return ret;
+	}
+
+#ifdef DEBUG
+	printf("assigned regulator mem:\n");
+	for (mem = pdata->regulators_mem; mem->dev; mem++)
+		printf("    %20s: suspend %s\n", mem->dev->name,
+		       mem->enable ? "enabling" : "disabled");
+#endif
+	return 0;
+}
+
+static int regulators_enable_assigned_state_mem(struct udevice *dev)
+{
+	struct charge_animation_pdata *pdata = dev_get_platdata(dev);
+	struct regulator_mem *mem;
+	int ret;
+
+	for (mem = pdata->regulators_mem; mem->dev; mem++) {
+		ret = regulator_set_suspend_enable(mem->dev, mem->enable);
+		if (ret)
+			printf("%s: suspend failed, ret=%d\n",
+			       mem->dev->name, ret);
+	}
+
+	return 0;
+}
+
+static void regulators_suspend(struct udevice *dev)
+{
+	struct charge_animation_pdata *pdata = dev_get_platdata(dev);
+
+	if (pdata->regulators_mem)
+		regulators_enable_assigned_state_mem(dev);
+	else
+		regulators_enable_state_mem(false);
+}
+
+static void pmics_ops(bool suspend)
+{
+	struct udevice *dev;
+
+	for (uclass_first_device(UCLASS_PMIC, &dev);
+	     dev;
+	     uclass_next_device(&dev)) {
+		if (suspend)
+			pmic_suspend(dev);
+		else
+			pmic_resume(dev);
+	}
+}
+
+static void pmics_suspend(void)
+{
+	pmics_ops(true);
+}
+
+static void pmics_resume(void)
+{
+	pmics_ops(false);
+}
+
 static int charge_animation_ofdata_to_platdata(struct udevice *dev)
 {
 	struct charge_animation_pdata *pdata = dev_get_platdata(dev);
@@ -121,6 +227,12 @@ static int charge_animation_ofdata_to_platdata(struct udevice *dev)
 	if (pdata->auto_exit_charge && !pdata->auto_wakeup_interval)
 		pdata->auto_wakeup_interval = 10;
 
+	/* Not allow failure */
+	if (regulators_parse_assigned_mem_state(dev)) {
+		printf("Failed to parse assigned mem state\n");
+		return -EINVAL;
+	}
+
 	debug("mode: uboot=%d, android=%d; exit: soc=%d%%, voltage=%dmv;\n"
 	      "lp_voltage=%d%%, screen_on=%dmv\n",
 	      pdata->uboot_charge, pdata->android_charge,
@@ -134,46 +246,44 @@ static int check_key_press(struct udevice *dev)
 {
 	struct charge_animation_pdata *pdata = dev_get_platdata(dev);
 	struct charge_animation_priv *priv = dev_get_priv(dev);
-	u32 state, rtc_state = 0;
+	u32 event;
 
 #ifdef CONFIG_DM_RTC
-	if (priv->rtc)
-		rtc_state = rtc_alarm_trigger(priv->rtc);
-#endif
-	if (rtc_state) {
+	if (priv->rtc && rtc_alarm_trigger(priv->rtc)) {
 		printf("rtc alarm trigger...\n");
 		return KEY_PRESS_LONG_DOWN;
 	}
-
-	state = key_read(KEY_POWER);
-	if (state < 0)
-		printf("read power key failed: %d\n", state);
-	else if (state == KEY_PRESS_DOWN)
+#endif
+	event = key_read(KEY_POWER);
+	if (event < 0)
+		printf("read power key failed: %d\n", event);
+	else if (event == KEY_PRESS_DOWN)
 		printf("power key pressed...\n");
-	else if (state == KEY_PRESS_LONG_DOWN)
+	else if (event == KEY_PRESS_LONG_DOWN)
 		printf("power key long pressed...\n");
 
-	/* Fixup key state for following cases */
-	if (pdata->auto_wakeup_interval) {
-		if (pdata->auto_wakeup_screen_invert) {
-			if (priv->auto_wakeup_key_state == KEY_PRESS_DOWN) {
-				/* Value is updated in timer interrupt */
-				priv->auto_wakeup_key_state = KEY_PRESS_NONE;
-				state = KEY_PRESS_DOWN;
-			}
+	/* auto screen invert ? */
+	if (pdata->auto_wakeup_interval &&
+	    pdata->auto_wakeup_screen_invert) {
+		if (priv->auto_wakeup_key_state == KEY_PRESS_DOWN) {
+			/* Value is updated in timer interrupt */
+			priv->auto_wakeup_key_state = KEY_PRESS_NONE;
+			event = KEY_PRESS_DOWN;
 		}
 	}
+
+	/* auto screen off (while not enable auto screen invert) ? */
 	if (!pdata->auto_wakeup_screen_invert &&
 	    pdata->auto_off_screen_interval) {
 		if (priv->auto_screen_off_timeout &&
 		    get_timer(priv->auto_screen_off_timeout) >
 		    pdata->auto_off_screen_interval * 1000) {	/* 1000ms */
-			state = KEY_PRESS_DOWN;
+			event = KEY_PRESS_DOWN;
 			printf("Auto screen off\n");
 		}
 	}
 
-	return state;
+	return event;
 }
 
 /*
@@ -212,9 +322,9 @@ static int system_suspend_enter(struct udevice *dev)
 		putc('0');
 		local_irq_disable();
 		putc('1');
-		regulators_enable_state_mem(false);
+		regulators_suspend(dev);
 		putc('2');
-		pmic_suspend(priv->pmic);
+		pmics_suspend();
 		putc('3');
 		irqs_suspend();
 		putc('4');
@@ -231,7 +341,7 @@ static int system_suspend_enter(struct udevice *dev)
 		putc('3');
 		irqs_resume();
 		putc('2');
-		pmic_resume(priv->pmic);
+		pmics_resume();
 		putc('1');
 		local_irq_enable();
 		putc('0');
@@ -255,7 +365,7 @@ static int system_suspend_enter(struct udevice *dev)
 	return 0;
 }
 
-static void timer_irq_handler(int irq, void *data)
+static void autowake_timer_handler(int irq, void *data)
 {
 	struct udevice *dev = data;
 	struct charge_animation_priv *priv = dev_get_priv(dev);
@@ -281,7 +391,7 @@ static void autowakeup_timer_init(struct udevice *dev, uint32_t seconds)
 	writel(TIMER_EN | TIMER_INT_EN, TIMER_BASE + TIMER_CTRL);
 
 	/* IRQ */
-	irq_install_handler(TIMER_IRQ, timer_irq_handler, dev);
+	irq_install_handler(TIMER_IRQ, autowake_timer_handler, dev);
 	irq_handler_enable(TIMER_IRQ);
 }
 
@@ -356,15 +466,40 @@ static int fg_charger_get_chrg_online(struct udevice *dev)
 	return fuel_gauge_get_chrg_online(charger);
 }
 
+static int sys_shutdown(struct udevice *dev)
+{
+	struct charge_animation_priv *priv = dev_get_priv(dev);
+	struct udevice *pmic = priv->pmic;
+	struct udevice *fg = priv->fg;
+
+	/*
+	 * Call the fuel/charge again to update something specific
+	 * before shutdown. This fix a scene:
+	 *
+	 * Plug out charger which auto wakeup cpu from a long time system suspend,
+	 * fuel/charge need to update something before shutdown.
+	 */
+	fg_charger_get_chrg_online(dev);
+	fuel_gauge_get_voltage(fg);
+	fuel_gauge_update_get_soc(fg);
+
+	flushc();
+	mdelay(50);
+	pmic_shutdown(pmic);
+
+	mdelay(500);
+	printf("Cpu should never reach here, shutdown failed !\n");
+
+	return 0;
+}
+
 static int charge_extrem_low_power(struct udevice *dev)
 {
 	struct charge_animation_pdata *pdata = dev_get_platdata(dev);
 	struct charge_animation_priv *priv = dev_get_priv(dev);
-	struct udevice *pmic = priv->pmic;
 	struct udevice *fg = priv->fg;
 	int voltage, soc, charging = 1;
 	static int timer_initialized;
-	int ret;
 
 	voltage = fuel_gauge_get_voltage(fg);
 	if (voltage < 0)
@@ -376,12 +511,7 @@ static int charge_extrem_low_power(struct udevice *dev)
 		if (charging <= 0) {
 			printf("%s: Not charging, online=%d. Shutdown...\n",
 			       __func__, charging);
-			/* wait uart flush before shutdown */
-			mdelay(5);
-			/* PMIC shutdown */
-			pmic_shutdown(pmic);
-
-			printf("Cpu should never reach here, shutdown failed !\n");
+			sys_shutdown(dev);
 			continue;
 		}
 
@@ -402,9 +532,7 @@ static int charge_extrem_low_power(struct udevice *dev)
 		}
 
 		/* Update led */
-		ret = leds_update(dev, soc);
-		if (ret)
-			printf("update led failed: %d\n", ret);
+		leds_update(dev, soc);
 
 		printf("Extrem low power, force charging... threshold=%dmv, now=%dmv\n",
 		       pdata->low_power_voltage, voltage);
@@ -435,7 +563,6 @@ static int charge_animation_show(struct udevice *dev)
 	struct charge_animation_pdata *pdata = dev_get_platdata(dev);
 	struct charge_animation_priv *priv = dev_get_priv(dev);
 	const struct charge_image *image = priv->image;
-	struct udevice *pmic = priv->pmic;
 	struct udevice *fg = priv->fg;
 	const char *preboot = env_get("preboot");
 	int image_num = priv->image_num;
@@ -444,12 +571,12 @@ static int charge_animation_show(struct udevice *dev)
 	ulong show_start = 0, charge_start = 0, debug_start = 0;
 	ulong delta;
 	ulong ms = 0, sec = 0;
-	int start_idx = 0, show_idx = -1, old_show_idx = IMAGE_RESET_IDX;
+	int start_idx = 0, show_idx = -1, old_show_idx = IMAGE_RECALC_IDX;
 	int soc, voltage, current, key_state;
 	int i, charging = 1, ret;
 	int boot_mode;
 	int first_poll_fg = 1;
-	bool exit_charge = false;
+	bool lp_shutdown = false;
 
 /*
  * Check sequence:
@@ -489,31 +616,31 @@ static int charge_animation_show(struct udevice *dev)
 		return 0;
 	}
 #endif
+	/* No charger online + low power? shutdown */
 	charging = fg_charger_get_chrg_online(dev);
-	/* Not charger online and low power, shutdown */
 	if (charging <= 0 && pdata->auto_exit_charge) {
 		soc = fuel_gauge_update_get_soc(fg);
 		voltage = fuel_gauge_get_voltage(fg);
 		if (soc < pdata->exit_charge_level) {
 			printf("soc(%d%%) < exit_charge_level(%d%%)\n",
 			       soc, pdata->exit_charge_level);
-			exit_charge = true;
+			lp_shutdown = true;
 		}
 		if (voltage < pdata->exit_charge_voltage) {
 			printf("voltage(%d) < exit_charge_voltage(%d)\n",
 			       voltage, pdata->exit_charge_voltage);
-			exit_charge = true;
+			lp_shutdown = true;
 		}
-		if (exit_charge) {
+		if (lp_shutdown) {
 			printf("Not charging and low power, Shutdown...\n");
 			show_idx = IMAGE_LOWPOWER_IDX(image_num);
 			charge_show_bmp(image[show_idx].name);
-			mdelay(1000);
-			pmic_shutdown(pmic);
+
+			sys_shutdown(dev);
 		}
 	}
 
-	/* Not charger online, exit */
+	/* No charger online, exit */
 	if (charging <= 0) {
 		printf("Exit charge: due to charger offline\n");
 		return 0;
@@ -554,7 +681,7 @@ static int charge_animation_show(struct udevice *dev)
 #ifdef CONFIG_IRQ
 	printf("Enter U-Boot charging mode\n");
 #else
-	printf("Enter U-Boot charging mode(without IRQ)\n");
+	printf("Enter U-Boot charging mode(IRQ)\n");
 #endif
 
 	charge_start = get_timer(0);
@@ -593,23 +720,15 @@ static int charge_animation_show(struct udevice *dev)
 			 * Irq must be enable if CONFIG_IRQ is defined, because
 			 * ebc need to wait irq to indicate frame is complete.
 			 */
-#ifdef CONFIG_IRQ
 			local_irq_enable();
-#endif
+
 			ret = rockchip_eink_show_charge_logo(EINK_LOGO_POWEROFF);
 			if (ret != 0)
 				printf("Eink display reset logo failed\n");
-#ifdef CONFIG_IRQ
+
 			local_irq_disable();
 #endif
-#endif
-			/* wait uart flush before shutdown */
-			mdelay(5);
-
-			/* PMIC shutdown */
-			pmic_shutdown(pmic);
-
-			printf("Cpu should never reach here, shutdown failed !\n");
+			sys_shutdown(dev);
 			continue;
 		}
 
@@ -660,18 +779,16 @@ show_images:
 		 */
 		if (!debug_start)
 			debug_start = get_timer(0);
-		if (get_timer(debug_start) > 20000) {
+		if (get_timer(debug_start) > 30000) {
 			debug_start = get_timer(0);
 			printf("[%8ld]: soc=%d%%, vol=%dmv, c=%dma, "
 			       "online=%d, screen_on=%d\n",
-			       get_timer(0)/1000, soc, voltage,
+			       get_timer(0) / 1000, soc, voltage,
 			       current, charging, screen_on);
 		}
 
 		/* Update leds */
-		ret = leds_update(dev, soc);
-		if (ret)
-			printf("update led failed: %d\n", ret);
+		leds_update(dev, soc);
 
 		/*
 		 * If ever lowpower screen off, force screen_on=false, which
@@ -690,20 +807,19 @@ show_images:
 		    (voltage > pdata->screen_on_voltage)) {
 			ever_lowpower_screen_off = false;
 			screen_on = true;
-			show_idx = IMAGE_RESET_IDX;
+			show_idx = IMAGE_RECALC_IDX;
 		}
 
 		/*
-		 * IMAGE_RESET_IDX means show_idx show be update by start_idx.
+		 * IMAGE_RECALC_IDX means show_idx show be update by start_idx.
 		 * When short key pressed event trigged, we will set show_idx
-		 * as IMAGE_RESET_IDX which updates images index from start_idx
+		 * as IMAGE_RECALC_IDX which updates images index from start_idx
 		 * that calculate by current soc.
 		 */
-		if (show_idx == IMAGE_RESET_IDX) {
+		if (show_idx == IMAGE_RECALC_IDX) {
 			for (i = 0; i < IMAGE_SOC_100_IDX(image_num); i++) {
 				/* Find out which image we start to show */
-				if ((soc >= image[i].soc) &&
-				    (soc < image[i + 1].soc)) {
+				if ((soc >= image[i].soc) && (soc < image[i + 1].soc)) {
 					start_idx = i;
 					break;
 				}
@@ -787,19 +903,19 @@ show_images:
 			if (priv->auto_screen_off_timeout == 0)
 				priv->auto_screen_off_timeout = get_timer(0);
 		} else {
+			/* Entering low power suspend mode !!! */
 			priv->auto_screen_off_timeout = 0;
 			system_suspend_enter(dev);
 		}
 
 		mdelay(5);
 
-		/* Every image shows period */
+		/* It's time to show next image ? */
 		if (get_timer(show_start) > image[show_idx].period) {
 			show_start = get_timer(0);
-			/* Update to next image */
 			show_idx++;
 			if (show_idx > IMAGE_SOC_100_IDX(image_num))
-				show_idx = IMAGE_RESET_IDX;
+				show_idx = IMAGE_RECALC_IDX;
 		}
 
 		debug("step4 (%d)... \n", screen_on);
@@ -812,12 +928,9 @@ show_images:
 		 */
 		key_state = check_key_press(dev);
 		if (key_state == KEY_PRESS_DOWN) {
-			/*
-			 * Clear current image index, and show image
-			 * from start_idx
-			 */
-			old_show_idx = IMAGE_RESET_IDX;
-			show_idx = IMAGE_RESET_IDX;
+			/* Clear current image index, recalc image index */
+			old_show_idx = IMAGE_RECALC_IDX;
+			show_idx = IMAGE_RECALC_IDX;
 
 			/*
 			 *	Reverse the screen state
@@ -979,7 +1092,7 @@ static int charge_animation_probe(struct udevice *dev)
 	}
 
 	/* Get PWRKEY: used for wakeup and turn off/on LCD */
-	if (key_read(KEY_POWER) == KEY_NOT_EXIST) {
+	if (!key_exist(KEY_POWER)) {
 		debug("Can't find power key\n");
 		return -EINVAL;
 	}

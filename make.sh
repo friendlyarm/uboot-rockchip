@@ -41,6 +41,7 @@ PLAT_TYPE="RKFW" # default
 
 SRCTREE=`pwd`
 SCRIPT_FIT="${SRCTREE}/scripts/fit.sh"
+
 SCRIPT_ATF="${SRCTREE}/scripts/atf.sh"
 SCRIPT_TOS="${SRCTREE}/scripts/tos.sh"
 SCRIPT_SPL="${SRCTREE}/scripts/spl.sh"
@@ -561,12 +562,13 @@ function pack_uboot_itb_image()
 		else
 			echo "WARN: No tee bin"
 		fi
-
-		TEE_OFFSET=`filt_val "ADDR" ${INI}`
-		if [ "${TEE_OFFSET}" == "" ]; then
-			TEE_OFFSET=0x8400000
+		if [ ! -z "${TOSTA}" -o ! -z "${TOS}" ]; then
+			TEE_OFFSET=`filt_val "ADDR" ${INI}`
+			if [ "${TEE_OFFSET}" == "" ]; then
+				TEE_OFFSET=0x8400000
+			fi
+			TEE_ARG="-t ${TEE_OFFSET}"
 		fi
-		TEE_ARG="-t ${TEE_OFFSET}"
 	fi
 
 	# MCUs
@@ -721,6 +723,11 @@ function pack_fit_image()
 	if ! which dtc >/dev/null 2>&1 ; then
 		echo "ERROR: No 'dtc', please: apt-get install device-tree-compiler"
 		exit 1
+	elif [ "${ARM64_TRUSTZONE}" == "y" ]; then
+		if ! which python2 >/dev/null 2>&1 ; then
+			echo "ERROR: No python2"
+			exit 1
+		fi
 	fi
 
 	# If we don't plan to have uboot in uboot.img in case of: SPL => Trust => Kernel, creating empty files.
@@ -753,8 +760,7 @@ function pack_images()
 		if [ "${PLAT_TYPE}" == "FIT" ]; then
 			pack_fit_image ${ARG_LIST_FIT}
 		elif [ "${PLAT_TYPE}" == "DECOMP" ]; then
-			rm -f uboot.img trust.img
-			${SCRIPT_DECOMP}
+			${SCRIPT_DECOMP} ${ARG_LIST_FIT} --chip ${RKCHIP_LABEL}
 		else
 			pack_uboot_image
 			pack_trust_image

@@ -274,7 +274,6 @@ static int rockchip_combphy_probe(struct udevice *udev)
 {
 	struct rockchip_combphy_priv *priv = dev_get_priv(udev);
 	const struct rockchip_combphy_cfg *phy_cfg;
-	int ret;
 
 	priv->mmio = (void __iomem *)dev_read_addr(udev);
 	if (IS_ERR(priv->mmio))
@@ -290,13 +289,7 @@ static int rockchip_combphy_probe(struct udevice *udev)
 	priv->mode = PHY_TYPE_SATA;
 	priv->cfg = phy_cfg;
 
-	ret = rockchip_combphy_parse_dt(udev, priv);
-	if (ret)
-		return ret;
-
-	ret = rockchip_combphy_set_mode(priv);
-
-	return ret;
+	return rockchip_combphy_parse_dt(udev, priv);
 }
 
 static int rk3568_combphy_cfg(struct rockchip_combphy_priv *priv)
@@ -504,6 +497,25 @@ static int rk3588_combphy_cfg(struct rockchip_combphy_priv *priv)
 	/* 100MHz refclock signal is good */
 	clk_set_rate(&priv->ref_clk, 100000000);
 	param_write(priv->phy_grf, &cfg->pipe_clk_100m, true);
+	if (priv->mode == PHY_TYPE_PCIE) {
+		/* PLL KVCO tuning fine */
+		val = readl(priv->mmio + (0x20 << 2));
+		val &= ~GENMASK(4, 2);
+		val |= 0x4 << 2;
+		writel(val, priv->mmio + (0x20 << 2));
+
+		/* Set up rx_trim: PLL LPF C1 85pf R1 1.25kohm */
+		val = 0x4c;
+		writel(val, priv->mmio + (0x1b << 2));
+
+		/* Set up su_trim: T3 */
+		val = 0xb0;
+		writel(val, priv->mmio + (0xa << 2));
+		val = 0x47;
+		writel(val, priv->mmio + (0xb << 2));
+		val = 0x57;
+		writel(val, priv->mmio + (0xd << 2));
+	}
 
 	return 0;
 }

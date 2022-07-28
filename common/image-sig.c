@@ -437,7 +437,8 @@ int fit_config_check_sig(const void *fit, int noffset, int required_keynode,
 	}
 	/* Get the secure flag here and write the secure data and the secure flag */
 #if !defined(USE_HOSTCC)
-#ifdef CONFIG_SPL_FIT_HW_CRYPTO
+#if defined(CONFIG_SPL_BUILD) && defined(CONFIG_SPL_FIT_HW_CRYPTO) && \
+    defined(CONFIG_SPL_ROCKCHIP_SECURE_OTP)
 	rsa_burn_key_hash(&info);
 #endif
 #endif
@@ -511,18 +512,7 @@ int fit_config_verify_required_sigs(const void *fit, int conf_noffset,
 		if (ret) {
 			printf("Failed to verify required signature '%s'\n",
 			       fit_get_name(sig_blob, noffset, NULL));
-#ifndef USE_HOSTCC
-			/*
-			 * Allow bring up if enable FIT_SIGNATURE but
-			 * not enable the device secure boot.
-			 *
-			 * return value: 1: device secure boot is enabled.
-			 */
-			if (fit_board_verify_required_sigs())
-				return ret;
-#else
 			return ret;
-#endif
 		}
 	}
 

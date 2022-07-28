@@ -26,6 +26,7 @@
 #include <fixp-arith.h>
 #include <syscon.h>
 #include <linux/iopoll.h>
+#include <dm/uclass-internal.h>
 
 #include "rockchip_display.h"
 #include "rockchip_crtc.h"
@@ -111,6 +112,7 @@
 #define RK3568_SYS_LUT_PORT_SEL			0x58
 #define GAMMA_PORT_SEL_MASK			0x3
 #define GAMMA_PORT_SEL_SHIFT			0
+#define PORT_MERGE_EN_SHIFT			16
 
 #define RK3568_SYS_PD_CTRL			0x034
 #define RK3568_VP0_LINE_FLAG			0x70
@@ -135,6 +137,8 @@
 #define RK3588_CLUSTER1_PD_EN_SHIFT		1
 #define RK3588_CLUSTER2_PD_EN_SHIFT		2
 #define RK3588_CLUSTER3_PD_EN_SHIFT		3
+#define RK3588_DSC_8K_PD_EN_SHIFT		5
+#define RK3588_DSC_4K_PD_EN_SHIFT		6
 #define RK3588_ESMART_PD_EN_SHIFT		7
 
 #define RK3568_SYS_STATUS0			0x60
@@ -142,6 +146,8 @@
 #define RK3588_CLUSTER1_PD_STATUS_SHIFT		9
 #define RK3588_CLUSTER2_PD_STATUS_SHIFT		10
 #define RK3588_CLUSTER3_PD_STATUS_SHIFT		11
+#define RK3588_DSC_8K_PD_STATUS_SHIFT		13
+#define RK3588_DSC_4K_PD_STATUS_SHIFT		14
 #define RK3588_ESMART_PD_STATUS_SHIFT		15
 
 #define RK3568_SYS_CTRL_LINE_FLAG0		0x70
@@ -149,8 +155,61 @@
 #define RK3568_DSP_LINE_FLAG_NUM0_SHIFT		0
 #define RK3568_DSP_LINE_FLAG_NUM1_SHIFT		16
 
+/* DSC CTRL registers definition */
+#define RK3588_DSC_8K_SYS_CTRL			0x200
+#define DSC_PORT_SEL_MASK			0x3
+#define DSC_PORT_SEL_SHIFT			0
+#define DSC_MAN_MODE_MASK			0x1
+#define DSC_MAN_MODE_SHIFT			2
+#define DSC_INTERFACE_MODE_MASK			0x3
+#define DSC_INTERFACE_MODE_SHIFT		4
+#define DSC_PIXEL_NUM_MASK			0x3
+#define DSC_PIXEL_NUM_SHIFT			6
+#define DSC_PXL_CLK_DIV_MASK			0x1
+#define DSC_PXL_CLK_DIV_SHIFT			8
+#define DSC_CDS_CLK_DIV_MASK			0x3
+#define DSC_CDS_CLK_DIV_SHIFT			12
+#define DSC_TXP_CLK_DIV_MASK			0x3
+#define DSC_TXP_CLK_DIV_SHIFT			14
+#define DSC_INIT_DLY_MODE_MASK			0x1
+#define DSC_INIT_DLY_MODE_SHIFT			16
+#define DSC_SCAN_EN_SHIFT			17
+#define DSC_HALT_EN_SHIFT			18
+
+#define RK3588_DSC_8K_RST			0x204
+#define RST_DEASSERT_MASK			0x1
+#define RST_DEASSERT_SHIFT			0
+
+#define RK3588_DSC_8K_CFG_DONE			0x208
+#define DSC_CFG_DONE_SHIFT			0
+
+#define RK3588_DSC_8K_INIT_DLY			0x20C
+#define DSC_INIT_DLY_NUM_MASK			0xffff
+#define DSC_INIT_DLY_NUM_SHIFT			0
+#define SCAN_TIMING_PARA_IMD_EN_SHIFT		16
+
+#define RK3588_DSC_8K_HTOTAL_HS_END		0x210
+#define DSC_HTOTAL_PW_MASK			0xffffffff
+#define DSC_HTOTAL_PW_SHIFT			0
+
+#define RK3588_DSC_8K_HACT_ST_END		0x214
+#define DSC_HACT_ST_END_MASK			0xffffffff
+#define DSC_HACT_ST_END_SHIFT			0
+
+#define RK3588_DSC_8K_VTOTAL_VS_END		0x218
+#define DSC_VTOTAL_PW_MASK			0xffffffff
+#define DSC_VTOTAL_PW_SHIFT			0
+
+#define RK3588_DSC_8K_VACT_ST_END		0x21C
+#define DSC_VACT_ST_END_MASK			0xffffffff
+#define DSC_VACT_ST_END_SHIFT			0
+
+#define RK3588_DSC_8K_STATUS			0x220
+
 /* Overlay registers definition    */
 #define RK3568_OVL_CTRL				0x600
+#define OVL_MODE_SEL_MASK			0x1
+#define OVL_MODE_SEL_SHIFT			0
 #define OVL_PORT_MUX_REG_DONE_IMD_SHIFT		28
 #define RK3568_OVL_LAYER_SEL			0x604
 #define LAYER_SEL_MASK				0xf
@@ -614,6 +673,31 @@
 #define RK3568_SMART1_REGION3_SCL_FACTOR_CBR	0x1EC8
 #define RK3568_SMART1_REGION3_SCL_OFFSET	0x1ECC
 
+/* DSC 8K/4K register definition */
+#define RK3588_DSC_8K_PPS0_3			0x4000
+#define RK3588_DSC_8K_CTRL0			0x40A0
+#define DSC_EN_SHIFT				0
+#define DSC_RBIT_SHIFT				2
+#define DSC_RBYT_SHIFT				3
+#define DSC_FLAL_SHIFT				4
+#define DSC_MER_SHIFT				5
+#define DSC_EPB_SHIFT				6
+#define DSC_EPL_SHIFT				7
+#define DSC_NSLC_SHIFT				16
+#define DSC_SBO_SHIFT				28
+#define DSC_IFEP_SHIFT				29
+#define DSC_PPS_UPD_SHIFT			31
+
+#define RK3588_DSC_8K_CTRL1			0x40A4
+#define RK3588_DSC_8K_STS0			0x40A8
+#define RK3588_DSC_8K_ERS			0x40C4
+
+#define RK3588_DSC_4K_PPS0_3			0x4100
+#define RK3588_DSC_4K_CTRL0			0x41A0
+#define RK3588_DSC_4K_CTRL1			0x41A4
+#define RK3588_DSC_4K_STS0			0x41A8
+#define RK3588_DSC_4K_ERS			0x41C4
+
 #define RK3568_MAX_REG				0x1ED0
 
 #define RK3568_GRF_VO_CON1			0x0364
@@ -637,6 +721,8 @@
 #define RK3588_PD_CLUSTER1_REPAIR_EN_SHIFT	10
 #define RK3588_PD_CLUSTER2_REPAIR_EN_SHIFT	11
 #define RK3588_PD_CLUSTER3_REPAIR_EN_SHIFT	12
+#define RK3588_PD_DSC_8K_REPAIR_EN_SHIFT	13
+#define RK3588_PD_DSC_4K_REPAIR_EN_SHIFT	14
 #define RK3588_PD_ESMART_REPAIR_EN_SHIFT	15
 
 #define RK3588_PMU_BISR_STATUS5			0x294
@@ -644,11 +730,37 @@
 #define RK3588_PD_CLUSTER1_PWR_STAT_SHIFI	10
 #define RK3588_PD_CLUSTER2_PWR_STAT_SHIFI	11
 #define RK3588_PD_CLUSTER3_PWR_STAT_SHIFI	12
+#define RK3588_PD_DSC_8K_PWR_STAT_SHIFI		13
+#define RK3588_PD_DSC_4K_PWR_STAT_SHIFI		14
 #define RK3588_PD_ESMART_PWR_STAT_SHIFI		15
 
 #define VOP2_LAYER_MAX				8
 
+#define VOP2_MAX_VP_OUTPUT_WIDTH		4096
+
 #define VOP_FEATURE_OUTPUT_10BIT		BIT(0)
+
+/* KHz */
+#define VOP2_MAX_DCLK_RATE			600000
+
+/*
+ * vop2 dsc id
+ */
+#define ROCKCHIP_VOP2_DSC_8K	0
+#define ROCKCHIP_VOP2_DSC_4K	1
+
+/*
+ * vop2 internal power domain id,
+ * should be all none zero, 0 will be
+ * treat as invalid;
+ */
+#define VOP2_PD_CLUSTER0			BIT(0)
+#define VOP2_PD_CLUSTER1			BIT(1)
+#define VOP2_PD_CLUSTER2			BIT(2)
+#define VOP2_PD_CLUSTER3			BIT(3)
+#define VOP2_PD_DSC_8K				BIT(5)
+#define VOP2_PD_DSC_4K				BIT(6)
+#define VOP2_PD_ESMART				BIT(7)
 
 enum vop2_csc_format {
 	CSC_BT601L,
@@ -733,6 +845,13 @@ enum scale_mode {
 	SCALE_DOWN = 0x2
 };
 
+enum vop_dsc_interface_mode {
+	VOP_DSC_IF_DISABLE = 0,
+	VOP_DSC_IF_HDMI = 1,
+	VOP_DSC_IF_MIPI_DS_MODE = 2,
+	VOP_DSC_IF_MIPI_VIDEO_MODE = 3,
+};
+
 struct vop2_layer {
 	u8 id;
 	/**
@@ -744,13 +863,13 @@ struct vop2_layer {
 };
 
 struct vop2_power_domain_data {
-	bool is_enabled;
-	bool is_parent_needed;
-	u8 pd_en_shift;
-	u8 pd_status_shift;
-	u8 pmu_status_shift;
-	u8 bisr_en_status_shift;
-	u8 parent_phy_id;
+	u8 id;
+	u8 parent_id;
+	/*
+	 * @module_id_mask: module id of which module this power domain is belongs to.
+	 * PD_CLUSTER0,1,2,3 only belongs to CLUSTER0/1/2/3, PD_Esmart0 shared by Esmart1/2/3
+	 */
+	u32 module_id_mask;
 };
 
 struct vop2_win_data {
@@ -762,13 +881,16 @@ struct vop2_win_data {
 	u8 axi_id;
 	u8 axi_uv_id;
 	u8 axi_yrgb_id;
+	u8 splice_win_id;
+	u8 pd_id;
 	u32 reg_offset;
-	struct vop2_power_domain_data *pd_data;
+	bool splice_mode_right;
 };
 
 struct vop2_vp_data {
 	u32 feature;
 	u8 pre_scan_max_dly;
+	u8 splice_vp_id;
 	struct vop_rect max_output;
 	u32 max_dclk;
 };
@@ -786,17 +908,41 @@ struct vop2_vp_plane_mask {
 	int cursor_plane_id;
 };
 
+struct vop2_dsc_data {
+	u8 id;
+	u8 pd_id;
+	u8 max_slice_num;
+	u8 max_linebuf_depth;	/* used to generate the bitstream */
+	u8 min_bits_per_pixel;	/* bit num after encoder compress */
+	const char *dsc_txp_clk_src_name;
+	const char *dsc_txp_clk_name;
+	const char *dsc_pxl_clk_name;
+	const char *dsc_cds_clk_name;
+};
+
+struct dsc_error_info {
+	u32 dsc_error_val;
+	char dsc_error_info[50];
+};
+
 struct vop2_data {
 	u32 version;
 	struct vop2_vp_data *vp_data;
 	struct vop2_win_data *win_data;
 	struct vop2_vp_plane_mask *plane_mask;
 	struct vop2_plane_table *plane_table;
+	struct vop2_power_domain_data *pd;
+	struct vop2_dsc_data *dsc;
+	struct dsc_error_info *dsc_error_ecw;
+	struct dsc_error_info *dsc_error_buffer_flow;
 	u8 nr_vps;
 	u8 nr_layers;
 	u8 nr_mixers;
 	u8 nr_gammas;
+	u8 nr_pd;
 	u8 nr_dscs;
+	u8 nr_dsc_ecw;
+	u8 nr_dsc_buffer_flow;
 	u32 reg_len;
 };
 
@@ -1140,6 +1286,18 @@ static struct vop2_win_data *vop2_find_win_by_phys_id(struct vop2 *vop2, int phy
 	return NULL;
 }
 
+static struct vop2_power_domain_data *vop2_find_pd_data_by_id(struct vop2 *vop2, int pd_id)
+{
+	int i = 0;
+
+	for (i = 0; i < vop2->data->nr_pd; i++) {
+		if (vop2->data->pd[i].id == pd_id)
+			return &vop2->data->pd[i];
+	}
+
+	return NULL;
+}
+
 static int rockchip_vop2_gamma_lut_init(struct vop2 *vop2,
 					struct display_state *state)
 {
@@ -1255,15 +1413,54 @@ static int rockchip_vop2_cubic_lut_init(struct vop2 *vop2,
 	return 0;
 }
 
+static void vop2_bcsh_reg_update(struct display_state *state, struct vop2 *vop2,
+				 struct bcsh_state *bcsh_state, int crtc_id)
+{
+	struct crtc_state *cstate = &state->crtc_state;
+	u32 vp_offset = crtc_id * 0x100;
+
+	vop2_mask_write(vop2, RK3568_VP0_BCSH_CTRL + vp_offset, BCSH_CTRL_R2Y_MASK,
+			BCSH_CTRL_R2Y_SHIFT, cstate->post_r2y_en, false);
+	vop2_mask_write(vop2, RK3568_VP0_BCSH_CTRL + vp_offset, BCSH_CTRL_Y2R_MASK,
+			BCSH_CTRL_Y2R_SHIFT, cstate->post_y2r_en, false);
+
+	vop2_mask_write(vop2, RK3568_VP0_BCSH_CTRL + vp_offset, BCSH_CTRL_R2Y_CSC_MODE_MASK,
+			BCSH_CTRL_R2Y_CSC_MODE_SHIFT, cstate->post_csc_mode, false);
+	vop2_mask_write(vop2, RK3568_VP0_BCSH_CTRL + vp_offset, BCSH_CTRL_Y2R_CSC_MODE_MASK,
+			BCSH_CTRL_Y2R_CSC_MODE_SHIFT, cstate->post_csc_mode, false);
+
+	if (!cstate->bcsh_en) {
+		vop2_mask_write(vop2, RK3568_VP0_BCSH_COLOR + vp_offset,
+				BCSH_EN_MASK, BCSH_EN_SHIFT, 0, false);
+		return;
+	}
+
+	vop2_mask_write(vop2, RK3568_VP0_BCSH_BCS + vp_offset,
+			BCSH_BRIGHTNESS_MASK, BCSH_BRIGHTNESS_SHIFT,
+			bcsh_state->brightness, false);
+	vop2_mask_write(vop2, RK3568_VP0_BCSH_BCS + vp_offset,
+			BCSH_CONTRAST_MASK, BCSH_CONTRAST_SHIFT, bcsh_state->contrast, false);
+	vop2_mask_write(vop2, RK3568_VP0_BCSH_BCS + vp_offset,
+			BCSH_SATURATION_MASK, BCSH_SATURATION_SHIFT,
+			bcsh_state->saturation * bcsh_state->contrast / 0x100, false);
+	vop2_mask_write(vop2, RK3568_VP0_BCSH_H + vp_offset,
+			BCSH_SIN_HUE_MASK, BCSH_SIN_HUE_SHIFT, bcsh_state->sin_hue, false);
+	vop2_mask_write(vop2, RK3568_VP0_BCSH_H + vp_offset,
+			BCSH_COS_HUE_MASK, BCSH_COS_HUE_SHIFT, bcsh_state->cos_hue, false);
+	vop2_mask_write(vop2, RK3568_VP0_BCSH_BCS + vp_offset,
+			BCSH_OUT_MODE_MASK, BCSH_OUT_MODE_SHIFT,
+			BCSH_OUT_MODE_NORMAL_VIDEO, false);
+	vop2_mask_write(vop2, RK3568_VP0_BCSH_COLOR + vp_offset,
+			BCSH_EN_MASK, BCSH_EN_SHIFT, 1, false);
+}
+
 static void vop2_tv_config_update(struct display_state *state, struct vop2 *vop2)
 {
 	struct connector_state *conn_state = &state->conn_state;
 	struct base_bcsh_info *bcsh_info;
 	struct crtc_state *cstate = &state->crtc_state;
+	struct bcsh_state bcsh_state;
 	int brightness, contrast, saturation, hue, sin_hue, cos_hue;
-	bool bcsh_en = false, post_r2y_en = false, post_y2r_en = false;
-	u32 vp_offset = (cstate->crtc_id * 0x100);
-	int post_csc_mode;
 
 	if (!conn_state->disp_info)
 		return;
@@ -1274,37 +1471,21 @@ static void vop2_tv_config_update(struct display_state *state, struct vop2 *vop2
 	if (bcsh_info->brightness != 50 ||
 	    bcsh_info->contrast != 50 ||
 	    bcsh_info->saturation != 50 || bcsh_info->hue != 50)
-		bcsh_en = true;
+		cstate->bcsh_en = true;
 
-	if (bcsh_en) {
+	if (cstate->bcsh_en) {
 		if (!cstate->yuv_overlay)
-			post_r2y_en = 1;
+			cstate->post_r2y_en = 1;
 		if (!is_yuv_output(conn_state->bus_format))
-			post_y2r_en = 1;
+			cstate->post_y2r_en = 1;
 	} else {
 		if (!cstate->yuv_overlay && is_yuv_output(conn_state->bus_format))
-			post_r2y_en = 1;
+			cstate->post_r2y_en = 1;
 		if (cstate->yuv_overlay && !is_yuv_output(conn_state->bus_format))
-			post_y2r_en = 1;
+			cstate->post_y2r_en = 1;
 	}
 
-	post_csc_mode = vop2_convert_csc_mode(conn_state->color_space);
-
-
-	vop2_mask_write(vop2, RK3568_VP0_BCSH_CTRL + vp_offset, BCSH_CTRL_R2Y_MASK,
-			BCSH_CTRL_R2Y_SHIFT, post_r2y_en, false);
-	vop2_mask_write(vop2, RK3568_VP0_BCSH_CTRL + vp_offset, BCSH_CTRL_Y2R_MASK,
-			BCSH_CTRL_Y2R_SHIFT, post_y2r_en, false);
-
-	vop2_mask_write(vop2, RK3568_VP0_BCSH_CTRL + vp_offset, BCSH_CTRL_R2Y_CSC_MODE_MASK,
-			BCSH_CTRL_R2Y_CSC_MODE_SHIFT, post_csc_mode, false);
-	vop2_mask_write(vop2, RK3568_VP0_BCSH_CTRL + vp_offset, BCSH_CTRL_Y2R_CSC_MODE_MASK,
-			BCSH_CTRL_Y2R_CSC_MODE_SHIFT, post_csc_mode, false);
-	if (!bcsh_en) {
-		vop2_mask_write(vop2, RK3568_VP0_BCSH_COLOR + vp_offset,
-				BCSH_EN_MASK, BCSH_EN_SHIFT, 0, false);
-		return;
-	}
+	cstate->post_csc_mode = vop2_convert_csc_mode(conn_state->color_space);
 
 	if (cstate->feature & VOP_FEATURE_OUTPUT_10BIT)
 		brightness = interpolate(0, -128, 100, 127,
@@ -1328,23 +1509,41 @@ static void vop2_tv_config_update(struct display_state *state, struct vop2 *vop2
 	sin_hue = fixp_sin32(hue) >> 23;
 	cos_hue = fixp_cos32(hue) >> 23;
 
-	vop2_mask_write(vop2, RK3568_VP0_BCSH_BCS + vp_offset,
-			BCSH_BRIGHTNESS_MASK, BCSH_BRIGHTNESS_SHIFT,
-			brightness, false);
-	vop2_mask_write(vop2, RK3568_VP0_BCSH_BCS + vp_offset,
-			BCSH_CONTRAST_MASK, BCSH_CONTRAST_SHIFT, contrast, false);
-	vop2_mask_write(vop2, RK3568_VP0_BCSH_BCS + vp_offset,
-			BCSH_SATURATION_MASK, BCSH_SATURATION_SHIFT,
-			saturation * contrast / 0x100, false);
-	vop2_mask_write(vop2, RK3568_VP0_BCSH_H + vp_offset,
-			BCSH_SIN_HUE_MASK, BCSH_SIN_HUE_SHIFT, sin_hue, false);
-	vop2_mask_write(vop2, RK3568_VP0_BCSH_H + vp_offset,
-			BCSH_COS_HUE_MASK, BCSH_COS_HUE_SHIFT, cos_hue, false);
-	vop2_mask_write(vop2, RK3568_VP0_BCSH_BCS + vp_offset,
-			 BCSH_OUT_MODE_MASK, BCSH_OUT_MODE_SHIFT,
-			BCSH_OUT_MODE_NORMAL_VIDEO, false);
-	vop2_mask_write(vop2, RK3568_VP0_BCSH_COLOR + vp_offset,
-			BCSH_EN_MASK, BCSH_EN_SHIFT, 1, false);
+	bcsh_state.brightness = brightness;
+	bcsh_state.contrast = contrast;
+	bcsh_state.saturation = saturation;
+	bcsh_state.sin_hue = sin_hue;
+	bcsh_state.cos_hue = cos_hue;
+
+	vop2_bcsh_reg_update(state, vop2, &bcsh_state, cstate->crtc_id);
+	if (cstate->splice_mode)
+		vop2_bcsh_reg_update(state, vop2, &bcsh_state, cstate->splice_crtc_id);
+}
+
+static void vop2_setup_dly_for_vp(struct display_state *state, struct vop2 *vop2, int crtc_id)
+{
+	struct connector_state *conn_state = &state->conn_state;
+	struct drm_display_mode *mode = &conn_state->mode;
+	struct crtc_state *cstate = &state->crtc_state;
+	u32 bg_ovl_dly, bg_dly, pre_scan_dly;
+	u16 hdisplay = mode->crtc_hdisplay;
+	u16 hsync_len = mode->crtc_hsync_end - mode->crtc_hsync_start;
+
+	bg_ovl_dly = cstate->crtc->vps[crtc_id].bg_ovl_dly;
+	bg_dly =  vop2->data->vp_data[crtc_id].pre_scan_max_dly;
+	bg_dly -= bg_ovl_dly;
+
+	if (cstate->splice_mode)
+		pre_scan_dly = bg_dly + (hdisplay >> 2) - 1;
+	else
+		pre_scan_dly = bg_dly + (hdisplay >> 1) - 1;
+
+	if (vop2->version == VOP_VERSION_RK3588 && hsync_len < 8)
+		hsync_len = 8;
+	pre_scan_dly = (pre_scan_dly << 16) | hsync_len;
+	vop2_mask_write(vop2, RK3568_VP0_BG_MIX_CTRL + crtc_id * 4,
+			BG_MIX_CTRL_MASK, BG_MIX_CTRL_SHIFT, bg_dly, false);
+	vop2_writel(vop2, RK3568_VP0_PRE_SCAN_HTIMING + (crtc_id * 0x100), pre_scan_dly);
 }
 
 static void vop2_post_config(struct display_state *state, struct vop2 *vop2)
@@ -1366,8 +1565,6 @@ static void vop2_post_config(struct display_state *state, struct vop2 *vop2)
 			conn_state->overscan.bottom_margin) / 200;
 	u16 hact_end, vact_end;
 	u32 val;
-	u32 bg_ovl_dly, bg_dly, pre_scan_dly;
-	u16 hsync_len = mode->crtc_hsync_end - mode->crtc_hsync_start;
 
 	hsize = round_down(hsize, 2);
 	vsize = round_down(vsize, 2);
@@ -1399,16 +1596,9 @@ static void vop2_post_config(struct display_state *state, struct vop2 *vop2)
 		vop2_writel(vop2, RK3568_VP0_POST_DSP_VACT_INFO_F1 + vp_offset, val);
 	}
 
-	bg_ovl_dly = cstate->crtc->vps[cstate->crtc_id].bg_ovl_dly;
-	bg_dly =  vop2->data->vp_data[cstate->crtc_id].pre_scan_max_dly;
-	bg_dly -= bg_ovl_dly;
-	pre_scan_dly = bg_dly + (hdisplay >> 1) - 1;
-	if (vop2->version == VOP_VERSION_RK3588 && hsync_len < 8)
-		hsync_len = 8;
-	pre_scan_dly = (pre_scan_dly << 16) | hsync_len;
-	vop2_mask_write(vop2, RK3568_VP0_BG_MIX_CTRL + cstate->crtc_id * 4,
-			BG_MIX_CTRL_MASK, BG_MIX_CTRL_SHIFT, bg_dly, false);
-	vop2_writel(vop2, RK3568_VP0_PRE_SCAN_HTIMING + vp_offset, pre_scan_dly);
+	vop2_setup_dly_for_vp(state, vop2, cstate->crtc_id);
+	if (cstate->splice_mode)
+		vop2_setup_dly_for_vp(state, vop2, cstate->splice_crtc_id);
 }
 
 /*
@@ -1421,51 +1611,62 @@ static int vop2_wait_power_domain_on(struct vop2 *vop2, struct vop2_power_domain
 {
 	int val = 0;
 	int shift = 0;
+	int shift_factor = 0;
 	bool is_bisr_en = false;
 
-	is_bisr_en = vop2_grf_readl(vop2, vop2->sys_pmu, RK3588_PMU_BISR_CON3, EN_MASK,
-				    pd_data->bisr_en_status_shift);
+	/*
+	 * The order of pd status bits in BISR_STS register
+	 * is different from that in VOP SYS_STS register.
+	 */
+	if (pd_data->id == VOP2_PD_DSC_8K ||
+	    pd_data->id == VOP2_PD_DSC_4K ||
+	    pd_data->id == VOP2_PD_ESMART)
+			shift_factor = 1;
+
+	shift = RK3588_PD_CLUSTER0_REPAIR_EN_SHIFT + generic_ffs(pd_data->id) - 1 - shift_factor;
+	is_bisr_en = vop2_grf_readl(vop2, vop2->sys_pmu, RK3588_PMU_BISR_CON3, EN_MASK, shift);
 	if (is_bisr_en) {
-		shift = pd_data->pmu_status_shift;
+		shift = RK3588_PD_CLUSTER0_PWR_STAT_SHIFI + generic_ffs(pd_data->id) - 1 - shift_factor;
+
 		return readl_poll_timeout(vop2->sys_pmu + RK3588_PMU_BISR_STATUS5, val,
 					  ((val >> shift) & 0x1), 50 * 1000);
 	} else {
-		shift = pd_data->pd_status_shift;
+		shift = RK3588_CLUSTER0_PD_STATUS_SHIFT + generic_ffs(pd_data->id) - 1;
+
 		return readl_poll_timeout(vop2->regs + RK3568_SYS_STATUS0, val,
 					  !((val >> shift) & 0x1), 50 * 1000);
 	}
 }
 
-static int vop2_power_domain_on(struct vop2 *vop2, int plane_id)
+static int vop2_power_domain_on(struct vop2 *vop2, int pd_id)
 {
-	struct vop2_win_data *win_data;
 	struct vop2_power_domain_data *pd_data;
 	int ret = 0;
 
-	win_data = vop2_find_win_by_phys_id(vop2, plane_id);
-	if (!win_data) {
-		printf("can't find win_data by phys_id\n");
+	if (!pd_id)
+		return 0;
+
+	pd_data = vop2_find_pd_data_by_id(vop2, pd_id);
+	if (!pd_data) {
+		printf("can't find pd_data by id\n");
 		return -EINVAL;
 	}
 
-	pd_data = win_data->pd_data;
-	if (!pd_data || pd_data->is_enabled) {
-		return 0;
-	} else if (pd_data->is_parent_needed) {
-		ret = vop2_power_domain_on(vop2, pd_data->parent_phy_id);
+	if (pd_data->parent_id) {
+		ret = vop2_power_domain_on(vop2, pd_data->parent_id);
 		if (ret) {
 			printf("can't open parent power domain\n");
 			return -EINVAL;
 		}
 	}
 
-	vop2_mask_write(vop2, RK3568_SYS_PD_CTRL, EN_MASK, pd_data->pd_en_shift, 0, false);
+	vop2_mask_write(vop2, RK3568_SYS_PD_CTRL, EN_MASK,
+			RK3588_CLUSTER0_PD_EN_SHIFT + generic_ffs(pd_id) - 1, 0, false);
 	ret = vop2_wait_power_domain_on(vop2, pd_data);
 	if (ret) {
 		printf("wait vop2 power domain timeout\n");
 		return ret;
 	}
-	pd_data->is_enabled = true;
 
 	return 0;
 }
@@ -1509,8 +1710,10 @@ static void vop2_global_initial(struct vop2 *vop2, struct display_state *state)
 			vop2->vp_plane_mask[i].plane_mask = plane_mask;
 			layer_nr = hweight32(plane_mask); /* use bitmap to store plane mask */
 			vop2->vp_plane_mask[i].attached_layers_nr = layer_nr;
-			primary_plane_id = vop2_get_primary_plane(vop2, plane_mask);
-			vop2->vp_plane_mask[i].primary_plane_id =  primary_plane_id;
+			primary_plane_id = cstate->crtc->vps[i].primary_plane_id;
+			if (primary_plane_id < 0)
+				primary_plane_id = vop2_get_primary_plane(vop2, plane_mask);
+			vop2->vp_plane_mask[i].primary_plane_id = primary_plane_id;
 			vop2->vp_plane_mask[i].plane_mask = plane_mask;
 
 			/* plane mask[bitmap] convert into layer phy id[enum vop2_layer_phy_id]*/
@@ -1561,19 +1764,9 @@ static void vop2_global_initial(struct vop2 *vop2, struct display_state *state)
 		/* store plane mask for vop2_fixup_dts */
 		for (i = 0; i < vop2->data->nr_vps; i++) {
 			layer_nr = vop2->vp_plane_mask[i].attached_layers_nr;
-			/* rk3566 only support 3+3 policy */
-			if (soc_is_rk3566() && active_vp_num == 1) {
-				if (cstate->crtc->vps[i].enable) {
-					for (j = 0; j < 3; j++) {
-						layer_phy_id = vop2->vp_plane_mask[i].attached_layers[j];
-						vop2->vp_plane_mask[i].plane_mask |= BIT(layer_phy_id);
-					}
-				}
-			} else {
-				for (j = 0; j < layer_nr; j++) {
-					layer_phy_id = vop2->vp_plane_mask[i].attached_layers[j];
-					vop2->vp_plane_mask[i].plane_mask |= BIT(layer_phy_id);
-				}
+			for (j = 0; j < layer_nr; j++) {
+				layer_phy_id = vop2->vp_plane_mask[i].attached_layers[j];
+				vop2->vp_plane_mask[i].plane_mask |= BIT(layer_phy_id);
 			}
 		}
 	}
@@ -1760,13 +1953,16 @@ static unsigned long vop2_calc_cru_cfg(struct display_state *state,
 			dclk_rate = dclk_rate >> 1;
 			K = 2;
 		}
-		if (conn_state->dsc_enable) {
-			if_pixclk_rate = conn_state->dsc_cds_clk << 1;
-			if_dclk_rate = conn_state->dsc_cds_clk;
+		if (cstate->dsc_enable) {
+			if_pixclk_rate = cstate->dsc_cds_clk_rate << 1;
+			if_dclk_rate = cstate->dsc_cds_clk_rate;
 		} else {
 			if_pixclk_rate = (dclk_core_rate << 1) / K;
 			if_dclk_rate = dclk_core_rate / K;
 		}
+
+		if (v_pixclk > VOP2_MAX_DCLK_RATE)
+			dclk_rate = vop2_calc_dclk(dclk_core_rate, vop2->data->vp_data->max_dclk);
 
 		if (!dclk_rate) {
 			printf("DP if_pixclk_rate out of range(max_dclk: %d KHZ, dclk_core: %lld KHZ)\n",
@@ -1804,12 +2000,13 @@ static unsigned long vop2_calc_cru_cfg(struct display_state *state,
 	} else if (output_type == DRM_MODE_CONNECTOR_DSI) {
 		if (conn_state->output_flags & ROCKCHIP_OUTPUT_DUAL_CHANNEL_LEFT_RIGHT_MODE)
 			K = 2;
-		if (conn_state->dsc_enable)
-			if_pixclk_rate = conn_state->dsc_cds_clk >> 1;
+		if (cstate->dsc_enable)
+			/* dsc output is 96bit, dsi input is 192 bit */
+			if_pixclk_rate = cstate->dsc_cds_clk_rate >> 1;
 		else
 			if_pixclk_rate = dclk_core_rate / K;
 		/* dclk_core = dclk_out * K = if_pixclk * K = v_pixclk / 4 */
-		dclk_out_rate = if_pixclk_rate;
+		dclk_out_rate = dclk_core_rate / K;
 		/* dclk_rate = N * dclk_core_rate N = (1,2,4 ), we get a little factor here */
 		dclk_rate = vop2_calc_dclk(dclk_out_rate, vop2->data->vp_data->max_dclk);
 		if (!dclk_rate) {
@@ -1817,9 +2014,15 @@ static unsigned long vop2_calc_cru_cfg(struct display_state *state,
 			       vop2->data->vp_data->max_dclk, dclk_rate);
 			return -EINVAL;
 		}
+
+		if (cstate->dsc_enable)
+			dclk_rate = dclk_rate >> 1;
+
 		*dclk_out_div = dclk_rate / dclk_out_rate;
 		*dclk_core_div = dclk_rate / dclk_core_rate;
 		*if_pixclk_div = 1;       /*mipi pixclk == dclk_out*/
+		if (cstate->dsc_enable)
+			*if_pixclk_div = dclk_out_rate / if_pixclk_rate;
 
 	} else if (output_type == DRM_MODE_CONNECTOR_DPI) {
 		dclk_rate = v_pixclk;
@@ -1834,27 +2037,29 @@ static unsigned long vop2_calc_cru_cfg(struct display_state *state,
 	return dclk_rate;
 }
 
-static int vop2_calc_dsc_clk(struct connector_state *conn_state)
+static int vop2_calc_dsc_clk(struct display_state *state)
 {
+	struct connector_state *conn_state = &state->conn_state;
 	struct drm_display_mode *mode = &conn_state->mode;
-	u64 v_pixclk = mode->clock * 1000LL; /* video timing pixclk */
+	struct crtc_state *cstate = &state->crtc_state;
+	u64 v_pixclk = mode->clock; /* video timing pixclk */
 	u8 k = 1;
 
 	if (conn_state->output_flags & ROCKCHIP_OUTPUT_DUAL_CHANNEL_LEFT_RIGHT_MODE)
 		k = 2;
 
-	conn_state->dsc_pxl_clk = v_pixclk;
-	do_div(conn_state->dsc_pxl_clk, (conn_state->dsc_slice_num * k));
+	cstate->dsc_txp_clk_rate = v_pixclk;
+	do_div(cstate->dsc_txp_clk_rate, (cstate->dsc_pixel_num * k));
 
-	conn_state->dsc_txp_clk = v_pixclk;
-	do_div(conn_state->dsc_txp_clk, (conn_state->dsc_pixel_num * k));
+	cstate->dsc_pxl_clk_rate = v_pixclk;
+	do_div(cstate->dsc_pxl_clk_rate, (cstate->dsc_slice_num * k));
 
 	/* dsc_cds = crtc_clock / (cds_dat_width / bits_per_pixel)
 	 * cds_dat_width = 96;
 	 * bits_per_pixel = [8-12];
 	 * As only support 1/2/4 div, so we set dsc_cds = crtc_clock / 8;
 	 */
-	conn_state->dsc_cds_clk = mode->crtc_clock / 8 * 1000;
+	cstate->dsc_cds_clk_rate = v_pixclk / 8;
 
 	return 0;
 }
@@ -1864,7 +2069,7 @@ static unsigned long rk3588_vop2_if_cfg(struct display_state *state)
 	struct crtc_state *cstate = &state->crtc_state;
 	struct connector_state *conn_state = &state->conn_state;
 	struct drm_display_mode *mode = &conn_state->mode;
-	struct rockchip_dsc_sink_cap *dsc_sink_cap = &conn_state->dsc_sink_cap;
+	struct rockchip_dsc_sink_cap *dsc_sink_cap = &cstate->dsc_sink_cap;
 	struct vop2 *vop2 = cstate->private;
 	u32 vp_offset = (cstate->crtc_id * 0x100);
 	u16 hdisplay = mode->crtc_hdisplay;
@@ -1884,16 +2089,25 @@ static unsigned long rk3588_vop2_if_cfg(struct display_state *state)
 		val |= (mode->flags & DRM_MODE_FLAG_NVSYNC) ? 0 : BIT(VSYNC_POSITIVE);
 	}
 
-	if (conn_state->dsc_enable) {
+	if (cstate->dsc_enable) {
+		int k = 1;
+
 		if (!vop2->data->nr_dscs) {
-			printf("No DSC\n");
+			printf("Unsupported DSC\n");
 			return 0;
 		}
-		conn_state->dsc_id = output_if & (VOP_OUTPUT_IF_MIPI0 | VOP_OUTPUT_IF_HDMI0) ? 0 : 1;
-		conn_state->dsc_slice_num = hdisplay / dsc_sink_cap->slice_width;
-		conn_state->dsc_pixel_num = conn_state->dsc_slice_num >= 4 ?
-					    4 : conn_state->dsc_slice_num >= 2 ? 2 : 1;
-		vop2_calc_dsc_clk(conn_state);
+
+		if (conn_state->output_flags & ROCKCHIP_OUTPUT_DUAL_CHANNEL_LEFT_RIGHT_MODE)
+			k = 2;
+
+		cstate->dsc_id = output_if & (VOP_OUTPUT_IF_MIPI0 | VOP_OUTPUT_IF_HDMI0) ? 0 : 1;
+		cstate->dsc_slice_num = hdisplay / dsc_sink_cap->slice_width / k;
+		cstate->dsc_pixel_num = cstate->dsc_slice_num > 4 ? 4 : cstate->dsc_slice_num;
+
+		vop2_calc_dsc_clk(state);
+		printf("Enable DSC%d slice:%dx%d, slice num:%d\n",
+		       cstate->dsc_id, dsc_sink_cap->slice_width,
+		       dsc_sink_cap->slice_height, cstate->dsc_slice_num);
 	}
 
 	dclk_rate = vop2_calc_cru_cfg(state, &dclk_core_div, &dclk_out_div, &if_pixclk_div, &if_dclk_div);
@@ -2006,6 +2220,9 @@ static unsigned long rk3588_vop2_if_cfg(struct display_state *state)
 
 		vop2_mask_write(vop2, RK3568_DSP_IF_CTRL, 3, HDMI_EDP1_PIXCLK_DIV_SHIFT,
 				if_pixclk_div, false);
+
+		vop2_grf_writel(vop2, vop2->vop_grf, RK3588_GRF_VOP_CON2, EN_MASK,
+				RK3588_GRF_EDP1_ENABLE_SHIFT, 1);
 	}
 
 	if (output_if & VOP_OUTPUT_IF_HDMI0) {
@@ -2244,6 +2461,256 @@ static ulong vop2_clk_set_rate(struct clk *clk, ulong rate)
 	return ret;
 }
 
+static void vop2_calc_dsc_cru_cfg(struct display_state *state,
+				  int *dsc_txp_clk_div, int *dsc_pxl_clk_div,
+				  int *dsc_cds_clk_div, u64 dclk_rate)
+{
+	struct crtc_state *cstate = &state->crtc_state;
+
+	*dsc_txp_clk_div = dclk_rate / cstate->dsc_txp_clk_rate;
+	*dsc_pxl_clk_div = dclk_rate / cstate->dsc_pxl_clk_rate;
+	*dsc_cds_clk_div = dclk_rate / cstate->dsc_cds_clk_rate;
+
+	*dsc_txp_clk_div = ilog2(*dsc_txp_clk_div);
+	*dsc_pxl_clk_div = ilog2(*dsc_pxl_clk_div);
+	*dsc_cds_clk_div = ilog2(*dsc_cds_clk_div);
+}
+
+static void vop2_load_pps(struct display_state *state, struct vop2 *vop2, u8 dsc_id)
+{
+	struct crtc_state *cstate = &state->crtc_state;
+	struct drm_dsc_picture_parameter_set *pps = &cstate->pps;
+	struct drm_dsc_picture_parameter_set config_pps;
+	const struct vop2_data *vop2_data = vop2->data;
+	const struct vop2_dsc_data *dsc_data = &vop2_data->dsc[dsc_id];
+	u32 *pps_val = (u32 *)&config_pps;
+	u32 decoder_regs_offset = (dsc_id * 0x100);
+	int i = 0;
+
+	memcpy(&config_pps, pps, sizeof(config_pps));
+
+	if ((config_pps.pps_3 & 0xf) > dsc_data->max_linebuf_depth) {
+		config_pps.pps_3 &= 0xf0;
+		config_pps.pps_3 |= dsc_data->max_linebuf_depth;
+		printf("DSC%d max_linebuf_depth is: %d, current set value is: %d\n",
+		       dsc_id, dsc_data->max_linebuf_depth, config_pps.pps_3 & 0xf);
+	}
+
+	for (i = 0; i < DSC_NUM_BUF_RANGES; i++) {
+		config_pps.rc_range_parameters[i] =
+			(pps->rc_range_parameters[i] >> 3 & 0x1f) |
+			((pps->rc_range_parameters[i] >> 14 & 0x3) << 5) |
+			((pps->rc_range_parameters[i] >> 0 & 0x7) << 7) |
+			((pps->rc_range_parameters[i] >> 8 & 0x3f) << 10);
+	}
+
+	for (i = 0; i < ROCKCHIP_DSC_PPS_SIZE_BYTE / 4; i++)
+		vop2_writel(vop2, RK3588_DSC_8K_PPS0_3 + decoder_regs_offset + i * 4, *pps_val++);
+}
+
+static void vop2_dsc_enable(struct display_state *state, struct vop2 *vop2, u8 dsc_id, u64 dclk_rate)
+{
+	struct connector_state *conn_state = &state->conn_state;
+	struct drm_display_mode *mode = &conn_state->mode;
+	struct crtc_state *cstate = &state->crtc_state;
+	struct rockchip_dsc_sink_cap *dsc_sink_cap = &cstate->dsc_sink_cap;
+	const struct vop2_data *vop2_data = vop2->data;
+	const struct vop2_dsc_data *dsc_data = &vop2_data->dsc[dsc_id];
+	bool mipi_ds_mode = false;
+	u8 dsc_interface_mode = 0;
+	u16 hsync_len = mode->crtc_hsync_end - mode->crtc_hsync_start;
+	u16 hdisplay = mode->crtc_hdisplay;
+	u16 htotal = mode->crtc_htotal;
+	u16 hact_st = mode->crtc_htotal - mode->crtc_hsync_start;
+	u16 vdisplay = mode->crtc_vdisplay;
+	u16 vtotal = mode->crtc_vtotal;
+	u16 vsync_len = mode->crtc_vsync_end - mode->crtc_vsync_start;
+	u16 vact_st = mode->crtc_vtotal - mode->crtc_vsync_start;
+	u16 vact_end = vact_st + vdisplay;
+	u32 ctrl_regs_offset = (dsc_id * 0x30);
+	u32 decoder_regs_offset = (dsc_id * 0x100);
+	u32 backup_regs_offset = 0;
+	int dsc_txp_clk_div = 0;
+	int dsc_pxl_clk_div = 0;
+	int dsc_cds_clk_div = 0;
+
+	if (!vop2->data->nr_dscs) {
+		printf("Unsupported DSC\n");
+		return;
+	}
+
+	if (cstate->dsc_slice_num > dsc_data->max_slice_num)
+		printf("DSC%d supported max slice is: %d, current is: %d\n",
+		       dsc_data->id, dsc_data->max_slice_num, cstate->dsc_slice_num);
+
+	if (dsc_data->pd_id) {
+		if (vop2_power_domain_on(vop2, dsc_data->pd_id))
+			printf("open dsc%d pd fail\n", dsc_id);
+	}
+
+	vop2_mask_write(vop2, RK3588_DSC_8K_INIT_DLY + ctrl_regs_offset, EN_MASK,
+			SCAN_TIMING_PARA_IMD_EN_SHIFT, 1, false);
+	vop2_mask_write(vop2, RK3588_DSC_8K_SYS_CTRL + ctrl_regs_offset, DSC_PORT_SEL_MASK,
+			DSC_PORT_SEL_SHIFT, cstate->crtc_id, false);
+	if (conn_state->output_if & (VOP_OUTPUT_IF_HDMI0 | VOP_OUTPUT_IF_HDMI1)) {
+		dsc_interface_mode = VOP_DSC_IF_HDMI;
+	} else {
+		mipi_ds_mode = !!(conn_state->output_flags & ROCKCHIP_OUTPUT_MIPI_DS_MODE);
+		if (mipi_ds_mode)
+			dsc_interface_mode = VOP_DSC_IF_MIPI_DS_MODE;
+		else
+			dsc_interface_mode = VOP_DSC_IF_MIPI_VIDEO_MODE;
+	}
+
+	if (conn_state->output_flags & ROCKCHIP_OUTPUT_DUAL_CHANNEL_LEFT_RIGHT_MODE)
+		vop2_mask_write(vop2, RK3588_DSC_8K_SYS_CTRL + ctrl_regs_offset, DSC_MAN_MODE_MASK,
+				DSC_MAN_MODE_SHIFT, 0, false);
+	else
+		vop2_mask_write(vop2, RK3588_DSC_8K_SYS_CTRL + ctrl_regs_offset, DSC_MAN_MODE_MASK,
+				DSC_MAN_MODE_SHIFT, 1, false);
+
+	vop2_calc_dsc_cru_cfg(state, &dsc_txp_clk_div, &dsc_pxl_clk_div, &dsc_cds_clk_div, dclk_rate);
+
+	vop2_mask_write(vop2, RK3588_DSC_8K_SYS_CTRL + ctrl_regs_offset, DSC_INTERFACE_MODE_MASK,
+			DSC_INTERFACE_MODE_SHIFT, dsc_interface_mode, false);
+	vop2_mask_write(vop2, RK3588_DSC_8K_SYS_CTRL + ctrl_regs_offset, DSC_PIXEL_NUM_MASK,
+			DSC_PIXEL_NUM_SHIFT, cstate->dsc_pixel_num >> 1, false);
+	vop2_mask_write(vop2, RK3588_DSC_8K_SYS_CTRL + ctrl_regs_offset, DSC_TXP_CLK_DIV_MASK,
+			DSC_TXP_CLK_DIV_SHIFT, dsc_txp_clk_div, false);
+	vop2_mask_write(vop2, RK3588_DSC_8K_SYS_CTRL + ctrl_regs_offset, DSC_PXL_CLK_DIV_MASK,
+			DSC_PXL_CLK_DIV_SHIFT, dsc_pxl_clk_div, false);
+	vop2_mask_write(vop2, RK3588_DSC_8K_SYS_CTRL + ctrl_regs_offset, DSC_CDS_CLK_DIV_MASK,
+			DSC_CDS_CLK_DIV_SHIFT, dsc_cds_clk_div, false);
+	vop2_mask_write(vop2, RK3588_DSC_8K_SYS_CTRL + ctrl_regs_offset, EN_MASK,
+			DSC_SCAN_EN_SHIFT, !mipi_ds_mode, false);
+	vop2_mask_write(vop2, RK3588_DSC_8K_SYS_CTRL + ctrl_regs_offset, DSC_CDS_CLK_DIV_MASK,
+			DSC_HALT_EN_SHIFT, mipi_ds_mode, false);
+
+	if (!mipi_ds_mode) {
+		u16 dsc_hsync, dsc_htotal, dsc_hact_st, dsc_hact_end;
+		u32 target_bpp = dsc_sink_cap->target_bits_per_pixel_x16;
+		u64 dsc_cds_rate = cstate->dsc_cds_clk_rate;
+		u32 v_pixclk_mhz = mode->crtc_clock / 1000; /* video timing pixclk */
+		u32 dly_num, dsc_cds_rate_mhz, val = 0;
+
+		if (target_bpp >> 4 < dsc_data->min_bits_per_pixel)
+			printf("Unsupported bpp less than: %d\n", dsc_data->min_bits_per_pixel);
+
+		/*
+		 * dly_num = delay_line_num * T(one-line) / T (dsc_cds)
+		 * T (one-line) = 1/v_pixclk_mhz * htotal = htotal/v_pixclk_mhz
+		 * T (dsc_cds) = 1 / dsc_cds_rate_mhz
+		 * delay_line_num: according the pps initial_xmit_delay to adjust vop dsc delay
+		 *                 delay_line_num = 4 - BPP / 8
+		 *                                = (64 - target_bpp / 8) / 16
+		 *
+		 * dly_num = htotal * dsc_cds_rate_mhz / v_pixclk_mhz * (64 - target_bpp / 8) / 16;
+		 */
+		do_div(dsc_cds_rate, 1000000); /* hz to Mhz */
+		dsc_cds_rate_mhz = dsc_cds_rate;
+		dly_num = htotal * dsc_cds_rate_mhz / v_pixclk_mhz * (64 - target_bpp / 8) / 16;
+		vop2_mask_write(vop2, RK3588_DSC_8K_INIT_DLY + ctrl_regs_offset, DSC_INIT_DLY_MODE_MASK,
+				DSC_INIT_DLY_MODE_SHIFT, 0, false);
+		vop2_mask_write(vop2, RK3588_DSC_8K_INIT_DLY + ctrl_regs_offset, DSC_INIT_DLY_NUM_MASK,
+				DSC_INIT_DLY_NUM_SHIFT, dly_num, false);
+
+		dsc_hsync = hsync_len / 2;
+		dsc_htotal = htotal / (1 << dsc_cds_clk_div);
+		val = dsc_htotal << 16 | dsc_hsync;
+		vop2_mask_write(vop2, RK3588_DSC_8K_HTOTAL_HS_END + ctrl_regs_offset, DSC_HTOTAL_PW_MASK,
+				DSC_HTOTAL_PW_SHIFT, val, false);
+
+		dsc_hact_st = hact_st / 2;
+		dsc_hact_end = (hdisplay * target_bpp >> 4) / 24 + dsc_hact_st;
+		val = dsc_hact_end << 16 | dsc_hact_st;
+		vop2_mask_write(vop2, RK3588_DSC_8K_HACT_ST_END + ctrl_regs_offset, DSC_HACT_ST_END_MASK,
+				DSC_HACT_ST_END_SHIFT, val, false);
+
+		vop2_mask_write(vop2, RK3588_DSC_8K_VTOTAL_VS_END + ctrl_regs_offset, DSC_VTOTAL_PW_MASK,
+				DSC_VTOTAL_PW_SHIFT, vtotal << 16 | vsync_len, false);
+		vop2_mask_write(vop2, RK3588_DSC_8K_VACT_ST_END + ctrl_regs_offset, DSC_VACT_ST_END_MASK,
+				DSC_VACT_ST_END_SHIFT, vact_end << 16 | vact_st, false);
+	}
+
+	vop2_mask_write(vop2, RK3588_DSC_8K_RST + ctrl_regs_offset, RST_DEASSERT_MASK,
+			RST_DEASSERT_SHIFT, 1, false);
+	udelay(10);
+	/* read current dsc core register and backup to regsbak */
+	backup_regs_offset = RK3588_DSC_8K_CTRL0;
+	vop2->regsbak[backup_regs_offset >> 2] = vop2_readl(vop2, RK3588_DSC_8K_CTRL0 + decoder_regs_offset);
+
+	vop2_mask_write(vop2, RK3588_DSC_8K_CTRL0 + decoder_regs_offset, EN_MASK,
+			DSC_EN_SHIFT, 1, false);
+	vop2_load_pps(state, vop2, dsc_id);
+
+	vop2_mask_write(vop2, RK3588_DSC_8K_CTRL0 + decoder_regs_offset, EN_MASK,
+			DSC_RBIT_SHIFT, 1, false);
+	vop2_mask_write(vop2, RK3588_DSC_8K_CTRL0 + decoder_regs_offset, EN_MASK,
+			DSC_RBYT_SHIFT, 0, false);
+	vop2_mask_write(vop2, RK3588_DSC_8K_CTRL0 + decoder_regs_offset, EN_MASK,
+			DSC_FLAL_SHIFT, 1, false);
+	vop2_mask_write(vop2, RK3588_DSC_8K_CTRL0 + decoder_regs_offset, EN_MASK,
+			DSC_MER_SHIFT, 1, false);
+	vop2_mask_write(vop2, RK3588_DSC_8K_CTRL0 + decoder_regs_offset, EN_MASK,
+			DSC_EPB_SHIFT, 0, false);
+	vop2_mask_write(vop2, RK3588_DSC_8K_CTRL0 + decoder_regs_offset, EN_MASK,
+			DSC_EPL_SHIFT, 1, false);
+	vop2_mask_write(vop2, RK3588_DSC_8K_CTRL0 + decoder_regs_offset, EN_MASK,
+			DSC_NSLC_SHIFT, ilog2(cstate->dsc_slice_num), false);
+	vop2_mask_write(vop2, RK3588_DSC_8K_CTRL0 + decoder_regs_offset, EN_MASK,
+			DSC_SBO_SHIFT, 1, false);
+	vop2_mask_write(vop2, RK3588_DSC_8K_CTRL0 + decoder_regs_offset, EN_MASK,
+			DSC_IFEP_SHIFT, dsc_sink_cap->version_minor == 2 ? 1 : 0, false);
+	vop2_mask_write(vop2, RK3588_DSC_8K_CTRL0 + decoder_regs_offset, EN_MASK,
+			DSC_PPS_UPD_SHIFT, 1, false);
+
+	printf("DSC%d: txp:%lld div:%d, pxl:%lld div:%d, dsc:%lld div:%d\n",
+	       dsc_id,
+	       cstate->dsc_txp_clk_rate, dsc_txp_clk_div,
+	       cstate->dsc_pxl_clk_rate, dsc_pxl_clk_div,
+	       cstate->dsc_cds_clk_rate, dsc_cds_clk_div);
+}
+
+static bool is_extend_pll(struct display_state *state, struct udevice **clk_dev)
+{
+	struct crtc_state *cstate = &state->crtc_state;
+	struct vop2 *vop2 = cstate->private;
+	struct udevice *vp_dev, *dev;
+	struct ofnode_phandle_args args;
+	char vp_name[10];
+	int ret;
+
+	if (vop2->version != VOP_VERSION_RK3588)
+		return false;
+
+	sprintf(vp_name, "port@%d", cstate->crtc_id);
+	if (uclass_find_device_by_name(UCLASS_VIDEO_CRTC, vp_name, &vp_dev)) {
+		printf("warn: can't get vp device\n");
+		return false;
+	}
+
+	ret = dev_read_phandle_with_args(vp_dev, "assigned-clock-parents", "#clock-cells", 0,
+					 0, &args);
+	if (ret) {
+		printf("warn: can't get assigned-clock-parents's node\n");
+		return false;
+	}
+
+	if (uclass_find_device_by_ofnode(UCLASS_CLK, args.node, &dev)) {
+		printf("warn: can't get clk device\n");
+		return false;
+	}
+
+	if (!strcmp(dev->name, "hdmiphypll_clk0") || !strcmp(dev->name, "hdmiphypll_clk1")) {
+		printf("%s: clk dev :%s: vp port:%s\n", __func__, dev->name, vp_dev->name);
+		if (clk_dev)
+			*clk_dev = dev;
+		return true;
+	}
+
+	return false;
+}
+
 static int rockchip_vop2_init(struct display_state *state)
 {
 	struct crtc_state *cstate = &state->crtc_state;
@@ -2261,6 +2728,7 @@ static int rockchip_vop2_init(struct display_state *state)
 	u16 vact_st = mode->crtc_vtotal - mode->crtc_vsync_start;
 	u16 vact_end = vact_st + vdisplay;
 	bool yuv_overlay = false;
+	bool splice_en = false;
 	u32 vp_offset = (cstate->crtc_id * 0x100);
 	u32 line_flag_offset = (cstate->crtc_id * 4);
 	u32 val, act_end;
@@ -2271,6 +2739,8 @@ static int rockchip_vop2_init(struct display_state *state)
 	struct clk dclk;
 	struct clk hdmi0_phy_pll;
 	struct clk hdmi1_phy_pll;
+	struct clk hdmi_phy_pll;
+	struct udevice *disp_dev;
 	unsigned long dclk_rate;
 	int ret;
 
@@ -2280,6 +2750,17 @@ static int rockchip_vop2_init(struct display_state *state)
 	       mode->vscan,
 	       get_output_if_name(conn_state->output_if, output_type_name),
 	       cstate->crtc_id);
+
+	if (mode->hdisplay > VOP2_MAX_VP_OUTPUT_WIDTH) {
+		cstate->splice_mode = true;
+		splice_en = true;
+		cstate->splice_crtc_id = vop2->data->vp_data[cstate->crtc_id].splice_vp_id;
+		if (!cstate->splice_crtc_id) {
+			printf("%s: Splice mode is unsupported by vp%d\n",
+			       __func__, cstate->crtc_id);
+			return -EINVAL;
+		}
+	}
 
 	vop2_initial(vop2, state);
 	if (vop2->version == VOP_VERSION_RK3588)
@@ -2337,6 +2818,9 @@ static int rockchip_vop2_init(struct display_state *state)
 
 	cstate->yuv_overlay = yuv_overlay;
 
+	vop2_mask_write(vop2, RK3568_SYS_LUT_PORT_SEL, EN_MASK,
+			PORT_MERGE_EN_SHIFT, splice_en, false);
+
 	vop2_writel(vop2, RK3568_VP0_DSP_HTOTAL_HS_END + vp_offset,
 		    (htotal << 16) | hsync_len);
 	val = hact_st << 16;
@@ -2390,17 +2874,35 @@ static int rockchip_vop2_init(struct display_state *state)
 		vop2_mask_write(vop2, RK3568_VP0_MIPI_CTRL + vp_offset,
 				DCLK_DIV2_MASK, DCLK_DIV2_SHIFT, 0, false);
 
+	vop2_mask_write(vop2, RK3568_OVL_CTRL, OVL_MODE_SEL_MASK,
+			OVL_MODE_SEL_SHIFT + cstate->crtc_id, yuv_overlay, false);
+
 	if (yuv_overlay)
 		val = 0x20010200;
 	else
 		val = 0;
 	vop2_writel(vop2, RK3568_VP0_DSP_BG + vp_offset, val);
+	if (splice_en) {
+		vop2_mask_write(vop2, RK3568_OVL_CTRL, OVL_MODE_SEL_MASK,
+				OVL_MODE_SEL_SHIFT + cstate->splice_crtc_id,
+				yuv_overlay, false);
+		vop2_writel(vop2, RK3568_VP0_DSP_BG + (cstate->splice_crtc_id * 0x100), val);
+	}
 
 	vop2_mask_write(vop2, RK3568_VP0_DSP_CTRL + vp_offset, EN_MASK,
 			POST_DSP_OUT_R2Y_SHIFT, yuv_overlay, false);
 
 	vop2_tv_config_update(state, vop2);
 	vop2_post_config(state, vop2);
+
+	if (cstate->dsc_enable) {
+		if (conn_state->output_flags & ROCKCHIP_OUTPUT_DUAL_CHANNEL_LEFT_RIGHT_MODE) {
+			vop2_dsc_enable(state, vop2, 0, dclk_rate);
+			vop2_dsc_enable(state, vop2, 1, dclk_rate);
+		} else {
+			vop2_dsc_enable(state, vop2, cstate->dsc_id, dclk_rate);
+		}
+	}
 
 	snprintf(dclk_name, sizeof(dclk_name), "dclk_vp%d", cstate->crtc_id);
 	ret = clk_get_by_name(cstate->dev, dclk_name, &dclk);
@@ -2409,55 +2911,75 @@ static int rockchip_vop2_init(struct display_state *state)
 		return ret;
 	}
 
-	ret = uclass_get_device_by_name(UCLASS_CLK, "hdmiphypll_clk0",
-					&hdmi0_phy_pll.dev);
-	if (ret) {
+	ret = uclass_get_device_by_name(UCLASS_VIDEO, "display-subsystem", &disp_dev);
+	if (!ret) {
+		ret = clk_get_by_name(disp_dev, "hdmi0_phy_pll", &hdmi0_phy_pll);
+		if (ret)
+			printf("%s: Failed to get hdmi0_phy_pll ret=%d\n", __func__, ret);
+		ret = clk_get_by_name(disp_dev, "hdmi1_phy_pll", &hdmi1_phy_pll);
+		if (ret)
+			printf("%s: Failed to get hdmi1_phy_pll ret=%d\n", __func__, ret);
+	} else {
 		hdmi0_phy_pll.dev = NULL;
-		printf("%s:No hdmiphypll clk0 found, use system clk\n",
-		       __func__);
-	}
-
-	ret = uclass_get_device_by_name(UCLASS_CLK, "hdmiphypll_clk1",
-					&hdmi1_phy_pll.dev);
-	if (ret) {
 		hdmi1_phy_pll.dev = NULL;
-		printf("%s:No hdmiphypll clk1 found, use system clk\n",
-		       __func__);
+		printf("%s: Faile to find display-subsystem node\n", __func__);
 	}
 
-	if (conn_state->output_if & VOP_OUTPUT_IF_HDMI0)
-		vop2_clk_set_parent(&dclk, &hdmi0_phy_pll);
-	else if (conn_state->output_if & VOP_OUTPUT_IF_HDMI1)
-		vop2_clk_set_parent(&dclk, &hdmi1_phy_pll);
+	if (mode->clock < VOP2_MAX_DCLK_RATE) {
+		if (conn_state->output_if & VOP_OUTPUT_IF_HDMI0)
+			vop2_clk_set_parent(&dclk, &hdmi0_phy_pll);
+		else if (conn_state->output_if & VOP_OUTPUT_IF_HDMI1)
+			vop2_clk_set_parent(&dclk, &hdmi1_phy_pll);
 
-	/*
-	 * uboot clk driver won't set dclk parent's rate when use
-	 * hdmi phypll as dclk source.
-	 * So set dclk rate is meaningless. Set hdmi phypll rate
-	 * directly.
-	 */
-	if ((conn_state->output_if & VOP_OUTPUT_IF_HDMI0) && hdmi0_phy_pll.dev)
-		ret = vop2_clk_set_rate(&hdmi0_phy_pll, dclk_rate * 1000);
-	else if ((conn_state->output_if & VOP_OUTPUT_IF_HDMI1) && hdmi1_phy_pll.dev)
-		ret = vop2_clk_set_rate(&hdmi1_phy_pll, dclk_rate * 1000);
-	else
-		ret = vop2_clk_set_rate(&dclk, dclk_rate * 1000);
+		/*
+		 * uboot clk driver won't set dclk parent's rate when use
+		 * hdmi phypll as dclk source.
+		 * So set dclk rate is meaningless. Set hdmi phypll rate
+		 * directly.
+		 */
+		if ((conn_state->output_if & VOP_OUTPUT_IF_HDMI0) && hdmi0_phy_pll.dev) {
+			ret = vop2_clk_set_rate(&hdmi0_phy_pll, dclk_rate * 1000);
+		} else if ((conn_state->output_if & VOP_OUTPUT_IF_HDMI1) && hdmi1_phy_pll.dev) {
+			ret = vop2_clk_set_rate(&hdmi1_phy_pll, dclk_rate * 1000);
+		} else {
+			if (is_extend_pll(state, &hdmi_phy_pll.dev))
+				ret = vop2_clk_set_rate(&hdmi_phy_pll, dclk_rate * 1000);
+			else
+				ret = vop2_clk_set_rate(&dclk, dclk_rate * 1000);
+		}
 
-	if (IS_ERR_VALUE(ret)) {
-		printf("%s: Failed to set vp%d dclk[%ld KHZ] ret=%d\n",
-		       __func__, cstate->crtc_id, dclk_rate, ret);
-		return ret;
+		if (IS_ERR_VALUE(ret)) {
+			printf("%s: Failed to set vp%d dclk[%ld KHZ] ret=%d\n",
+			       __func__, cstate->crtc_id, dclk_rate, ret);
+			return ret;
+		} else {
+			if (mode->flags & DRM_MODE_FLAG_DBLCLK)
+				mode->crtc_clock = ret * 2 / 1000;
+			else
+				mode->crtc_clock = ret / 1000;
+		}
+	} else {
+		if (is_extend_pll(state, &hdmi_phy_pll.dev))
+			ret = vop2_clk_set_rate(&hdmi_phy_pll, dclk_rate * 1000);
+		else
+			ret = vop2_clk_set_rate(&dclk, dclk_rate * 1000);
+
+		if (IS_ERR_VALUE(ret)) {
+			printf("%s: Failed to set vp%d dclk[%ld KHZ] ret=%d\n",
+			       __func__, cstate->crtc_id, dclk_rate, ret);
+			return ret;
+		} else {
+			if (mode->flags & DRM_MODE_FLAG_DBLCLK)
+				mode->crtc_clock = ret * 2 / 1000;
+			else
+				mode->crtc_clock = ret / 1000;
+		}
 	}
 
 	vop2_mask_write(vop2, RK3568_SYS_CTRL_LINE_FLAG0 + line_flag_offset, LINE_FLAG_NUM_MASK,
 			RK3568_DSP_LINE_FLAG_NUM0_SHIFT, act_end, false);
 	vop2_mask_write(vop2, RK3568_SYS_CTRL_LINE_FLAG0 + line_flag_offset, LINE_FLAG_NUM_MASK,
 			RK3568_DSP_LINE_FLAG_NUM1_SHIFT, act_end, false);
-
-	if (vop2->version == VOP_VERSION_RK3588) {
-		if (vop2_power_domain_on(vop2, vop2->vp_plane_mask[cstate->crtc_id].primary_plane_id))
-			printf("open vp%d plane pd fail\n", cstate->crtc_id);
-	}
 
 	return 0;
 }
@@ -2575,18 +3097,33 @@ static void vop2_set_cluster_win(struct display_state *state, struct vop2_win_da
 	struct connector_state *conn_state = &state->conn_state;
 	struct drm_display_mode *mode = &conn_state->mode;
 	struct vop2 *vop2 = cstate->private;
-	int src_w = cstate->src_w;
-	int src_h = cstate->src_h;
-	int crtc_x = cstate->crtc_x;
-	int crtc_y = cstate->crtc_y;
-	int crtc_w = cstate->crtc_w;
-	int crtc_h = cstate->crtc_h;
+	int src_w = cstate->src_rect.w;
+	int src_h = cstate->src_rect.h;
+	int crtc_x = cstate->crtc_rect.x;
+	int crtc_y = cstate->crtc_rect.y;
+	int crtc_w = cstate->crtc_rect.w;
+	int crtc_h = cstate->crtc_rect.h;
 	int xvir = cstate->xvir;
 	int y_mirror = 0;
 	int csc_mode;
 	u32 act_info, dsp_info, dsp_st, dsp_stx, dsp_sty;
+	/* offset of the right window in splice mode */
+	u32 splice_pixel_offset = 0;
+	u32 splice_yrgb_offset = 0;
 	u32 win_offset = win->reg_offset;
 	u32 cfg_done = CFG_DONE_EN | BIT(cstate->crtc_id) | (BIT(cstate->crtc_id) << 16);
+
+	if (win->splice_mode_right) {
+		src_w = cstate->right_src_rect.w;
+		src_h = cstate->right_src_rect.h;
+		crtc_x = cstate->right_crtc_rect.x;
+		crtc_y = cstate->right_crtc_rect.y;
+		crtc_w = cstate->right_crtc_rect.w;
+		crtc_h = cstate->right_crtc_rect.h;
+		splice_pixel_offset = cstate->right_src_rect.x - cstate->src_rect.x;
+		splice_yrgb_offset = splice_pixel_offset * (state->logo.bpp >> 3);
+		cfg_done = CFG_DONE_EN | BIT(cstate->splice_crtc_id) | (BIT(cstate->splice_crtc_id) << 16);
+	}
 
 	act_info = (src_h - 1) << 16;
 	act_info |= (src_w - 1) & 0xffff;
@@ -2615,7 +3152,8 @@ static void vop2_set_cluster_win(struct display_state *state, struct vop2_win_da
 			WIN_FORMAT_MASK, WIN_FORMAT_SHIFT, cstate->format,
 			false);
 	vop2_writel(vop2, RK3568_CLUSTER0_WIN0_VIR + win_offset, xvir);
-	vop2_writel(vop2, RK3568_CLUSTER0_WIN0_YRGB_MST + win_offset, cstate->dma_addr);
+	vop2_writel(vop2, RK3568_CLUSTER0_WIN0_YRGB_MST + win_offset,
+		    cstate->dma_addr + splice_yrgb_offset);
 
 	vop2_writel(vop2, RK3568_CLUSTER0_WIN0_ACT_INFO + win_offset, act_info);
 	vop2_writel(vop2, RK3568_CLUSTER0_WIN0_DSP_INFO + win_offset, dsp_info);
@@ -2640,18 +3178,33 @@ static void vop2_set_smart_win(struct display_state *state, struct vop2_win_data
 	struct connector_state *conn_state = &state->conn_state;
 	struct drm_display_mode *mode = &conn_state->mode;
 	struct vop2 *vop2 = cstate->private;
-	int src_w = cstate->src_w;
-	int src_h = cstate->src_h;
-	int crtc_x = cstate->crtc_x;
-	int crtc_y = cstate->crtc_y;
-	int crtc_w = cstate->crtc_w;
-	int crtc_h = cstate->crtc_h;
+	int src_w = cstate->src_rect.w;
+	int src_h = cstate->src_rect.h;
+	int crtc_x = cstate->crtc_rect.x;
+	int crtc_y = cstate->crtc_rect.y;
+	int crtc_w = cstate->crtc_rect.w;
+	int crtc_h = cstate->crtc_rect.h;
 	int xvir = cstate->xvir;
 	int y_mirror = 0;
 	int csc_mode;
 	u32 act_info, dsp_info, dsp_st, dsp_stx, dsp_sty;
+	/* offset of the right window in splice mode */
+	u32 splice_pixel_offset = 0;
+	u32 splice_yrgb_offset = 0;
 	u32 win_offset = win->reg_offset;
 	u32 cfg_done = CFG_DONE_EN | BIT(cstate->crtc_id) | (BIT(cstate->crtc_id) << 16);
+
+	if (win->splice_mode_right) {
+		src_w = cstate->right_src_rect.w;
+		src_h = cstate->right_src_rect.h;
+		crtc_x = cstate->right_crtc_rect.x;
+		crtc_y = cstate->right_crtc_rect.y;
+		crtc_w = cstate->right_crtc_rect.w;
+		crtc_h = cstate->right_crtc_rect.h;
+		splice_pixel_offset = cstate->right_src_rect.x - cstate->src_rect.x;
+		splice_yrgb_offset = splice_pixel_offset * (state->logo.bpp >> 3);
+		cfg_done = CFG_DONE_EN | BIT(cstate->splice_crtc_id) | (BIT(cstate->splice_crtc_id) << 16);
+	}
 
 	/*
 	 * This is workaround solution for IC design:
@@ -2692,7 +3245,7 @@ static void vop2_set_smart_win(struct display_state *state, struct vop2_win_data
 			false);
 	vop2_writel(vop2, RK3568_ESMART0_REGION0_VIR + win_offset, xvir);
 	vop2_writel(vop2, RK3568_ESMART0_REGION0_YRGB_MST + win_offset,
-		    cstate->dma_addr);
+		    cstate->dma_addr + splice_yrgb_offset);
 
 	vop2_writel(vop2, RK3568_ESMART0_REGION0_ACT_INFO + win_offset,
 		    act_info);
@@ -2713,17 +3266,99 @@ static void vop2_set_smart_win(struct display_state *state, struct vop2_win_data
 	vop2_writel(vop2, RK3568_REG_CFG_DONE, cfg_done);
 }
 
+static int display_rect_calc_scale(int src, int dst)
+{
+	int scale = 0;
+
+	if (WARN_ON(src < 0 || dst < 0))
+		return -EINVAL;
+
+	if (dst == 0)
+		return 0;
+
+	if (src > (dst << 16))
+		return DIV_ROUND_UP(src, dst);
+
+	scale = src / dst;
+
+	return scale;
+}
+
+static int display_rect_calc_hscale(const struct display_rect *src,
+				    const struct display_rect *dst,
+				    int min_hscale, int max_hscale)
+{
+	int src_w = src->w;
+	int dst_w = dst->w;
+	int hscale = display_rect_calc_scale(src_w, dst_w);
+
+	if (hscale < 0 || dst_w == 0)
+		return hscale;
+
+	if (hscale < min_hscale || hscale > max_hscale)
+		return -ERANGE;
+
+	return hscale;
+}
+
+static void vop2_calc_display_rect_for_splice(struct display_state *state)
+{
+	struct crtc_state *cstate = &state->crtc_state;
+	struct connector_state *conn_state = &state->conn_state;
+	struct drm_display_mode *mode = &conn_state->mode;
+	struct display_rect *src_rect = &cstate->src_rect;
+	struct display_rect *dst_rect = &cstate->crtc_rect;
+	struct display_rect left_src, left_dst, right_src, right_dst;
+	u16 half_hdisplay = mode->crtc_hdisplay >> 1;
+	int hscale = display_rect_calc_hscale(src_rect, dst_rect, 0, INT_MAX);
+	int left_src_w, left_dst_w, right_dst_w;
+
+	left_dst_w = min_t(u16, half_hdisplay, dst_rect->x + dst_rect->w) - dst_rect->x;
+	if (left_dst_w < 0)
+		left_dst_w = 0;
+	right_dst_w = dst_rect->w - left_dst_w;
+
+	if (!right_dst_w)
+		left_src_w = src_rect->w;
+	else
+		left_src_w = left_dst_w * hscale;
+
+	left_src.x = src_rect->x;
+	left_src.w = left_src_w;
+	left_dst.x = dst_rect->x;
+	left_dst.w = left_dst_w;
+	right_src.x = left_src.x + left_src.w;
+	right_src.w = src_rect->x + src_rect->w - left_src.x - left_src.w;
+	right_dst.x = dst_rect->x + left_dst_w - half_hdisplay;
+	right_dst.w = right_dst_w;
+
+	left_src.y = src_rect->y;
+	left_src.h = src_rect->h;
+	left_dst.y = dst_rect->y;
+	left_dst.h = dst_rect->h;
+	right_src.y = src_rect->y;
+	right_src.h = src_rect->h;
+	right_dst.y = dst_rect->y;
+	right_dst.h = dst_rect->h;
+
+	memcpy(&cstate->src_rect, &left_src, sizeof(struct display_rect));
+	memcpy(&cstate->crtc_rect, &left_dst, sizeof(struct display_rect));
+	memcpy(&cstate->right_src_rect, &right_src, sizeof(struct display_rect));
+	memcpy(&cstate->right_crtc_rect, &right_dst, sizeof(struct display_rect));
+}
+
 static int rockchip_vop2_set_plane(struct display_state *state)
 {
 	struct crtc_state *cstate = &state->crtc_state;
 	struct vop2 *vop2 = cstate->private;
 	struct vop2_win_data *win_data;
+	struct vop2_win_data *splice_win_data;
 	u8 primary_plane_id = vop2->vp_plane_mask[cstate->crtc_id].primary_plane_id;
 	char plane_name[10] = {0};
 
-	if (cstate->crtc_w > cstate->max_output.width) {
+	if (cstate->crtc_rect.w > cstate->max_output.width) {
 		printf("ERROR: output w[%d] exceeded max width[%d]\n",
-		       cstate->crtc_w, cstate->max_output.width);
+		       cstate->crtc_rect.w, cstate->max_output.width);
 		return -EINVAL;
 	}
 
@@ -2733,6 +3368,31 @@ static int rockchip_vop2_set_plane(struct display_state *state)
 		return -ENODEV;
 	}
 
+	if (vop2->version == VOP_VERSION_RK3588) {
+		if (vop2_power_domain_on(vop2, win_data->pd_id))
+			printf("open vp%d plane pd fail\n", cstate->crtc_id);
+	}
+
+	if (cstate->splice_mode) {
+		if (win_data->splice_win_id) {
+			splice_win_data = vop2_find_win_by_phys_id(vop2, win_data->splice_win_id);
+			splice_win_data->splice_mode_right = true;
+
+			if (vop2_power_domain_on(vop2, splice_win_data->pd_id))
+				printf("splice mode: open vp%d plane pd fail\n", cstate->splice_crtc_id);
+
+			vop2_calc_display_rect_for_splice(state);
+			if (win_data->type == CLUSTER_LAYER)
+				vop2_set_cluster_win(state, splice_win_data);
+			else
+				vop2_set_smart_win(state, splice_win_data);
+		} else {
+			printf("ERROR: splice mode is unsupported by plane %s\n",
+			       get_plane_name(primary_plane_id, plane_name));
+			return -EINVAL;
+		}
+	}
+
 	if (win_data->type == CLUSTER_LAYER)
 		vop2_set_cluster_win(state, win_data);
 	else
@@ -2740,8 +3400,8 @@ static int rockchip_vop2_set_plane(struct display_state *state)
 
 	printf("VOP VP%d enable %s[%dx%d->%dx%d@%dx%d] fmt[%d] addr[0x%x]\n",
 		cstate->crtc_id, get_plane_name(primary_plane_id, plane_name),
-		cstate->src_w, cstate->src_h, cstate->crtc_w, cstate->crtc_h,
-		cstate->crtc_x, cstate->crtc_y, cstate->format,
+		cstate->src_rect.w, cstate->src_rect.h, cstate->crtc_rect.w, cstate->crtc_rect.h,
+		cstate->crtc_rect.x, cstate->crtc_rect.y, cstate->format,
 		cstate->dma_addr);
 
 	return 0;
@@ -2750,6 +3410,25 @@ static int rockchip_vop2_set_plane(struct display_state *state)
 static int rockchip_vop2_prepare(struct display_state *state)
 {
 	return 0;
+}
+
+static void vop2_dsc_cfg_done(struct display_state *state)
+{
+	struct connector_state *conn_state = &state->conn_state;
+	struct crtc_state *cstate = &state->crtc_state;
+	struct vop2 *vop2 = cstate->private;
+	u8 dsc_id = cstate->dsc_id;
+	u32 ctrl_regs_offset = (dsc_id * 0x30);
+
+	if (conn_state->output_flags & ROCKCHIP_OUTPUT_DUAL_CHANNEL_LEFT_RIGHT_MODE) {
+		vop2_mask_write(vop2, RK3588_DSC_8K_CFG_DONE, EN_MASK,
+				DSC_CFG_DONE_SHIFT, 1, false);
+		vop2_mask_write(vop2, RK3588_DSC_8K_CFG_DONE + 0x30, EN_MASK,
+				DSC_CFG_DONE_SHIFT, 1, false);
+	} else {
+		vop2_mask_write(vop2, RK3588_DSC_8K_CFG_DONE + ctrl_regs_offset, EN_MASK,
+				DSC_CFG_DONE_SHIFT, 1, false);
+	}
 }
 
 static int rockchip_vop2_enable(struct display_state *state)
@@ -2761,7 +3440,14 @@ static int rockchip_vop2_enable(struct display_state *state)
 
 	vop2_mask_write(vop2, RK3568_VP0_DSP_CTRL + vp_offset, EN_MASK,
 			STANDBY_EN_SHIFT, 0, false);
+
+	if (cstate->splice_mode)
+		cfg_done |= BIT(cstate->splice_crtc_id) | (BIT(cstate->splice_crtc_id) << 16);
+
 	vop2_writel(vop2, RK3568_REG_CFG_DONE, cfg_done);
+
+	if (cstate->dsc_enable)
+		vop2_dsc_cfg_done(state);
 
 	return 0;
 }
@@ -2775,6 +3461,10 @@ static int rockchip_vop2_disable(struct display_state *state)
 
 	vop2_mask_write(vop2, RK3568_VP0_DSP_CTRL + vp_offset, EN_MASK,
 			STANDBY_EN_SHIFT, 1, false);
+
+	if (cstate->splice_mode)
+		cfg_done |= BIT(cstate->splice_crtc_id) | (BIT(cstate->splice_crtc_id) << 16);
+
 	vop2_writel(vop2, RK3568_REG_CFG_DONE, cfg_done);
 
 	return 0;
@@ -3128,51 +3818,11 @@ static struct vop2_vp_plane_mask rk3588_vp_plane_mask[VOP2_VP_MAX][VOP2_VP_MAX] 
 
 };
 
-static struct vop2_power_domain_data rk3588_cluster0_pd_data = {
-	.pd_en_shift = RK3588_CLUSTER0_PD_EN_SHIFT,
-	.pd_status_shift = RK3588_CLUSTER0_PD_STATUS_SHIFT,
-	.pmu_status_shift = RK3588_PD_CLUSTER0_PWR_STAT_SHIFI,
-	.bisr_en_status_shift = RK3588_PD_CLUSTER0_REPAIR_EN_SHIFT,
-};
-
-static struct vop2_power_domain_data rk3588_cluster1_pd_data = {
-	.is_parent_needed = true,
-	.pd_en_shift = RK3588_CLUSTER1_PD_EN_SHIFT,
-	.pd_status_shift = RK3588_CLUSTER1_PD_STATUS_SHIFT,
-	.pmu_status_shift = RK3588_PD_CLUSTER1_PWR_STAT_SHIFI,
-	.bisr_en_status_shift = RK3588_PD_CLUSTER1_REPAIR_EN_SHIFT,
-	.parent_phy_id = ROCKCHIP_VOP2_CLUSTER0,
-};
-
-static struct vop2_power_domain_data rk3588_cluster2_pd_data = {
-	.is_parent_needed = true,
-	.pd_en_shift = RK3588_CLUSTER2_PD_EN_SHIFT,
-	.pd_status_shift = RK3588_CLUSTER2_PD_STATUS_SHIFT,
-	.pmu_status_shift = RK3588_PD_CLUSTER2_PWR_STAT_SHIFI,
-	.bisr_en_status_shift = RK3588_PD_CLUSTER2_REPAIR_EN_SHIFT,
-	.parent_phy_id = ROCKCHIP_VOP2_CLUSTER0,
-};
-
-static struct vop2_power_domain_data rk3588_cluster3_pd_data = {
-	.is_parent_needed = true,
-	.pd_en_shift = RK3588_CLUSTER3_PD_EN_SHIFT,
-	.pd_status_shift = RK3588_CLUSTER3_PD_STATUS_SHIFT,
-	.pmu_status_shift = RK3588_PD_CLUSTER3_PWR_STAT_SHIFI,
-	.bisr_en_status_shift = RK3588_PD_CLUSTER3_REPAIR_EN_SHIFT,
-	.parent_phy_id = ROCKCHIP_VOP2_CLUSTER0,
-};
-
-static struct vop2_power_domain_data rk3588_esmart_pd_data = {
-	.pd_en_shift = RK3588_ESMART_PD_EN_SHIFT,
-	.pd_status_shift = RK3588_ESMART_PD_STATUS_SHIFT,
-	.pmu_status_shift = RK3588_PD_ESMART_PWR_STAT_SHIFI,
-	.bisr_en_status_shift = RK3588_PD_ESMART_REPAIR_EN_SHIFT,
-};
-
 static struct vop2_win_data rk3588_win_data[8] = {
 	{
 		.name = "Cluster0",
 		.phys_id = ROCKCHIP_VOP2_CLUSTER0,
+		.splice_win_id = ROCKCHIP_VOP2_CLUSTER1,
 		.type = CLUSTER_LAYER,
 		.win_sel_port_offset = 0,
 		.layer_sel_win_id = 0,
@@ -3180,7 +3830,7 @@ static struct vop2_win_data rk3588_win_data[8] = {
 		.axi_id = 0,
 		.axi_yrgb_id = 2,
 		.axi_uv_id = 3,
-		.pd_data = &rk3588_cluster0_pd_data,
+		.pd_id = VOP2_PD_CLUSTER0,
 	},
 
 	{
@@ -3193,12 +3843,13 @@ static struct vop2_win_data rk3588_win_data[8] = {
 		.axi_id = 0,
 		.axi_yrgb_id = 6,
 		.axi_uv_id = 7,
-		.pd_data = &rk3588_cluster1_pd_data,
+		.pd_id = VOP2_PD_CLUSTER1,
 	},
 
 	{
 		.name = "Cluster2",
 		.phys_id = ROCKCHIP_VOP2_CLUSTER2,
+		.splice_win_id = ROCKCHIP_VOP2_CLUSTER3,
 		.type = CLUSTER_LAYER,
 		.win_sel_port_offset = 2,
 		.layer_sel_win_id = 4,
@@ -3206,7 +3857,7 @@ static struct vop2_win_data rk3588_win_data[8] = {
 		.axi_id = 1,
 		.axi_yrgb_id = 2,
 		.axi_uv_id = 3,
-		.pd_data = &rk3588_cluster2_pd_data,
+		.pd_id = VOP2_PD_CLUSTER2,
 	},
 
 	{
@@ -3219,12 +3870,13 @@ static struct vop2_win_data rk3588_win_data[8] = {
 		.axi_id = 1,
 		.axi_yrgb_id = 6,
 		.axi_uv_id = 7,
-		.pd_data = &rk3588_cluster3_pd_data,
+		.pd_id = VOP2_PD_CLUSTER3,
 	},
 
 	{
 		.name = "Esmart0",
 		.phys_id = ROCKCHIP_VOP2_ESMART0,
+		.splice_win_id = ROCKCHIP_VOP2_ESMART1,
 		.type = ESMART_LAYER,
 		.win_sel_port_offset = 4,
 		.layer_sel_win_id = 2,
@@ -3244,12 +3896,13 @@ static struct vop2_win_data rk3588_win_data[8] = {
 		.axi_id = 0,
 		.axi_yrgb_id = 0x0c,
 		.axi_uv_id = 0x0d,
-		.pd_data = &rk3588_esmart_pd_data,
+		.pd_id = VOP2_PD_ESMART,
 	},
 
 	{
 		.name = "Esmart2",
 		.phys_id = ROCKCHIP_VOP2_ESMART2,
+		.splice_win_id = ROCKCHIP_VOP2_ESMART3,
 		.type = ESMART_LAYER,
 		.win_sel_port_offset = 6,
 		.layer_sel_win_id = 6,
@@ -3257,7 +3910,7 @@ static struct vop2_win_data rk3588_win_data[8] = {
 		.axi_id = 1,
 		.axi_yrgb_id = 0x0a,
 		.axi_uv_id = 0x0b,
-		.pd_data = &rk3588_esmart_pd_data,
+		.pd_id = VOP2_PD_ESMART,
 	},
 
 	{
@@ -3270,12 +3923,88 @@ static struct vop2_win_data rk3588_win_data[8] = {
 		.axi_id = 1,
 		.axi_yrgb_id = 0x0c,
 		.axi_uv_id = 0x0d,
-		.pd_data = &rk3588_esmart_pd_data,
+		.pd_id = VOP2_PD_ESMART,
+	},
+};
+
+static struct dsc_error_info dsc_ecw[] = {
+	{0x00000000, "no error detected by DSC encoder"},
+	{0x0030ffff, "bits per component error"},
+	{0x0040ffff, "multiple mode error"},
+	{0x0050ffff, "line buffer depth error"},
+	{0x0060ffff, "minor version error"},
+	{0x0070ffff, "picture height error"},
+	{0x0080ffff, "picture width error"},
+	{0x0090ffff, "number of slices error"},
+	{0x00c0ffff, "slice height Error "},
+	{0x00d0ffff, "slice width error"},
+	{0x00e0ffff, "second line BPG offset error"},
+	{0x00f0ffff, "non second line BPG offset error"},
+	{0x0100ffff, "PPS ID error"},
+	{0x0110ffff, "bits per pixel (BPP) Error"},
+	{0x0120ffff, "buffer flow error"},  /* dsc_buffer_flow */
+
+	{0x01510001, "slice 0 RC buffer model overflow error"},
+	{0x01510002, "slice 1 RC buffer model overflow error"},
+	{0x01510004, "slice 2 RC buffer model overflow error"},
+	{0x01510008, "slice 3 RC buffer model overflow error"},
+	{0x01510010, "slice 4 RC buffer model overflow error"},
+	{0x01510020, "slice 5 RC buffer model overflow error"},
+	{0x01510040, "slice 6 RC buffer model overflow error"},
+	{0x01510080, "slice 7 RC buffer model overflow error"},
+
+	{0x01610001, "slice 0 RC buffer model underflow error"},
+	{0x01610002, "slice 1 RC buffer model underflow error"},
+	{0x01610004, "slice 2 RC buffer model underflow error"},
+	{0x01610008, "slice 3 RC buffer model underflow error"},
+	{0x01610010, "slice 4 RC buffer model underflow error"},
+	{0x01610020, "slice 5 RC buffer model underflow error"},
+	{0x01610040, "slice 6 RC buffer model underflow error"},
+	{0x01610080, "slice 7 RC buffer model underflow error"},
+
+	{0xffffffff, "unsuccessful RESET cycle status"},
+	{0x00a0ffff, "ICH full error precision settings error"},
+	{0x0020ffff, "native mode"},
+};
+
+static struct dsc_error_info dsc_buffer_flow[] = {
+	{0x00000000, "rate buffer status"},
+	{0x00000001, "line buffer status"},
+	{0x00000002, "decoder model status"},
+	{0x00000003, "pixel buffer status"},
+	{0x00000004, "balance fifo buffer status"},
+	{0x00000005, "syntax element fifo status"},
+};
+
+static struct vop2_dsc_data rk3588_dsc_data[] = {
+	{
+		.id = ROCKCHIP_VOP2_DSC_8K,
+		.pd_id = VOP2_PD_DSC_8K,
+		.max_slice_num = 8,
+		.max_linebuf_depth = 11,
+		.min_bits_per_pixel = 9,
+		.dsc_txp_clk_src_name = "dsc_8k_txp_clk_src",
+		.dsc_txp_clk_name = "dsc_8k_txp_clk",
+		.dsc_pxl_clk_name = "dsc_8k_pxl_clk",
+		.dsc_cds_clk_name = "dsc_8k_cds_clk",
+	},
+
+	{
+		.id = ROCKCHIP_VOP2_DSC_4K,
+		.pd_id = VOP2_PD_DSC_4K,
+		.max_slice_num = 2,
+		.max_linebuf_depth = 11,
+		.min_bits_per_pixel = 9,
+		.dsc_txp_clk_src_name = "dsc_4k_txp_clk_src",
+		.dsc_txp_clk_name = "dsc_4k_txp_clk",
+		.dsc_pxl_clk_name = "dsc_4k_pxl_clk",
+		.dsc_cds_clk_name = "dsc_4k_cds_clk",
 	},
 };
 
 static struct vop2_vp_data rk3588_vp_data[4] = {
 	{
+		.splice_vp_id = 1,
 		.feature = VOP_FEATURE_OUTPUT_10BIT,
 		.pre_scan_max_dly = 54,
 		.max_dclk = 600000,
@@ -3283,7 +4012,7 @@ static struct vop2_vp_data rk3588_vp_data[4] = {
 	},
 	{
 		.feature = VOP_FEATURE_OUTPUT_10BIT,
-		.pre_scan_max_dly = 40,
+		.pre_scan_max_dly = 54,
 		.max_dclk = 600000,
 		.max_output = {4096, 2304},
 	},
@@ -3301,6 +4030,42 @@ static struct vop2_vp_data rk3588_vp_data[4] = {
 	},
 };
 
+static struct vop2_power_domain_data rk3588_vop_pd_data[] = {
+	{
+	  .id = VOP2_PD_CLUSTER0,
+	  .module_id_mask = BIT(ROCKCHIP_VOP2_CLUSTER0),
+	},
+	{
+	  .id = VOP2_PD_CLUSTER1,
+	  .module_id_mask = BIT(ROCKCHIP_VOP2_CLUSTER1),
+	  .parent_id = VOP2_PD_CLUSTER0,
+	},
+	{
+	  .id = VOP2_PD_CLUSTER2,
+	  .module_id_mask = BIT(ROCKCHIP_VOP2_CLUSTER2),
+	  .parent_id = VOP2_PD_CLUSTER0,
+	},
+	{
+	  .id = VOP2_PD_CLUSTER3,
+	  .module_id_mask = BIT(ROCKCHIP_VOP2_CLUSTER3),
+	  .parent_id = VOP2_PD_CLUSTER0,
+	},
+	{
+	  .id = VOP2_PD_ESMART,
+	  .module_id_mask = BIT(ROCKCHIP_VOP2_ESMART1) |
+			    BIT(ROCKCHIP_VOP2_ESMART2) |
+			    BIT(ROCKCHIP_VOP2_ESMART3),
+	},
+	{
+	  .id = VOP2_PD_DSC_8K,
+	  .module_id_mask = BIT(ROCKCHIP_VOP2_DSC_8K),
+	},
+	{
+	  .id = VOP2_PD_DSC_4K,
+	  .module_id_mask = BIT(ROCKCHIP_VOP2_DSC_4K),
+	},
+};
+
 const struct vop2_data rk3588_vop = {
 	.version = VOP_VERSION_RK3588,
 	.nr_vps = 4,
@@ -3308,10 +4073,17 @@ const struct vop2_data rk3588_vop = {
 	.win_data = rk3588_win_data,
 	.plane_mask = rk3588_vp_plane_mask[0],
 	.plane_table = rk3588_plane_table,
+	.pd = rk3588_vop_pd_data,
+	.dsc = rk3588_dsc_data,
+	.dsc_error_ecw = dsc_ecw,
+	.dsc_error_buffer_flow = dsc_buffer_flow,
 	.nr_layers = 8,
 	.nr_mixers = 7,
 	.nr_gammas = 4,
+	.nr_pd = ARRAY_SIZE(rk3588_vop_pd_data),
 	.nr_dscs = 2,
+	.nr_dsc_ecw = ARRAY_SIZE(dsc_ecw),
+	.nr_dsc_buffer_flow = ARRAY_SIZE(dsc_buffer_flow),
 };
 
 const struct rockchip_crtc_funcs rockchip_vop2_funcs = {

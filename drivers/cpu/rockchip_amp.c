@@ -13,6 +13,8 @@
 #include <asm/io.h>
 #include <asm/arch/rockchip_smccc.h>
 
+DECLARE_GLOBAL_DATA_PTR;
+
 /*
  * [Design Principles]
  *
@@ -39,9 +41,12 @@
  *	The AMP feature requires trust support.
  */
 
-#define AMP_PART	"amp"
+#define AMP_PART		"amp"
+#define FIT_HEADER_SIZE		SZ_4K
+
 #define gicd_readl(offset)	readl((void *)GICD_BASE + (offset))
 #define gicd_writel(v, offset)	writel(v, (void *)GICD_BASE + (offset))
+#define LINXU_AMP_NODES		"/rockchip-amp/amp-cpus"
 
 typedef struct boot_args {
 	ulong arg0;
@@ -58,6 +63,7 @@ typedef struct boot_cpu {
 } boot_cpu_t;
 
 static boot_cpu_t g_bootcpu;
+static u32 g_cpus_boot_by_linux[8];
 
 static u32 fit_get_u32_default(const void *fit, int noffset,
 			       const char *prop, u32 def)
@@ -69,6 +75,28 @@ static u32 fit_get_u32_default(const void *fit, int noffset,
 		return def;
 
 	return fdt32_to_cpu(*val);
+}
+
+static int parse_cpus_boot_by_linux(void)
+{
+	const void *fdt = gd->fdt_blob;
+	int noffset, cpu, i = 0;
+	u64 mpidr;
+
+	memset(g_cpus_boot_by_linux, 0xff, sizeof(g_cpus_boot_by_linux));
+	noffset = fdt_path_offset(fdt, LINXU_AMP_NODES);
+	if (noffset < 0)
+		return 0;
+
+	fdt_for_each_subnode(cpu, fdt, noffset) {
+		mpidr = fdtdec_get_uint64(fdt, cpu, "id", 0xffffffff);
+		if (mpidr == 0xffffffff)
+			continue;
+		g_cpus_boot_by_linux[i++] = mpidr;
+		printf("CPU[0x%x] is required boot by Linux\n", mpidr);
+	}
+
+	return 0;
 }
 
 static int load_linux_for_nonboot_cpu(u32 cpu, u32 aarch64, u32 load,
@@ -186,8 +214,9 @@ static int brought_up_amp(void *fit, int noffset,
 	u32 cpu, aarch64, hyp;
 	u32 load, thumb, us;
 	u32 pe_state, entry;
+	int boot_on;
 	int data_size;
-	int ret;
+	int i, ret;
 	u8  arch = -ENODATA;
 
 	desc = fdt_getprop(fit, noffset, "description", NULL);
@@ -196,6 +225,7 @@ static int brought_up_amp(void *fit, int noffset,
 	thumb = fit_get_u32_default(fit, noffset, "thumb", 0);
 	load = fit_get_u32_default(fit, noffset, "load", -ENODATA);
 	us = fit_get_u32_default(fit, noffset, "udelay", 0);
+	boot_on = fit_get_u32_default(fit, noffset, "boot-on", 1);
 	fit_image_get_arch(fit, noffset, &arch);
 	fit_image_get_data_size(fit, noffset, &data_size);
 	memset(&args, 0, sizeof(args));
@@ -220,6 +250,7 @@ static int brought_up_amp(void *fit, int noffset,
 	AMP_I("   linux-os: %d\n\n", is_linux);
 #endif
 
+	/* this cpu is boot cpu ? */
 	if ((read_mpidr() & 0x0fff) == cpu) {
 		bootcpu->arch = arch;
 		bootcpu->entry = entry;
@@ -248,7 +279,18 @@ static int brought_up_amp(void *fit, int noffset,
 			return -ENXIO;
 	}
 
-	/* wakeup */
+	/* If linux assign the boot-on state, use it */
+	for (i = 0; i < ARRAY_SIZE(g_cpus_boot_by_linux); i++) {
+		if (cpu == g_cpus_boot_by_linux[i]) {
+			boot_on = 0;
+			break;
+		}
+	}
+
+	if (!boot_on)
+		return 0;
+
+	/* boot now */
 	ret = smc_cpu_on(cpu, pe_state, entry, &args, is_linux);
 	if (ret)
 		return ret;
@@ -300,8 +342,15 @@ static int brought_up_all_amp(void *fit, const char *fit_uname_cfg)
 		      (u32)read_mpidr() & 0x0fff, g_bootcpu.state, g_bootcpu.entry);
 		cleanup_before_linux();
 		printf("OK\n");
+#ifdef CONFIG_ARM64
 		armv8_switch_to_el2(0, 0, 0, g_bootcpu.state, (u64)g_bootcpu.entry,
 		     g_bootcpu.arch == IH_ARCH_ARM ? ES_TO_AARCH32 : ES_TO_AARCH64);
+#else
+		void (*armv7_entry)(void);
+
+		armv7_entry = (void (*)(void))g_bootcpu.entry;
+		armv7_entry();
+#endif
 	}
 
 	/* return: boot cpu continue to boot linux */
@@ -313,7 +362,9 @@ int amp_cpus_on(void)
 	struct blk_desc *dev_desc;
 	bootm_headers_t images;
 	disk_partition_t part;
-	void *fit;
+	void *hdr, *fit;
+	int offset, cnt;
+	int totalsize;
 	int ret = 0;
 
 	dev_desc = rockchip_get_bootdev();
@@ -323,22 +374,49 @@ int amp_cpus_on(void)
 	if (part_get_info_by_name(dev_desc, AMP_PART, &part) < 0)
 		return -ENODEV;
 
-	fit = malloc(part.size * part.blksz);
-	if (!fit) {
-		AMP_E("No memory, please increase CONFIG_SYS_MALLOC_LEN\n");
+	hdr = memalign(ARCH_DMA_MINALIGN, FIT_HEADER_SIZE);
+	if (!hdr)
 		return -ENOMEM;
-	}
 
-	if (blk_dread(dev_desc, part.start, part.size, fit) != part.size) {
+	/* get totalsize */
+	offset = part.start;
+	cnt = DIV_ROUND_UP(FIT_HEADER_SIZE, part.blksz);
+	if (blk_dread(dev_desc, offset, cnt, hdr) != cnt) {
 		ret = -EIO;
-		goto out;
+		goto out2;
 	}
 
-	if (fdt_check_header(fit)) {
+	if (fdt_check_header(hdr)) {
 		AMP_E("Not fit\n");
 		ret = -EINVAL;
-		goto out;
+		goto out2;
 	}
+
+	if (fit_get_totalsize(hdr, &totalsize)) {
+		AMP_E("No totalsize\n");
+		ret = -EINVAL;
+		goto out2;
+	}
+
+	/* load image */
+	fit = memalign(ARCH_DMA_MINALIGN, ALIGN(totalsize, part.blksz));
+	if (!fit) {
+		printf("No memory\n");
+		ret = -ENOMEM;
+		goto out2;
+	}
+
+	memcpy(fit, hdr, FIT_HEADER_SIZE);
+
+	offset += cnt;
+	cnt = DIV_ROUND_UP(totalsize, part.blksz) - cnt;
+	if (blk_dread(dev_desc, offset, cnt, fit + FIT_HEADER_SIZE) != cnt) {
+		ret = -EIO;
+		goto out1;
+	}
+
+	/* prase linux info */
+	parse_cpus_boot_by_linux();
 
 	/* Load loadables */
 	memset(&images, 0, sizeof(images));
@@ -348,7 +426,7 @@ int amp_cpus_on(void)
 	ret = boot_get_loadable(0, NULL, &images, IH_ARCH_DEFAULT, NULL, NULL);
 	if (ret) {
 		AMP_E("Load loadables, ret=%d\n", ret);
-		goto out;
+		goto out1;
 	}
 	flush_dcache_all();
 
@@ -356,8 +434,10 @@ int amp_cpus_on(void)
 	ret = brought_up_all_amp(images.fit_hdr_os, images.fit_uname_cfg);
 	if (ret)
 		AMP_E("Brought up amps, ret=%d\n", ret);
-out:
+out1:
 	free(fit);
+out2:
+	free(hdr);
 
 	return ret;
 }

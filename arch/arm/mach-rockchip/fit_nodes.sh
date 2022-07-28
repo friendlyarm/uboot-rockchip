@@ -9,13 +9,16 @@
 source ./${srctree}/arch/arm/mach-rockchip/fit_args.sh
 rm -f ${srctree}/*.digest ${srctree}/*.bin.gz ${srctree}/bl31_0x*.bin
 
+# Periph register
+MAX_ADDR_VAL=$((0xf0000000))
+
 # compression
 if [ "${COMPRESSION}" == "gzip" ]; then
 	SUFFIX=".gz"
-	CMD="gzip"
+	COMPRESS_CMD="gzip -kf9"
 elif [ "${COMPRESSION}" == "lzma" ]; then
 	SUFFIX=".lzma"
-	CMD="lzma"
+	COMPRESS_CMD="${srctree}/scripts/compress.sh lzma"
 else
 	COMPRESSION="none"
 	SUFFIX=
@@ -36,14 +39,12 @@ function gen_uboot_node()
 	if [ "${COMPRESSION}" != "none" ]; then
 		openssl dgst -sha256 -binary -out ${UBOOT}.digest ${UBOOT}
 		UBOOT_SZ=`ls -l ${UBOOT} | awk '{ print $5 }'`
-		RAW_SIZE=`wc -c ${UBOOT} | awk '{ printf "0x%x", $1 }'`
 		if [ ${UBOOT_SZ} -gt 0 ]; then
-			${CMD} -k -f -9 ${srctree}/${UBOOT}
+			${COMPRESS_CMD} ${srctree}/${UBOOT}
 		else
 			touch ${srctree}/${UBOOT}${SUFFIX}
 		fi
-		echo "			raw-size = <${RAW_SIZE}>;
-			digest {
+		echo "			digest {
 				value = /incbin/(\"./${UBOOT}.digest\");
 				algo = \"sha256\";
 			};"
@@ -101,7 +102,7 @@ function gen_bl31_node()
 		# only atf-1 support compress
 		if [ "${COMPRESSION}" != "none" -a ${NUM} -eq 1  ]; then
 			openssl dgst -sha256 -binary -out ${ATF}.digest ${ATF}
-			${CMD} -k -f -9 ${ATF}
+			${COMPRESS_CMD} ${ATF}
 
 			echo "		atf-${NUM} {
 			description = \"ARM Trusted Firmware\";
@@ -150,7 +151,7 @@ function gen_bl32_node()
 	if [ "${ARCH}" == "arm" ]; then
 		# If not AArch32 mode
 		if ! grep  -q '^CONFIG_ARM64_BOOT_AARCH32=y' .config ; then
-			ENTRY="entry = <0x${TEE_LOAD_ADDR}>;"
+			ENTRY="entry = <"${TEE_LOAD_ADDR}">;"
 		fi
 	fi
 
@@ -163,13 +164,11 @@ function gen_bl32_node()
 			os = \"op-tee\";
 			compression = \"${COMPRESSION}\";
 			${ENTRY}
-			load = <"0x${TEE_LOAD_ADDR}">;"
+			load = <"${TEE_LOAD_ADDR}">;"
 	if [ "${COMPRESSION}" != "none" ]; then
-		RAW_SIZE=`wc -c ${TEE} | awk '{ printf "0x%x", $1 }'`
 		openssl dgst -sha256 -binary -out ${TEE}.digest ${TEE}
-		${CMD} -k -f -9 ${TEE}
-		echo "			raw-size = <${RAW_SIZE}>;
-			digest {
+		${COMPRESS_CMD} ${TEE}
+		echo "			digest {
 				value = /incbin/(\"./${TEE}.digest\");
 				algo = \"sha256\";
 			};"
@@ -202,24 +201,29 @@ function gen_mcu_node()
 		if [ -z ${MCU_ADDR} ]; then
 			continue
 		fi
+
+		MCU_ADDR_VAL=$((MCU_ADDR))
 		MCU="mcu${i}"
 		echo "		${MCU} {
 			description = \"${MCU}\";
 			type = \"standalone\";
 			arch = \"riscv\";
-			data = /incbin/(\"./${MCU}.bin${SUFFIX}\");
-			compression = \"${COMPRESSION}\";
-			load = <0x"${MCU_ADDR}">;"
-		if [ "${COMPRESSION}" != "none" ]; then
+			load = <"${MCU_ADDR}">;"
+
+		if [ "${COMPRESSION}" != "none" -a ${MCU_ADDR_VAL} -lt ${MAX_ADDR_VAL} ]; then
 			openssl dgst -sha256 -binary -out ${MCU}.bin.digest ${MCU}.bin
-			${CMD} -k -f -9 ${MCU}.bin
-			RAW_SIZE=`wc -c ${MCU}.bin | awk '{ printf "0x%x", $1 }'`
-		echo "			raw-size = <${RAW_SIZE}>;
+			${COMPRESS_CMD} ${MCU}.bin
+			echo "			data = /incbin/(\"./${MCU}.bin${SUFFIX}\");
+			compression = \"${COMPRESSION}\";
 			digest {
 				value = /incbin/(\"./${MCU}.bin.digest\");
 				algo = \"sha256\";
 			};"
+		else
+			echo "			data = /incbin/(\"./${MCU}.bin\");
+			compression = \"none\";"
 		fi
+
 		echo "			hash {
 				algo = \"sha256\";
 			};
@@ -256,24 +260,29 @@ function gen_loadable_node()
 		if [ -z ${LOAD_ADDR} ]; then
 			continue
 		fi
+
+		LOAD_ADDR_VAL=$((LOAD_ADDR))
 		LOAD="load${i}"
 		echo "		${LOAD} {
 			description = \"${LOAD}\";
 			type = \"standalone\";
 			arch = \"${ARCH}\";
-			data = /incbin/(\"./${LOAD}.bin${SUFFIX}\");
-			compression = \"${COMPRESSION}\";
-			load = <0x"${LOAD_ADDR}">;"
-		if [ "${COMPRESSION}" != "none" ]; then
+			load = <"${LOAD_ADDR}">;"
+
+		if [ "${COMPRESSION}" != "none" -a ${LOAD_ADDR_VAL} -lt ${MAX_ADDR_VAL} ]; then
 			openssl dgst -sha256 -binary -out ${LOAD}.bin.digest ${LOAD}.bin
-			${CMD} -k -f -9 ${LOAD}.bin
-			RAW_SIZE=`wc -c ${LOAD}.bin | awk '{ printf "0x%x", $1 }'`
-	echo "			raw-size = <${RAW_SIZE}>;
+			${COMPRESS_CMD} ${LOAD}.bin
+			echo "			data = /incbin/(\"./${LOAD}.bin${SUFFIX}\");
+			compression = \"${COMPRESSION}\";
 			digest {
 				value = /incbin/(\"./${LOAD}.bin.digest\");
 				algo = \"sha256\";
 			};"
+		else
+			echo "			data = /incbin/(\"./${LOAD}.bin\");
+			compression = \"none\";"
 		fi
+
 		echo "			hash {
 				algo = \"sha256\";
 			};

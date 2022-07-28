@@ -12,6 +12,7 @@
 #include <syscon.h>
 #include <asm/arch/clock.h>
 #include <asm/arch/cru_rv1106.h>
+#include <asm/arch/grf_rv1106.h>
 #include <asm/arch/hardware.h>
 #include <asm/io.h>
 #include <dm/lists.h>
@@ -25,6 +26,7 @@ DECLARE_GLOBAL_DATA_PTR;
 static struct rockchip_pll_rate_table rv1106_pll_rates[] = {
 	/* _mhz, _refdiv, _fbdiv, _postdiv1, _postdiv2, _dsmpd, _frac */
 	RK3036_PLL_RATE(1188000000, 1, 99, 2, 1, 1, 0),
+	RK3036_PLL_RATE(1104000000, 1, 92, 2, 1, 1, 0),
 	RK3036_PLL_RATE(1008000000, 1, 84, 2, 1, 1, 0),
 	RK3036_PLL_RATE(1000000000, 3, 250, 2, 1, 1, 0),
 	RK3036_PLL_RATE(816000000, 1, 68, 2, 1, 1, 0),
@@ -726,7 +728,7 @@ static ulong rv1106_adc_set_clk(struct rv1106_clk_priv *priv,
 		rk_clrsetreg(&cru->peri_clksel_con[6],
 			     CLK_SARADC_DIV_MASK,
 			     (src_clk_div - 1) <<
-			     CLK_SARADC_DIV_MASK);
+			     CLK_SARADC_DIV_SHIFT);
 		break;
 	case CLK_TSADC_TSEN:
 		assert(src_clk_div - 1 <= 128);
@@ -994,6 +996,44 @@ static ulong rv1106_vop_set_clk(struct rv1106_clk_priv *priv,
 
 	return rv1106_vop_get_clk(priv, clk_id);
 }
+
+static ulong rv1106_decom_get_clk(struct rv1106_clk_priv *priv)
+{
+	struct rv1106_cru *cru = priv->cru;
+	u32 sel, con, prate;
+
+	con = readl(&cru->peri_clksel_con[7]);
+	sel = (con & DCLK_DECOM_SEL_MASK) >>
+	      DCLK_DECOM_SEL_SHIFT;
+	if (sel == DCLK_DECOM_SEL_400M)
+		prate = 400 * MHz;
+	else if (sel == DCLK_DECOM_SEL_200M)
+		prate = 200 * MHz;
+	else if (sel == DCLK_DECOM_SEL_100M)
+		prate = 100 * MHz;
+	else
+		prate = OSC_HZ;
+	return prate;
+}
+
+static ulong rv1106_decom_set_clk(struct rv1106_clk_priv *priv, ulong rate)
+{
+	struct rv1106_cru *cru = priv->cru;
+	u32 sel;
+
+	if (rate >= 396 * MHz)
+		sel = DCLK_DECOM_SEL_400M;
+	else if (rate >= 198 * MHz)
+		sel = DCLK_DECOM_SEL_200M;
+	else if (rate >= 99 * MHz)
+		sel = DCLK_DECOM_SEL_100M;
+	else
+		sel = DCLK_DECOM_SEL_24M;
+	rk_clrsetreg(&cru->peri_clksel_con[7], DCLK_DECOM_SEL_MASK,
+		     (sel << DCLK_DECOM_SEL_SHIFT));
+
+	return rv1106_decom_get_clk(priv);
+}
 #endif
 
 static ulong rv1106_clk_get_rate(struct clk *clk)
@@ -1011,6 +1051,10 @@ static ulong rv1106_clk_get_rate(struct clk *clk)
 	case PLL_APLL:
 		rate = rockchip_pll_get_rate(&rv1106_pll_clks[APLL], priv->cru,
 					     APLL);
+		break;
+	case PLL_DPLL:
+		rate = rockchip_pll_get_rate(&rv1106_pll_clks[DPLL], priv->cru,
+					     DPLL);
 		break;
 	case PLL_CPLL:
 		rate = rockchip_pll_get_rate(&rv1106_pll_clks[CPLL], priv->cru,
@@ -1082,6 +1126,9 @@ static ulong rv1106_clk_get_rate(struct clk *clk)
 	case ACLK_VOP_ROOT:
 	case ACLK_VOP:
 		rate = rv1106_vop_get_clk(priv, clk->id);
+		break;
+	case DCLK_DECOM:
+		rate = rv1106_decom_get_clk(priv);
 		break;
 #endif
 	default:
@@ -1178,6 +1225,9 @@ static ulong rv1106_clk_set_rate(struct clk *clk, ulong rate)
 	case ACLK_VOP:
 		rate = rv1106_vop_set_clk(priv, clk->id, rate);
 		break;
+	case DCLK_DECOM:
+		rate = rv1106_decom_set_clk(priv, rate);
+		break;
 #endif
 	default:
 		return -ENOENT;
@@ -1185,126 +1235,6 @@ static ulong rv1106_clk_set_rate(struct clk *clk, ulong rate)
 
 	return ret;
 };
-
-#define ROCKCHIP_MMC_DELAY_SEL		BIT(10)
-#define ROCKCHIP_MMC_DEGREE_MASK	0x3
-#define ROCKCHIP_MMC_DELAYNUM_OFFSET	2
-#define ROCKCHIP_MMC_DELAYNUM_MASK	(0xff << ROCKCHIP_MMC_DELAYNUM_OFFSET)
-
-#define PSECS_PER_SEC 1000000000000LL
-/*
- * Each fine delay is between 44ps-77ps. Assume each fine delay is 60ps to
- * simplify calculations. So 45degs could be anywhere between 33deg and 57.8deg.
- */
-#define ROCKCHIP_MMC_DELAY_ELEMENT_PSEC 60
-
-int rv1106_mmc_get_phase(struct clk *clk)
-{
-	struct rv1106_clk_priv *priv = dev_get_priv(clk->dev);
-	struct rv1106_cru *cru = priv->cru;
-	u32 raw_value = 0, delay_num;
-	u16 degrees = 0;
-	ulong rate;
-
-	rate = rv1106_clk_get_rate(clk);
-	if (rate < 0)
-		return rate;
-
-	if (clk->id == SCLK_EMMC_SAMPLE)
-		raw_value = readl(&cru->emmc_con[1]);
-	else if (clk->id == SCLK_SDMMC_SAMPLE)
-		raw_value = readl(&cru->sdmmc_con[1]);
-
-	raw_value >>= 1;
-	degrees = (raw_value & ROCKCHIP_MMC_DEGREE_MASK) * 90;
-
-	if (raw_value & ROCKCHIP_MMC_DELAY_SEL) {
-		/* degrees/delaynum * 10000 */
-		unsigned long factor = (ROCKCHIP_MMC_DELAY_ELEMENT_PSEC / 10) *
-					36 * (rate / 1000000);
-
-		delay_num = (raw_value & ROCKCHIP_MMC_DELAYNUM_MASK);
-		delay_num >>= ROCKCHIP_MMC_DELAYNUM_OFFSET;
-		degrees += DIV_ROUND_CLOSEST(delay_num * factor, 10000);
-	}
-
-	return degrees % 360;
-}
-
-int rv1106_mmc_set_phase(struct clk *clk, u32 degrees)
-{
-	struct rv1106_clk_priv *priv = dev_get_priv(clk->dev);
-	struct rv1106_cru *cru = priv->cru;
-	u8 nineties, remainder, delay_num;
-	u32 raw_value, delay;
-	ulong rate;
-
-	rate = rv1106_clk_get_rate(clk);
-	if (rate < 0)
-		return rate;
-
-	nineties = degrees / 90;
-	remainder = (degrees % 90);
-
-	/*
-	 * Convert to delay; do a little extra work to make sure we
-	 * don't overflow 32-bit / 64-bit numbers.
-	 */
-	delay = 10000000; /* PSECS_PER_SEC / 10000 / 10 */
-	delay *= remainder;
-	delay = DIV_ROUND_CLOSEST(delay, (rate / 1000) * 36 *
-				  (ROCKCHIP_MMC_DELAY_ELEMENT_PSEC / 10));
-
-	delay_num = (u8)min_t(u32, delay, 255);
-
-	raw_value = delay_num ? ROCKCHIP_MMC_DELAY_SEL : 0;
-	raw_value |= delay_num << ROCKCHIP_MMC_DELAYNUM_OFFSET;
-	raw_value |= nineties;
-
-	raw_value <<= 1;
-	if (clk->id == SCLK_EMMC_SAMPLE)
-		writel(raw_value | 0xffff0000, &cru->emmc_con[1]);
-	else if (clk->id == SCLK_SDMMC_SAMPLE)
-		writel(raw_value | 0xffff0000, &cru->sdmmc_con[1]);
-
-	debug("mmc set_phase(%d) delay_nums=%u reg=%#x actual_degrees=%d\n",
-	      degrees, delay_num, raw_value, rv1106_mmc_get_phase(clk));
-
-	return 0;
-}
-
-static int rv1106_clk_get_phase(struct clk *clk)
-{
-	int ret;
-
-	debug("%s %ld\n", __func__, clk->id);
-	switch (clk->id) {
-	case SCLK_EMMC_SAMPLE:
-	case SCLK_SDMMC_SAMPLE:
-		ret = rv1106_mmc_get_phase(clk);
-		break;
-	default:
-		return -ENOENT;
-	}
-	return ret;
-}
-
-static int rv1106_clk_set_phase(struct clk *clk, int degrees)
-{
-	int ret;
-
-	debug("%s %ld\n", __func__, clk->id);
-	switch (clk->id) {
-	case SCLK_EMMC_SAMPLE:
-	case SCLK_SDMMC_SAMPLE:
-		ret = rv1106_mmc_set_phase(clk, degrees);
-		break;
-	default:
-		return -ENOENT;
-	}
-
-	return ret;
-}
 
 static int rv1106_clk_set_parent(struct clk *clk, struct clk *parent)
 {
@@ -1319,8 +1249,6 @@ static int rv1106_clk_set_parent(struct clk *clk, struct clk *parent)
 static struct clk_ops rv1106_clk_ops = {
 	.get_rate = rv1106_clk_get_rate,
 	.set_rate = rv1106_clk_set_rate,
-	.get_phase = rv1106_clk_get_phase,
-	.set_phase = rv1106_clk_set_phase,
 #if CONFIG_IS_ENABLED(OF_CONTROL) && !CONFIG_IS_ENABLED(OF_PLATDATA)
 	.set_parent = rv1106_clk_set_parent,
 #endif
@@ -1337,6 +1265,13 @@ static void rv1106_clk_init(struct rv1106_clk_priv *priv)
 			rockchip_pll_get_rate(&rv1106_pll_clks[APLL],
 					      priv->cru, APLL);
 		priv->armclk_init_hz = priv->armclk_enter_hz;
+	}
+
+	if (priv->armclk_init_hz != APLL_HZ) {
+			ret = rockchip_pll_set_rate(&rv1106_pll_clks[APLL], priv->cru,
+						    APLL, APLL_HZ);
+		if (!ret)
+			priv->armclk_init_hz = APLL_HZ;
 	}
 
 	if (priv->cpll_hz != CPLL_HZ) {
@@ -1373,6 +1308,9 @@ static int rv1106_clk_probe(struct udevice *dev)
 	priv->gpll_hz = GPLL_HZ;
 	priv->cpll_hz = CPLL_HZ;
 #endif
+	rk_clrsetreg(&priv->cru->core_clksel_con[0],
+		     CLK_CORE_DIV_MASK,
+		     0 << CLK_CORE_DIV_SHIFT);
 	return 0;
 }
 
@@ -1435,6 +1373,206 @@ U_BOOT_DRIVER(rockchip_rv1106_cru) = {
 	.ops		= &rv1106_clk_ops,
 	.bind		= rv1106_clk_bind,
 	.probe		= rv1106_clk_probe,
+};
+
+static ulong rv1106_grfclk_get_rate(struct clk *clk)
+{
+	struct udevice *cru_dev;
+	struct rv1106_clk_priv *cru_priv;
+	int ret;
+	ulong rate = 0;
+
+	ret = uclass_get_device_by_driver(UCLASS_CLK,
+					  DM_GET_DRIVER(rockchip_rv1106_cru),
+					  &cru_dev);
+	if (ret) {
+		printf("%s: could not find cru device\n", __func__);
+		return ret;
+	}
+	cru_priv = dev_get_priv(cru_dev);
+
+	switch (clk->id) {
+	case SCLK_EMMC_SAMPLE:
+		rate = rv1106_mmc_get_clk(cru_priv, CCLK_SRC_EMMC) / 2;
+		break;
+	case SCLK_SDMMC_SAMPLE:
+		rate = rv1106_mmc_get_clk(cru_priv, CCLK_SRC_SDMMC) / 2;
+		break;
+	case SCLK_SDIO_SAMPLE:
+		rate = rv1106_mmc_get_clk(cru_priv, CCLK_SRC_SDIO) / 2;
+		break;
+	default:
+		return -ENOENT;
+	}
+
+	return rate;
+};
+
+#define ROCKCHIP_MMC_DELAY_SEL		BIT(10)
+#define ROCKCHIP_MMC_DEGREE_MASK	0x3
+#define ROCKCHIP_MMC_DELAYNUM_OFFSET	2
+#define ROCKCHIP_MMC_DELAYNUM_MASK	(0xff << ROCKCHIP_MMC_DELAYNUM_OFFSET)
+
+#define PSECS_PER_SEC 1000000000000LL
+/*
+ * Each fine delay is between 44ps-77ps. Assume each fine delay is 60ps to
+ * simplify calculations. So 45degs could be anywhere between 33deg and 57.8deg.
+ */
+#define ROCKCHIP_MMC_DELAY_ELEMENT_PSEC 60
+
+int rv1106_mmc_get_phase(struct clk *clk)
+{
+	struct rv1106_grf_clk_priv *priv = dev_get_priv(clk->dev);
+	u32 raw_value = 0, delay_num;
+	u16 degrees = 0;
+	ulong rate;
+
+	rate = rv1106_grfclk_get_rate(clk);
+	if (rate < 0)
+		return rate;
+
+	if (clk->id == SCLK_EMMC_SAMPLE)
+		raw_value = readl(&priv->grf->emmc_con1);
+	else if (clk->id == SCLK_SDMMC_SAMPLE)
+		raw_value = readl(&priv->grf->sdmmc_con1);
+	else if (clk->id == SCLK_SDIO_SAMPLE)
+		raw_value = readl(&priv->grf->sdio_con1);
+
+	raw_value >>= 1;
+	degrees = (raw_value & ROCKCHIP_MMC_DEGREE_MASK) * 90;
+
+	if (raw_value & ROCKCHIP_MMC_DELAY_SEL) {
+		/* degrees/delaynum * 10000 */
+		unsigned long factor = (ROCKCHIP_MMC_DELAY_ELEMENT_PSEC / 10) *
+					36 * (rate / 1000000);
+
+		delay_num = (raw_value & ROCKCHIP_MMC_DELAYNUM_MASK);
+		delay_num >>= ROCKCHIP_MMC_DELAYNUM_OFFSET;
+		degrees += DIV_ROUND_CLOSEST(delay_num * factor, 10000);
+	}
+
+	return degrees % 360;
+}
+
+int rv1106_mmc_set_phase(struct clk *clk, u32 degrees)
+{
+	struct rv1106_grf_clk_priv *priv = dev_get_priv(clk->dev);
+	u8 nineties, remainder, delay_num;
+	u32 raw_value, delay;
+	ulong rate;
+
+	rate = rv1106_grfclk_get_rate(clk);
+	if (rate < 0)
+		return rate;
+
+	nineties = degrees / 90;
+	remainder = (degrees % 90);
+
+	/*
+	 * Convert to delay; do a little extra work to make sure we
+	 * don't overflow 32-bit / 64-bit numbers.
+	 */
+	delay = 10000000; /* PSECS_PER_SEC / 10000 / 10 */
+	delay *= remainder;
+	delay = DIV_ROUND_CLOSEST(delay, (rate / 1000) * 36 *
+				  (ROCKCHIP_MMC_DELAY_ELEMENT_PSEC / 10));
+
+	delay_num = (u8)min_t(u32, delay, 255);
+
+	raw_value = delay_num ? ROCKCHIP_MMC_DELAY_SEL : 0;
+	raw_value |= delay_num << ROCKCHIP_MMC_DELAYNUM_OFFSET;
+	raw_value |= nineties;
+
+	raw_value <<= 1;
+	if (clk->id == SCLK_EMMC_SAMPLE)
+		writel(raw_value | 0xffff0000, &priv->grf->emmc_con1);
+	else if (clk->id == SCLK_SDMMC_SAMPLE)
+		writel(raw_value | 0xffff0000, &priv->grf->sdmmc_con1);
+	else if (clk->id == SCLK_SDIO_SAMPLE)
+		writel(raw_value | 0xffff0000, &priv->grf->sdio_con1);
+
+	debug("mmc set_phase(%d) delay_nums=%u reg=%#x actual_degrees=%d\n",
+	      degrees, delay_num, raw_value, rv1106_mmc_get_phase(clk));
+
+	return 0;
+}
+
+static int rv1106_grfclk_get_phase(struct clk *clk)
+{
+	int ret;
+
+	debug("%s %ld\n", __func__, clk->id);
+	switch (clk->id) {
+	case SCLK_EMMC_SAMPLE:
+	case SCLK_SDMMC_SAMPLE:
+	case SCLK_SDIO_SAMPLE:
+		ret = rv1106_mmc_get_phase(clk);
+		break;
+	default:
+		return -ENOENT;
+	}
+	return ret;
+}
+
+static int rv1106_grfclk_set_phase(struct clk *clk, int degrees)
+{
+	int ret;
+
+	debug("%s %ld\n", __func__, clk->id);
+	switch (clk->id) {
+	case SCLK_EMMC_SAMPLE:
+	case SCLK_SDMMC_SAMPLE:
+	case SCLK_SDIO_SAMPLE:
+		ret = rv1106_mmc_set_phase(clk, degrees);
+		break;
+	default:
+		return -ENOENT;
+	}
+
+	return ret;
+}
+
+static struct clk_ops rv1106_grfclk_ops = {
+	.get_rate = rv1106_grfclk_get_rate,
+	.get_phase = rv1106_grfclk_get_phase,
+	.set_phase = rv1106_grfclk_set_phase,
+};
+
+static int rv1106_grfclk_probe(struct udevice *dev)
+{
+	struct rv1106_grf_clk_priv *priv = dev_get_priv(dev);
+
+	priv->grf = syscon_get_first_range(ROCKCHIP_SYSCON_GRF);
+	if (IS_ERR(priv->grf))
+		return PTR_ERR(priv->grf);
+
+	return 0;
+}
+
+static int rv1106_grfclk_ofdata_to_platdata(struct udevice *dev)
+{
+	return 0;
+}
+
+static int rv1106_grfclk_bind(struct udevice *dev)
+{
+	return 0;
+}
+
+static const struct udevice_id rv1106_grfclk_ids[] = {
+	{ .compatible = "rockchip,rv1106-grf-cru" },
+	{ }
+};
+
+U_BOOT_DRIVER(rockchip_rv1106_grf_cru) = {
+	.name		= "rockchip_rv1106_grf_cru",
+	.id		= UCLASS_CLK,
+	.of_match	= rv1106_grfclk_ids,
+	.priv_auto_alloc_size = sizeof(struct rv1106_grf_clk_priv),
+	.ofdata_to_platdata = rv1106_grfclk_ofdata_to_platdata,
+	.ops		= &rv1106_grfclk_ops,
+	.bind		= rv1106_grfclk_bind,
+	.probe		= rv1106_grfclk_probe,
 };
 
 #ifndef CONFIG_SPL_BUILD

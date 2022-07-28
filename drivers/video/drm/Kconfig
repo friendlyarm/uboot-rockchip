@@ -20,6 +20,30 @@ config DRM_DP_HELPER
 	bool
 	depends on DRM_ROCKCHIP
 
+config DRM_MAXIM_MAX96745
+	bool "Maxim max96745 GMSL2 Serializer"
+	depends on DRM_ROCKCHIP
+	select I2C_MUX_MAX96745
+	select PINCTRL_MAX96745
+	help
+	  Driver for Maxim MAX96745 GMSL2 Serializer with eDP1.4a/DP1.4 Input.
+
+config DRM_MAXIM_MAX96752F
+	bool "Maxim max96752F GMSL2 Deserializer"
+	depends on DRM_ROCKCHIP
+	select I2C_MUX_MAX96752F
+	select PINCTRL_MAX96752F
+	select GPIO_MAX96752F
+	help
+	  Driver for Maxim MAX96752F GMSL2 Deserializer with Dual LVDS Output.
+
+config DRM_MAXIM_MAX96755F
+	bool "Maxim max96755F GMSL2 Serializer"
+	depends on DRM_ROCKCHIP
+	select I2C_MUX_MAX96755F
+	help
+	  Driver for Maxim MAX96755F GMSL2 Serializer with MIPI-DSI Input.
+
 config DRM_ROCKCHIP_PANEL
 	bool "Rockchip Panel Support"
 	depends on DRM_ROCKCHIP
@@ -82,6 +106,10 @@ config DRM_MIPI_DSI
 	bool
 	depends on DRM_ROCKCHIP
 
+config DRM_DSC
+	bool
+	depends on DRM_ROCKCHIP
+
 config DRM_ROCKCHIP_DW_MIPI_DSI
 	tristate "Rockchip specific extensions for Synopsys DW MIPI DSI"
 	depends on DRM_ROCKCHIP
@@ -97,6 +125,7 @@ config DRM_ROCKCHIP_DW_MIPI_DSI2
 	tristate "Rockchip specific extensions for Synopsys DW MIPI DSI2"
 	depends on DRM_ROCKCHIP
 	select DRM_MIPI_DSI
+	select DRM_DSC
 	select DRM_ROCKCHIP_PANEL
 	help
 	 This selects support for Rockchip SoC specific extensions
@@ -169,6 +198,7 @@ config DRM_ROCKCHIP_SAMSUNG_MIPI_DCPHY
 config PHY_ROCKCHIP_SAMSUNG_HDPTX_HDMI
 	bool "Rockchip Samsung HDMI/DP Combo PHY HDMI driver"
 	depends on DRM_ROCKCHIP
+	select LIB_RATIONAL
 	help
 	  Support for Rockchip HDMI/DP Combo PHY HDMI with Samsung
 	  IP block.

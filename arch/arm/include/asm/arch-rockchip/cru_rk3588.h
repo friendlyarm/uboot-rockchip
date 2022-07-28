@@ -11,11 +11,12 @@
 #define KHz		1000
 #define OSC_HZ		(24 * MHz)
 
-#define LPLL_HZ		(1200 * MHz)
+#define CPU_PVTPLL_HZ	(1008 * MHz)
+#define LPLL_HZ		(816 * MHz)
 #define GPLL_HZ		(1188 * MHz)
 #define CPLL_HZ		(1500 * MHz)
 #define NPLL_HZ         (850 * MHz)
-#define PPLL_HZ		(100 * MHz)
+#define PPLL_HZ		(1100 * MHz)
 
 /* RK3588 pll id */
 enum rk3588_pll_id {
@@ -337,7 +338,7 @@ enum {
 	ACLK_VOP_LOW_ROOT_SEL_100M,
 	ACLK_VOP_LOW_ROOT_SEL_24M,
 	ACLK_VOP_ROOT_SEL_SHIFT			= 5,
-	ACLK_VOP_ROOT_SEL_MASK			= 3 << ACLK_VOP_ROOT_SEL_SHIFT,
+	ACLK_VOP_ROOT_SEL_MASK			= 7 << ACLK_VOP_ROOT_SEL_SHIFT,
 	ACLK_VOP_ROOT_SEL_GPLL			= 0,
 	ACLK_VOP_ROOT_SEL_CPLL,
 	ACLK_VOP_ROOT_SEL_AUPLL,

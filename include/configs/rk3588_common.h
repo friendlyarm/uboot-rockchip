@@ -53,6 +53,10 @@
 
 /*
  * decompressed kernel:  4M ~ 84M
+ *	Why not start from 2M ? if kernel < 5.10 in Android image,
+ *	the image header will use the 0x180000~0x200000, which is
+ *	overlap with share memory region 0x100000~0x200000.
+ *
  * compressed kernel:   84M ~ 131M
  */
 #define ENV_MEM_LAYOUT_SETTINGS \
@@ -66,6 +70,7 @@
 #include <config_distro_bootcmd.h>
 
 #define CONFIG_EXTRA_ENV_SETTINGS \
+	BOOTENV_SHARED_MTD	\
 	ENV_MEM_LAYOUT_SETTINGS \
 	"partitions=" PARTS_RKIMG \
 	ROCKCHIP_DEVICE_SETTINGS \

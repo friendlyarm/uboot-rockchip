@@ -13,6 +13,7 @@
 #include <syscon.h>
 #include <asm/io.h>
 #include <linux/bitfield.h>
+#include <linux/rational.h>
 #include <linux/iopoll.h>
 #include <asm/arch/clock.h>
 #include <dm/lists.h>
@@ -979,11 +980,83 @@ static int hdptx_post_power_up(struct rockchip_hdptx_phy *hdptx)
 	return 0;
 }
 
+static bool hdptx_phy_clk_pll_calc(unsigned int data_rate,
+				   struct ropll_config *cfg)
+{
+	unsigned int fref = 24000;
+	unsigned int sdc;
+	unsigned int fout = data_rate / 2;
+	unsigned int fvco;
+	u32 mdiv, sdiv, n = 8;
+	unsigned long k = 0, lc, k_sub, lc_sub;
+
+	for (sdiv = 1; sdiv <= 16; sdiv++) {
+		if (sdiv % 2 && sdiv != 1)
+			continue;
+
+		fvco = fout * sdiv;
+
+		if (fvco < 2000000 || fvco > 4000000)
+			continue;
+
+		mdiv = DIV_ROUND_UP(fvco, fref);
+		if (mdiv < 20 || mdiv > 255)
+			continue;
+
+		if (fref * mdiv - fvco) {
+			for (sdc = 264000; sdc <= 750000; sdc += fref)
+				if (sdc * n > fref * mdiv)
+					break;
+
+			if (sdc > 750000)
+				continue;
+
+			rational_best_approximation(fref * mdiv - fvco,
+						    sdc / 16,
+						    GENMASK(6, 0),
+						    GENMASK(7, 0),
+						    &k, &lc);
+
+			rational_best_approximation(sdc * n - fref * mdiv,
+						    sdc,
+						    GENMASK(6, 0),
+						    GENMASK(7, 0),
+						    &k_sub, &lc_sub);
+		}
+
+		break;
+	}
+
+	if (sdiv > 16)
+		return false;
+
+	if (cfg) {
+		cfg->pms_mdiv = mdiv;
+		cfg->pms_mdiv_afc = mdiv;
+		cfg->pms_pdiv = 1;
+		cfg->pms_refdiv = 1;
+		cfg->pms_sdiv = sdiv - 1;
+
+		cfg->sdm_en = k > 0 ? 1 : 0;
+		if (cfg->sdm_en) {
+			cfg->sdm_deno = lc;
+			cfg->sdm_num_sign = 1;
+			cfg->sdm_num = k;
+			cfg->sdc_n = n - 3;
+			cfg->sdc_num = k_sub;
+			cfg->sdc_deno = lc_sub;
+		}
+	}
+
+	return true;
+}
+
 static int hdptx_ropll_cmn_config(struct rockchip_hdptx_phy *hdptx, unsigned long bit_rate)
 {
 	int bus_width = hdptx->bus_width;
 	u8 color_depth = (bus_width & COLOR_DEPTH_MASK) ? 1 : 0;
 	struct ropll_config *cfg = ropll_tmds_cfg;
+	struct ropll_config rc = {0};
 
 	printf("%s bus_width:%x rate:%lu\n", __func__, bus_width, bit_rate);
 	hdptx->rate = bit_rate * 100;
@@ -993,9 +1066,20 @@ static int hdptx_ropll_cmn_config(struct rockchip_hdptx_phy *hdptx, unsigned lon
 			break;
 
 	if (cfg->bit_rate == ~0) {
-		dev_err(hdptx->dev, "%s can't find pll cfg\n", __func__);
-		return -EINVAL;
+		if (hdptx_phy_clk_pll_calc(bit_rate, &rc)) {
+			cfg = &rc;
+		} else {
+			dev_err(hdptx->dev, "%s can't find pll cfg\n", __func__);
+			return -EINVAL;
+		}
 	}
+
+	dev_dbg(hdptx->dev, "mdiv=%u, sdiv=%u\n",
+		cfg->pms_mdiv, cfg->pms_sdiv + 1);
+	dev_dbg(hdptx->dev, "sdm_en=%u, k_sign=%u, k=%u, lc=%u",
+		cfg->sdm_en, cfg->sdm_num_sign, cfg->sdm_num, cfg->sdm_deno);
+	dev_dbg(hdptx->dev, "n=%u, k_sub=%u, lc_sub=%u\n",
+		cfg->sdc_n + 3, cfg->sdc_num, cfg->sdc_deno);
 
 	hdptx_pre_power_up(hdptx);
 
@@ -1156,6 +1240,10 @@ static int hdptx_ropll_cmn_config(struct rockchip_hdptx_phy *hdptx, unsigned lon
 static int hdptx_ropll_tmds_mode_config(struct rockchip_hdptx_phy *hdptx, u32 rate)
 {
 	u32 bit_rate = rate & DATA_RATE_MASK;
+	u8 color_depth = (rate & COLOR_DEPTH_MASK) ? 1 : 0;
+
+	if (color_depth)
+		bit_rate = bit_rate * 5 / 4;
 
 	if (!hdptx->pll_locked) {
 		int ret;
@@ -1726,7 +1814,7 @@ static long rockchip_hdptx_phy_clk_round_rate(struct rockchip_phy *phy,
 		if (bit_rate == cfg->bit_rate)
 			break;
 
-	if (cfg->bit_rate == ~0)
+	if (cfg->bit_rate == ~0 && !hdptx_phy_clk_pll_calc(bit_rate, NULL))
 		return -EINVAL;
 
 	return rate;
@@ -1776,8 +1864,7 @@ static int rockchip_hdptx_phy_hdmi_probe(struct udevice *dev)
 {
 	struct rockchip_hdptx_phy *hdptx = dev_get_priv(dev);
 	struct rockchip_phy *phy;
-	struct udevice *syscon, *sys_child;
-	char name[30], *str;
+	struct udevice *syscon;
 	int ret;
 
 	hdptx->id = of_alias_get_id(ofnode_to_np(dev->node), "hdptxhdmi");
@@ -1849,12 +1936,32 @@ static int rockchip_hdptx_phy_hdmi_probe(struct udevice *dev)
 		return ret;
 	}
 
-	sprintf(name, "hdmiphypll_clk%d", hdptx->id);
+	return 0;
+}
+
+static int rockchip_hdptx_phy_hdmi_bind(struct udevice *parent)
+{
+	struct udevice *child;
+	ofnode subnode;
+	char name[30], *str;
+	int id, ret;
+
+	id = of_alias_get_id(ofnode_to_np(parent->node), "hdptxhdmi");
+	if (id < 0)
+		id = 0;
+
+	sprintf(name, "hdmiphypll_clk%d", id);
 	str = strdup(name);
-	/* The phy pll driver does not have a device node, so bind it here */
-	ret = device_bind_driver(dev, "clk_hdptx", str, &sys_child);
+
+	subnode = ofnode_find_subnode(parent->node, "clk-port");
+	if (!ofnode_valid(subnode)) {
+		printf("%s: no subnode for %s", __func__, parent->name);
+		return -ENXIO;
+	}
+
+	ret = device_bind_driver_to_node(parent, "clk_hdptx", str, subnode, &child);
 	if (ret) {
-		dev_err(dev, "Warning: No phy pll driver: ret=%d\n", ret);
+		printf("%s: clk-port cannot bind its driver\n", __func__);
 		return ret;
 	}
 
@@ -1873,6 +1980,7 @@ U_BOOT_DRIVER(rockchip_hdptx_phy_hdmi) = {
 	.id		= UCLASS_PHY,
 	.of_match	= rockchip_hdptx_phy_hdmi_ids,
 	.probe		= rockchip_hdptx_phy_hdmi_probe,
+	.bind		= rockchip_hdptx_phy_hdmi_bind,
 	.priv_auto_alloc_size = sizeof(struct rockchip_hdptx_phy),
 };
 

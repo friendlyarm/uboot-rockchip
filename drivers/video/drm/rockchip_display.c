@@ -408,7 +408,7 @@ int drm_mode_vrefresh(const struct drm_display_mode *mode)
 	return refresh;
 }
 
-static int display_get_detail_timing(ofnode node, struct drm_display_mode *mode)
+int rockchip_ofnode_get_display_mode(ofnode node, struct drm_display_mode *mode)
 {
 	int hactive, vactive, pixelclock;
 	int hfront_porch, hback_porch, hsync_len;
@@ -462,6 +462,7 @@ static int display_get_detail_timing(ofnode node, struct drm_display_mode *mode)
 
 	mode->clock = pixelclock / 1000;
 	mode->flags = flags;
+	mode->vrefresh = drm_mode_vrefresh(mode);
 
 	return 0;
 }
@@ -470,7 +471,7 @@ static int display_get_force_timing_from_dts(ofnode node, struct drm_display_mod
 {
 	int ret = 0;
 
-	ret = display_get_detail_timing(node, mode);
+	ret = rockchip_ofnode_get_display_mode(node, mode);
 
 	if (ret) {
 		mode->clock = 74250;
@@ -521,7 +522,7 @@ static int display_get_timing_from_dts(struct panel_state *panel_state,
 		return -ENXIO;
 	}
 
-	display_get_detail_timing(timing, mode);
+	rockchip_ofnode_get_display_mode(timing, mode);
 
 	return 0;
 }
@@ -822,7 +823,10 @@ static int display_init(struct display_state *state)
 	}
 
 	if (panel_state->panel)
-		rockchip_panel_init(panel_state->panel);
+		rockchip_panel_init(panel_state->panel, state);
+
+	if (conn_state->bridge)
+		rockchip_bridge_init(conn_state->bridge, state);
 
 	if (conn_funcs->init) {
 		ret = conn_funcs->init(state);
@@ -1098,36 +1102,36 @@ static int display_logo(struct display_state *state)
 	}
 	hdisplay = conn_state->mode.hdisplay;
 	vdisplay = conn_state->mode.vdisplay;
-	crtc_state->src_w = logo->width;
-	crtc_state->src_h = logo->height;
-	crtc_state->src_x = 0;
-	crtc_state->src_y = 0;
+	crtc_state->src_rect.w = logo->width;
+	crtc_state->src_rect.h = logo->height;
+	crtc_state->src_rect.x = 0;
+	crtc_state->src_rect.y = 0;
 	crtc_state->ymirror = logo->ymirror;
 	crtc_state->rb_swap = 0;
 
 	crtc_state->dma_addr = (u32)(unsigned long)logo->mem + logo->offset;
-	crtc_state->xvir = ALIGN(crtc_state->src_w * logo->bpp, 32) >> 5;
+	crtc_state->xvir = ALIGN(crtc_state->src_rect.w * logo->bpp, 32) >> 5;
 
 	if (logo->mode == ROCKCHIP_DISPLAY_FULLSCREEN) {
-		crtc_state->crtc_x = 0;
-		crtc_state->crtc_y = 0;
-		crtc_state->crtc_w = hdisplay;
-		crtc_state->crtc_h = vdisplay;
+		crtc_state->crtc_rect.x = 0;
+		crtc_state->crtc_rect.y = 0;
+		crtc_state->crtc_rect.w = hdisplay;
+		crtc_state->crtc_rect.h = vdisplay;
 	} else {
-		if (crtc_state->src_w >= hdisplay) {
-			crtc_state->crtc_x = 0;
-			crtc_state->crtc_w = hdisplay;
+		if (crtc_state->src_rect.w >= hdisplay) {
+			crtc_state->crtc_rect.x = 0;
+			crtc_state->crtc_rect.w = hdisplay;
 		} else {
-			crtc_state->crtc_x = (hdisplay - crtc_state->src_w) / 2;
-			crtc_state->crtc_w = crtc_state->src_w;
+			crtc_state->crtc_rect.x = (hdisplay - crtc_state->src_rect.w) / 2;
+			crtc_state->crtc_rect.w = crtc_state->src_rect.w;
 		}
 
-		if (crtc_state->src_h >= vdisplay) {
-			crtc_state->crtc_y = 0;
-			crtc_state->crtc_h = vdisplay;
+		if (crtc_state->src_rect.h >= vdisplay) {
+			crtc_state->crtc_rect.y = 0;
+			crtc_state->crtc_rect.h = vdisplay;
 		} else {
-			crtc_state->crtc_y = (vdisplay - crtc_state->src_h) / 2;
-			crtc_state->crtc_h = crtc_state->src_h;
+			crtc_state->crtc_rect.y = (vdisplay - crtc_state->src_rect.h) / 2;
+			crtc_state->crtc_rect.h = crtc_state->src_rect.h;
 		}
 	}
 
@@ -1494,59 +1498,71 @@ found:
 	return (struct rockchip_panel *)dev_get_driver_data(panel_dev);
 }
 
-static struct rockchip_bridge *rockchip_of_find_bridge(struct udevice *conn_dev)
+static struct rockchip_bridge *rockchip_ofnode_find_bridge(ofnode node)
 {
-	ofnode node, ports, port, ep;
 	struct udevice *dev;
 	int ret;
 
-	ports = dev_read_subnode(conn_dev, "ports");
+	ret = uclass_get_device_by_ofnode(UCLASS_VIDEO_BRIDGE, node, &dev);
+	if (ret)
+		return ERR_PTR(ret);
+
+	return (struct rockchip_bridge *)dev_get_driver_data(dev);
+}
+
+static int rockchip_of_find_bridge(ofnode node, struct rockchip_bridge **bridge)
+{
+	ofnode remote, ports, port, ep;
+	int ret = -EPROBE_DEFER;
+	u32 reg;
+
+	if (!bridge)
+		return -EINVAL;
+
+	ports = ofnode_find_subnode(node, "ports");
 	if (!ofnode_valid(ports))
-		return NULL;
+		return -ENODEV;
 
 	ofnode_for_each_subnode(port, ports) {
-		u32 reg;
-
 		if (ofnode_read_u32(port, "reg", &reg))
 			continue;
 
-		if (reg != PORT_DIR_OUT)
-			continue;
-
-		ofnode_for_each_subnode(ep, port) {
-			ofnode _ep, _port, _ports;
-			uint phandle;
-
-			if (ofnode_read_u32(ep, "remote-endpoint", &phandle))
-				continue;
-
-			_ep = ofnode_get_by_phandle(phandle);
-			if (!ofnode_valid(_ep))
-				continue;
-
-			_port = ofnode_get_parent(_ep);
-			if (!ofnode_valid(_port))
-				continue;
-
-			_ports = ofnode_get_parent(_port);
-			if (!ofnode_valid(_ports))
-				continue;
-
-			node = ofnode_get_parent(_ports);
-			if (!ofnode_valid(node))
-				continue;
-
-			ret = uclass_get_device_by_ofnode(UCLASS_VIDEO_BRIDGE,
-							  node, &dev);
-			if (!ret)
-				goto found;
-		}
+		if (reg == PORT_DIR_OUT)
+			break;
 	}
 
-	return NULL;
+	if (reg != PORT_DIR_OUT)
+		return -ENODEV;
 
-found:
-	return (struct rockchip_bridge *)dev_get_driver_data(dev);
+	ofnode_for_each_subnode(ep, port) {
+		ofnode _ep, _port, _ports;
+		uint phandle;
+
+		if (ofnode_read_u32(ep, "remote-endpoint", &phandle))
+			continue;
+
+		_ep = ofnode_get_by_phandle(phandle);
+		if (!ofnode_valid(_ep))
+			continue;
+
+		_port = ofnode_get_parent(_ep);
+		if (!ofnode_valid(_port))
+			continue;
+
+		_ports = ofnode_get_parent(_port);
+		if (!ofnode_valid(_ports))
+			continue;
+
+		remote = ofnode_get_parent(_ports);
+		if (ofnode_valid(remote))
+			break;
+	}
+
+	*bridge = rockchip_ofnode_find_bridge(remote);
+	if (!IS_ERR(*bridge))
+		ret = 0;
+
+	return ret;
 }
 
 static struct udevice *rockchip_of_find_connector(ofnode endpoint)
@@ -1693,7 +1709,7 @@ static int rockchip_display_probe(struct udevice *dev)
 	struct rockchip_crtc *crtc;
 	const struct rockchip_connector *conn;
 	struct rockchip_panel *panel = NULL;
-	struct rockchip_bridge *bridge = NULL;
+	struct rockchip_bridge *bridge = NULL, *b = NULL;
 	struct rockchip_phy *phy = NULL;
 	struct display_state *s;
 	const char *name;
@@ -1779,11 +1795,28 @@ static int rockchip_display_probe(struct udevice *dev)
 
 		phy = rockchip_of_find_phy(conn_dev);
 
-		bridge = rockchip_of_find_bridge(conn_dev);
-		if (bridge)
-			panel = rockchip_of_find_panel(bridge->dev);
-		else
-			panel = rockchip_of_find_panel(conn_dev);
+		panel = rockchip_of_find_panel(conn_dev);
+		if (!panel) {
+			/* No panel found yet, check for a bridge next. */
+			ret = rockchip_of_find_bridge(dev_ofnode(conn_dev), &bridge);
+			if (ret && ret != -ENODEV)
+				continue;
+
+			b = bridge;
+			while (b) {
+				struct rockchip_bridge *next_bridge = NULL;
+
+				ret = rockchip_of_find_bridge(dev_ofnode(b->dev), &next_bridge);
+				if (ret)
+					break;
+
+				b->next_bridge = next_bridge;
+				b = next_bridge;
+			}
+
+			if (b)
+				panel = rockchip_of_find_panel(b->dev);
+		}
 
 		s = malloc(sizeof(*s));
 		if (!s)
@@ -1854,15 +1887,14 @@ static int rockchip_display_probe(struct udevice *dev)
 					cursor_plane = ofnode_read_u32_default(vp_node, "cursor-win-id", -1);
 					s->crtc_state.crtc->vps[vp_id].cursor_plane = cursor_plane;
 					if (ret) {
-						int primary_plane = 0;
-
 						s->crtc_state.crtc->vps[vp_id].plane_mask = ret;
 						s->crtc_state.crtc->assign_plane |= true;
-						primary_plane = ofnode_read_u32_default(vp_node, "rockchip,primary-plane", 0);
+						s->crtc_state.crtc->vps[vp_id].primary_plane_id =
+							ofnode_read_u32_default(vp_node, "rockchip,primary-plane", -1);
 						printf("get vp%d plane mask:0x%x, primary id:%d, cursor_plane:%d, from dts\n",
 						       vp_id,
 						       s->crtc_state.crtc->vps[vp_id].plane_mask,
-						       primary_plane,
+						       s->crtc_state.crtc->vps[vp_id].primary_plane_id,
 						       cursor_plane);
 					}
 
@@ -1875,12 +1907,6 @@ static int rockchip_display_probe(struct udevice *dev)
 				get_plane_mask_from_dts = true;
 			}
 		}
-
-		if (bridge)
-			bridge->state = s;
-
-		if (panel)
-			panel->state = s;
 
 		get_crtc_mcu_mode(&s->crtc_state);
 

@@ -94,6 +94,9 @@ int g_dnl_bind_fixup(struct usb_device_descriptor *dev, const char *name)
 		/* Fix to Rockchip's VID and PID for DFU */
 		dev->idVendor  = cpu_to_le16(0x2207);
 		dev->idProduct = cpu_to_le16(0x0107);
+	} else if (!strncmp(name, "usb_dnl_ums", 11)) {
+		dev->idVendor  = cpu_to_le16(0x2207);
+		dev->idProduct = cpu_to_le16(0x0010);
 	}
 
 	return 0;
@@ -248,7 +251,7 @@ static int rkusb_do_read_flash_info(struct fsg_common *common,
 	if (desc->if_type == IF_TYPE_MTD && desc->devnum == BLK_MTD_SPI_NOR) {
 		/* RV1126/RK3308 mtd spinor keep the former upgrade mode */
 #if !defined(CONFIG_ROCKCHIP_RV1126) && !defined(CONFIG_ROCKCHIP_RK3308)
-		finfo.block_size = 0x100; /* Aligned to 128KB */
+		finfo.block_size = 0x80; /* Aligned to 64KB */
 #else
 		finfo.block_size = ROCKCHIP_FLASH_BLOCK_SIZE;
 #endif
@@ -448,6 +451,16 @@ static int rkusb_do_vs_write(struct fsg_common *common)
 			data  = bh->buf + sizeof(struct vendor_item);
 
 			if (!type) {
+				if (vhead->id == HDCP_14_HDMI_ID ||
+				    vhead->id == HDCP_14_HDMIRX_ID ||
+				    vhead->id == HDCP_14_DP_ID) {
+					rc = vendor_handle_hdcp(vhead);
+					if (rc < 0) {
+						curlun->sense_data = SS_WRITE_ERROR;
+						return -EIO;
+					}
+				}
+
 				/* Vendor storage */
 				rc = vendor_storage_write(vhead->id,
 							  (char __user *)data,

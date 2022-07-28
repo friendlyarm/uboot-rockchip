@@ -214,6 +214,7 @@ static int rockchip_panel_send_dsi_cmds(struct mipi_dsi_device *dsi,
 					struct rockchip_panel_cmds *cmds)
 {
 	int i, ret;
+	struct drm_dsc_picture_parameter_set *pps = NULL;
 
 	if (!cmds)
 		return -EINVAL;
@@ -223,6 +224,9 @@ static int rockchip_panel_send_dsi_cmds(struct mipi_dsi_device *dsi,
 		const struct rockchip_cmd_header *header = &desc->header;
 
 		switch (header->data_type) {
+		case MIPI_DSI_COMPRESSION_MODE:
+			ret = mipi_dsi_compression_mode(dsi, desc->payload[0]);
+			break;
 		case MIPI_DSI_GENERIC_SHORT_WRITE_0_PARAM:
 		case MIPI_DSI_GENERIC_SHORT_WRITE_1_PARAM:
 		case MIPI_DSI_GENERIC_SHORT_WRITE_2_PARAM:
@@ -235,6 +239,15 @@ static int rockchip_panel_send_dsi_cmds(struct mipi_dsi_device *dsi,
 		case MIPI_DSI_DCS_LONG_WRITE:
 			ret = mipi_dsi_dcs_write_buffer(dsi, desc->payload,
 							header->payload_length);
+			break;
+		case MIPI_DSI_PICTURE_PARAMETER_SET:
+			pps = kzalloc(sizeof(*pps), GFP_KERNEL);
+			if (!pps)
+				return -ENOMEM;
+
+			memcpy(pps, desc->payload, header->payload_length);
+			ret = mipi_dsi_picture_parameter_set(dsi, pps);
+			kfree(pps);
 			break;
 		default:
 			printf("unsupport command data type: %d\n",
@@ -373,16 +386,7 @@ static void panel_simple_disable(struct rockchip_panel *panel)
 	priv->enabled = false;
 }
 
-static void panel_simple_init(struct rockchip_panel *panel)
-{
-	struct display_state *state = panel->state;
-	struct connector_state *conn_state = &state->conn_state;
-
-	conn_state->bus_format = panel->bus_format;
-}
-
 static const struct rockchip_panel_funcs rockchip_panel_funcs = {
-	.init = panel_simple_init,
 	.prepare = panel_simple_prepare,
 	.unprepare = panel_simple_unprepare,
 	.enable = panel_simple_enable,
