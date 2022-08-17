@@ -212,6 +212,7 @@ static void panel_pwm_status_init(void)
 /* Supported panels and dpi for nanopi4 series */
 static char *panels[] = {
 	"HD702E,213dpi",
+	"HD703E,213dpi",
 	"HD101B,180dpi",
 	"G101E,180dpi",
 	"S701,160dpi",
