@@ -88,6 +88,8 @@ static int __phandle_gpio_to_irq(u32 gpio_phandle, u32 offset)
 	int irq, node;
 	int i, bank;
 	bool found = false;
+	void *regbase = NULL;
+	char *sep;
 
 	node = fdt_node_offset_by_phandle(blob, gpio_phandle);
 	if (node < 0) {
@@ -99,8 +101,16 @@ static int __phandle_gpio_to_irq(u32 gpio_phandle, u32 offset)
 	if (!gpio_name)
 		return EINVAL_GPIO;
 
+	sep = strchr(gpio_name, '@');
+	if (sep) {
+		regbase = (void *)strtoul(sep + 1, NULL, 16);
+	}
+
 	for (bank = 0; bank < GPIO_BANK_NUM; bank++) {
 		if (strstr(gpio_name, gpio_banks[bank].name)) {
+			found = true;
+			break;
+		} else if (regbase && regbase == gpio_banks[bank].regbase) {
 			found = true;
 			break;
 		}
