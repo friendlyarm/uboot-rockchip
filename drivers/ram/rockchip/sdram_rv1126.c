@@ -98,7 +98,7 @@ struct rv1126_sdram_params sdram_configs[] = {
 	#include "sdram_inc/rv1126/sdram-rv1126-lpddr3-detect-924.inc"
 	#include "sdram_inc/rv1126/sdram-rv1126-lpddr3-detect-1056.inc"
 };
-#elif (CONFIG_ROCKCHIP_TPL_INIT_DRAM_TYPE == 7)
+#elif (CONFIG_ROCKCHIP_TPL_INIT_DRAM_TYPE == 7) || (CONFIG_ROCKCHIP_TPL_INIT_DRAM_TYPE == 8)
 struct rv1126_sdram_params sdram_configs[] = {
 	#include "sdram_inc/rv1126/sdram-rv1126-lpddr4-detect-328.inc"
 	#include "sdram_inc/rv1126/sdram-rv1126-lpddr4-detect-396.inc"
@@ -1248,10 +1248,16 @@ static void phy_cfg(struct dram_info *dram,
 	clrbits_le32(PHY_REG(phy_base, 0x62), BIT(5));
 	dq_map = readl(PHY_REG(phy_base, 0x4f));
 	for (i = 0; i < 4; i++) {
-		if (((dq_map >> (i * 2)) & 0x3) == 0)
+		if (((dq_map >> (i * 2)) & 0x3) == 0) {
 			byte0 = i;
-		if (((dq_map >> (i * 2)) & 0x3) == 1)
+			break;
+		}
+	}
+	for (i = 0; i < 4; i++) {
+		if (((dq_map >> (i * 2)) & 0x3) == 1) {
 			byte1 = i;
+			break;
+		}
 	}
 
 	tmp = readl(PHY_REG(phy_base, 0xf)) & (~PHY_DQ_WIDTH_MASK);
@@ -1291,12 +1297,10 @@ static int update_refresh_reg(struct dram_info *dram)
  * rank = 1: cs0
  * rank = 2: cs1
  */
-int read_mr(struct dram_info *dram, u32 rank, u32 mr_num, u32 dramtype)
+u32 read_mr(struct dram_info *dram, u32 rank, u32 mr_num, u32 dramtype)
 {
 	u32 ret;
 	u32 i, temp;
-	u32 dqmap;
-
 	void __iomem *pctl_base = dram->pctl;
 	struct sdram_head_info_index_v2 *index =
 		(struct sdram_head_info_index_v2 *)common_info;
@@ -1305,26 +1309,18 @@ int read_mr(struct dram_info *dram, u32 rank, u32 mr_num, u32 dramtype)
 	map_info = (struct dq_map_info *)((void *)common_info +
 		index->dq_map_index.offset * 4);
 
-	if (dramtype == LPDDR2)
-		dqmap = map_info->lp2_dq0_7_map;
-	else
-		dqmap = map_info->lp3_dq0_7_map;
-
 	pctl_read_mr(pctl_base, rank, mr_num);
 
-	ret = (readl(&dram->ddrgrf->ddr_grf_status[0]) & 0xff);
-
-	if (dramtype != LPDDR4) {
-		temp = 0;
-		for (i = 0; i < 8; i++) {
-			temp = temp | (((ret >> i) & 0x1) <<
-				       ((dqmap >> (i * 4)) & 0xf));
-		}
+	if (dramtype == LPDDR3) {
+		temp = (readl(&dram->ddrgrf->ddr_grf_status[0]) & 0xff);
+		ret = 0;
+		for (i = 0; i < 8; i++)
+			ret |= ((temp >> i) & 0x1) << ((map_info->lp3_dq0_7_map >> (i * 4)) & 0xf);
 	} else {
-		temp = (readl(&dram->ddrgrf->ddr_grf_status[1]) & 0xff);
+		ret = readl(&dram->ddrgrf->ddr_grf_status[1]) & 0xff;
 	}
 
-	return temp;
+	return ret;
 }
 
 /* before call this function autorefresh should be disabled */
@@ -2101,8 +2097,10 @@ static int high_freq_training(struct dram_info *dram,
 	if (dramtype == LPDDR4 || dramtype == LPDDR4X) {
 		min_val = 0xff;
 		for (j = 0; j < sdram_params->ch.cap_info.rank; j++)
-			for (i = 0; i < sdram_params->ch.cap_info.bw; i++)
-				min_val = MIN(wrlvl_result[j][i], min_val);
+			for (i = 0; i < ARRAY_SIZE(wrlvl_result[0]); i++) {
+				if ((byte_en & BIT(i)) != 0)
+					min_val = MIN(wrlvl_result[j][i], min_val);
+			}
 
 		if (min_val < 0) {
 			clk_skew = -min_val;
@@ -2385,7 +2383,7 @@ static void ddr_set_atags(struct dram_info *dram,
 	t_serial.id = 2;
 
 	atags_destroy();
-	atags_set_tag(ATAG_SERIAL,  &t_serial);
+	atags_set_tag(ATAG_SERIAL, &t_serial);
 
 	split = readl(&dram->ddrgrf->grf_ddrsplit_con);
 	memset(&t_ddrmem, 0, sizeof(struct tag_ddr_mem));
@@ -2413,11 +2411,13 @@ static void ddr_set_atags(struct dram_info *dram,
 		t_ddrmem.bank[1] = (u64)cs_cap[0] + (u64)cs_cap[1] - reduce_cap;
 	}
 
-	atags_set_tag(ATAG_DDR_MEM,  &t_ddrmem);
+	atags_set_tag(ATAG_DDR_MEM, &t_ddrmem);
 
 	memset(&t_socinfo, 0, sizeof(struct tag_soc_info));
-	t_socinfo.version = 0;
+	t_socinfo.version = 0x1;
 	t_socinfo.name = 0x1126;
+	t_socinfo.flags = SOC_FLAGS_TDBT;
+	atags_set_tag(ATAG_SOC_INFO, &t_socinfo);
 }
 
 static void print_ddr_info(struct rv1126_sdram_params *sdram_params)
@@ -2435,13 +2435,62 @@ static void print_ddr_info(struct rv1126_sdram_params *sdram_params)
 			     &sdram_params->base, split);
 }
 
+static int modify_ddr34_bw_byte_map(u8 rg_result, struct rv1126_sdram_params *sdram_params)
+{
+	struct sdram_head_info_index_v2 *index = (struct sdram_head_info_index_v2 *)common_info;
+	struct dq_map_info *map_info = (struct dq_map_info *)
+				       ((void *)common_info + index->dq_map_index.offset * 4);
+	struct sdram_cap_info *cap_info = &sdram_params->ch.cap_info;
+	u32 dramtype = sdram_params->base.dramtype;
+	u32 byte_map = 0;
+	u32 byte = 0;
+	u32 byte_map_shift;
+	int i;
+
+	if (dramtype == DDR3)
+		byte_map_shift = 24;
+	else if (dramtype == DDR4)
+		byte_map_shift = 0;
+	else
+		return -1;
+
+	for (i = 0; i < 4; i++) {
+		if ((rg_result & BIT(i)) == 0) {
+			byte_map |= byte << (i * 2);
+			byte++;
+		}
+	}
+	if (byte != 1 && byte != 2 && byte != 4) {
+		printascii("DTT result is abnormal: ");
+		printdec(byte);
+		printascii("byte\n");
+		return -1;
+	}
+	cap_info->bw = byte / 2;
+	for (i = 0; i < 4; i++) {
+		if ((rg_result & BIT(i)) != 0) {
+			byte_map |= byte << (i * 2);
+			byte++;
+		}
+	}
+
+	if ((u8)byte_map != (u8)(map_info->byte_map[0] >> byte_map_shift)) {
+		clrsetbits_le32(&map_info->byte_map[0],
+				0xff << byte_map_shift, byte_map << byte_map_shift);
+		pctl_remodify_sdram_params(&sdram_params->pctl_regs, cap_info, dramtype);
+		return 1;
+	}
+
+	return 0;
+}
+
 static int sdram_init_(struct dram_info *dram,
 		       struct rv1126_sdram_params *sdram_params, u32 post_init)
 {
 	void __iomem *pctl_base = dram->pctl;
 	void __iomem *phy_base = dram->phy;
 	u32 ddr4_vref;
-	u32 mr_tmp;
+	u32 mr_tmp, tmp;
 
 	rkclk_configure_ddr(dram, sdram_params);
 
@@ -2468,7 +2517,7 @@ static int sdram_init_(struct dram_info *dram,
 	}
 
 #ifdef CONFIG_ROCKCHIP_DRAM_EXTENDED_TEMP_SUPPORT
-	u32 tmp, trefi;
+	u32 trefi;
 
 	tmp = readl(pctl_base + DDR_PCTL2_RFSHTMG);
 	trefi = (tmp >> 16) & 0xfff;
@@ -2513,10 +2562,22 @@ static int sdram_init_(struct dram_info *dram,
 			      LPDDR4);
 	}
 
-	if (data_training(dram, 0, sdram_params, 0, READ_GATE_TRAINING) != 0) {
-		if (post_init != 0)
+	if (sdram_params->base.dramtype == DDR3 && post_init == 0)
+		setbits_le32(PHY_REG(phy_base, 0xf), 0xf);
+	tmp = data_training(dram, 0, sdram_params, 0, READ_GATE_TRAINING) & 0xf;
+
+	if (tmp != 0) {
+		if (post_init != 0) {
 			printascii("DTT cs0 error\n");
-		return -1;
+			return -1;
+		}
+		if (sdram_params->base.dramtype != DDR3 || tmp == 0xf)
+			return -1;
+	}
+
+	if (sdram_params->base.dramtype == DDR3 && post_init == 0) {
+		if (modify_ddr34_bw_byte_map((u8)tmp, sdram_params) != 0)
+			return -1;
 	}
 
 	if (sdram_params->base.dramtype == LPDDR4) {
@@ -2571,15 +2632,13 @@ static u64 dram_detect_cap(struct dram_info *dram,
 	u32 pwrctl;
 	u32 i, dq_map;
 	u32 byte1 = 0, byte0 = 0;
-	u32 tmp, byte;
-	struct sdram_head_info_index_v2 *index = (struct sdram_head_info_index_v2 *)common_info;
-	struct dq_map_info *map_info = (struct dq_map_info *)
-				       ((void *)common_info + index->dq_map_index.offset * 4);
 
-	cap_info->bw = dram_type == DDR3 ? 0 : 1;
 	if (dram_type != LPDDR4 && dram_type != LPDDR4X) {
 		if (dram_type != DDR4) {
-			coltmp = 12;
+			if (dram_type == DDR3)
+				coltmp = 11;
+			else
+				coltmp = 12;
 			bktmp = 3;
 			if (dram_type == LPDDR2)
 				rowtmp = 15;
@@ -2643,28 +2702,9 @@ static u64 dram_detect_cap(struct dram_info *dram,
 
 	setbits_le32(PHY_REG(phy_base, 0xf), 0xf);
 
-	tmp = data_training_rg(dram, 0, dram_type) & 0xf;
-
-	if (tmp == 0) {
-		cap_info->bw = 2;
-	} else {
-		if (dram_type == DDR3 || dram_type == DDR4) {
-			dq_map = 0;
-			byte = 0;
-			for (i = 0; i < 4; i++) {
-				if ((tmp & BIT(i)) == 0) {
-					dq_map |= byte << (i * 2);
-					byte++;
-				}
-			}
-			cap_info->bw = byte / 2;
-			for (i = 0; i < 4; i++) {
-				if ((tmp & BIT(i)) != 0) {
-					dq_map |= byte << (i * 2);
-					byte++;
-				}
-			}
-			clrsetbits_le32(&map_info->byte_map[0], 0xff << 24, dq_map << 24);
+	if (dram_type != DDR3) {
+		if ((data_training_rg(dram, 0, dram_type) & 0xf) == 0) {
+			cap_info->bw = 2;
 		} else {
 			dq_map = readl(PHY_REG(phy_base, 0x4f));
 			for (i = 0; i < 4; i++) {
@@ -2779,18 +2819,9 @@ static int sdram_init_detect(struct dram_info *dram,
 	u32 ret;
 	u32 sys_reg = 0;
 	u32 sys_reg3 = 0;
-	struct sdram_head_info_index_v2 *index =
-		(struct sdram_head_info_index_v2 *)common_info;
-	struct dq_map_info *map_info;
-
-	map_info = (struct dq_map_info *)((void *)common_info +
-		index->dq_map_index.offset * 4);
 
 	if (sdram_init_(dram, sdram_params, 0)) {
 		if (sdram_params->base.dramtype == DDR3) {
-			clrsetbits_le32(&map_info->byte_map[0], 0xff << 24,
-					((0x1 << 6) | (0x3 << 4) | (0x2 << 2) |
-					(0x0 << 0)) << 24);
 			if (sdram_init_(dram, sdram_params, 0))
 				return -1;
 		} else {
@@ -3557,7 +3588,7 @@ int sdram_init(void)
 
 	sdram_params = &sdram_configs[0];
 	#if (CONFIG_ROCKCHIP_TPL_INIT_DRAM_TYPE == 8)
-	for (j = 0; j < ARRAY_SIZE(sdram_configs); j++)
+	for (int j = 0; j < ARRAY_SIZE(sdram_configs); j++)
 		sdram_configs[j].base.dramtype = LPDDR4X;
 	#endif
 	if (sdram_params->base.dramtype == DDR3 ||

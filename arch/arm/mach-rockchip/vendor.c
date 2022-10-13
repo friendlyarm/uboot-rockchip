@@ -272,6 +272,11 @@ re_write:
 		if (s_flash_info.blk_offset >= s_flash_info.part_size)
 			s_flash_info.blk_offset = 0;
 		s_flash_info.page_offset = 0;
+		/*
+		 * The spi NOR driver only erase 4KB while write data, and here need to
+		 * erase one block for vendor storage request.
+		 */
+		blk_derase(dev_desc, s_flash_info.part_offset + s_flash_info.blk_offset, s_flash_info.blk_size);
 	}
 
 	dev_desc->op_flag |= BLK_MTD_CONT_WRITE;
@@ -312,6 +317,15 @@ static int vendor_ops(u8 *buffer, u32 addr, u32 n_sec, int write)
 		printf("%s: dev_desc is NULL!\n", __func__);
 		return -ENODEV;
 	}
+
+	if (dev_desc->if_type == IF_TYPE_NVME || dev_desc->if_type == IF_TYPE_SCSI) {
+		dev_desc = blk_get_devnum_by_type(IF_TYPE_MTD, BLK_MTD_SPI_NOR);
+		if (!dev_desc) {
+			printf("%s: dev_desc is NULL!\n", __func__);
+			return -ENODEV;
+		}
+	}
+
 	/* Get the offset address according to the device type */
 	switch (dev_desc->if_type) {
 	case IF_TYPE_MMC:
@@ -420,6 +434,14 @@ int vendor_storage_init(void)
 		printf("[Vendor ERROR]:Invalid boot device type(%d)\n",
 		       bootdev_type);
 		return -ENODEV;
+	}
+
+	if (dev_desc->if_type == IF_TYPE_NVME || dev_desc->if_type == IF_TYPE_SCSI) {
+		dev_desc = blk_get_devnum_by_type(IF_TYPE_MTD, BLK_MTD_SPI_NOR);
+		if (!dev_desc) {
+			printf("%s: dev_desc is NULL!\n", __func__);
+			return -ENODEV;
+		}
 	}
 
 	switch (dev_desc->if_type) {

@@ -6,15 +6,17 @@
 #include "rockchip_bridge.h"
 
 void rockchip_bridge_init(struct rockchip_bridge *bridge,
+			  struct rockchip_connector *conn,
 			  struct display_state *state)
 {
 	if (!bridge)
 		return;
 
+	bridge->conn = conn;
 	bridge->state = state;
 
 	if (bridge->next_bridge)
-		rockchip_bridge_init(bridge->next_bridge, state);
+		rockchip_bridge_init(bridge->next_bridge, conn, state);
 }
 
 void rockchip_bridge_pre_enable(struct rockchip_bridge *bridge)
@@ -76,4 +78,16 @@ void rockchip_bridge_mode_set(struct rockchip_bridge *bridge,
 
 	if (bridge->next_bridge)
 		rockchip_bridge_mode_set(bridge->next_bridge, mode);
+}
+
+bool rockchip_bridge_detect(struct rockchip_bridge *bridge)
+{
+	if (bridge->funcs && bridge->funcs->detect)
+		if (!bridge->funcs->detect(bridge))
+			return false;
+
+	if (bridge->next_bridge)
+		return rockchip_bridge_detect(bridge->next_bridge);
+
+	return true;
 }

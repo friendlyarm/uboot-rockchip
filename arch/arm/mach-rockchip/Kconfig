@@ -863,6 +863,13 @@ config ROCKCHIP_PRELOADER_ATAGS
 	  tos, U-Boot, etc. It delivers boot and configure information, shared with pre-loaders
 	  and finally ends with U-Boot.
 
+config ROCKCHIP_META
+	bool "Rockchip Meta"
+	depends on SPL_KERNEL_BOOT && SPL_LIBDISK_SUPPORT
+	help
+	  This support to load Rockchip meta data which like isp parameter, peripheral
+	  parameters, etc.
+
 config ROCKCHIP_PRELOADER_SERIAL
 	bool "Rockchip pre-loader serial"
 	default y if ROCKCHIP_PRELOADER_ATAGS
@@ -987,6 +994,27 @@ config TRUST_SHA_MODE
 	  The SHA mode for tools to pack, the mode id can be:
 	  0: none; 1: sha1; 2: sha256 RK big endian; 3: sha256 little endian.
 endif
+
+config PSTORE
+	bool "Print log to linux pstore buffer"
+	default n
+	help
+	  This enable Print uboot log to linux pstore buffer which address
+	  is default 0x110000 for most soc.
+
+config PERSISTENT_RAM_ADDR
+	hex "Linux pstore buffer address"
+	default 0x0
+	depends on PSTORE
+	help
+	  This select linux pstore buffer address for uboot.
+
+config PERSISTENT_RAM_SIZE
+	hex "Linux pstore buffer size"
+	default 0x0
+	depends on PSTORE
+	help
+	  This select linux pstore buffer size for uboot.
 
 config VENDOR_FRIENDLYELEC
 	bool

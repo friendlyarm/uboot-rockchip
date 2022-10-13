@@ -299,6 +299,9 @@ static int rockchip_vop_init(struct display_state *state)
 	VOP_CTRL_SET(vop, dsp_blank, 0);
 
 	dclk_inv = (mode->flags & DRM_MODE_FLAG_PPIXDATA) ? 0 : 1;
+	/* For improving signal quality, dclk need to be inverted by default on rv1106. */
+	if ((VOP_MAJOR(vop->version) == 2 && VOP_MINOR(vop->version) == 12))
+		dclk_inv = !dclk_inv;
 	VOP_CTRL_SET(vop, dclk_pol, dclk_inv);
 
 	val = 0x8;
@@ -843,6 +846,48 @@ static int rockchip_vop_send_mcu_cmd(struct display_state *state,
 	return 0;
 }
 
+static int rockchip_vop_mode_valid(struct display_state *state)
+{
+	struct connector_state *conn_state = &state->conn_state;
+	struct drm_display_mode *mode = &conn_state->mode;
+	struct videomode vm;
+
+	drm_display_mode_to_videomode(mode, &vm);
+
+	if (vm.hactive < 32 || vm.vactive < 32 ||
+	    (vm.hfront_porch * vm.hsync_len * vm.hback_porch *
+	     vm.vfront_porch * vm.vsync_len * vm.vback_porch == 0)) {
+		printf("ERROR: unsupported display timing\n");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int rockchip_vop_plane_check(struct display_state *state)
+{
+	struct crtc_state *crtc_state = &state->crtc_state;
+	const struct rockchip_crtc *crtc = crtc_state->crtc;
+	const struct vop_data *vop_data = crtc->data;
+	const struct vop_win *win = vop_data->win;
+	struct display_rect *src = &crtc_state->src_rect;
+	struct display_rect *dst = &crtc_state->crtc_rect;
+	int min_scale, max_scale;
+	int hscale, vscale;
+
+	min_scale = win->scl ? FRAC_16_16(1, 8) : VOP_PLANE_NO_SCALING;
+	max_scale = win->scl ? FRAC_16_16(8, 1) : VOP_PLANE_NO_SCALING;
+
+	hscale = display_rect_calc_hscale(src, dst, min_scale, max_scale);
+	vscale = display_rect_calc_vscale(src, dst, min_scale, max_scale);
+	if (hscale < 0 || vscale < 0) {
+		printf("ERROR: scale factor is out of range\n");
+		return -ERANGE;
+	}
+
+	return 0;
+}
+
 const struct rockchip_crtc_funcs rockchip_vop_funcs = {
 	.preinit = rockchip_vop_preinit,
 	.init = rockchip_vop_init,
@@ -852,4 +897,6 @@ const struct rockchip_crtc_funcs rockchip_vop_funcs = {
 	.disable = rockchip_vop_disable,
 	.fixup_dts = rockchip_vop_fixup_dts,
 	.send_mcu_cmd = rockchip_vop_send_mcu_cmd,
+	.mode_valid = rockchip_vop_mode_valid,
+	.plane_check = rockchip_vop_plane_check,
 };

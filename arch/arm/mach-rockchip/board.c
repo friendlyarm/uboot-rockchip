@@ -152,13 +152,17 @@ static int rockchip_set_serialno(void)
 	memset(serialno_str, 0, VENDOR_SN_MAX);
 
 #ifdef CONFIG_ROCKCHIP_VENDOR_PARTITION
+	int j;
+
 	ret = vendor_storage_read(SN_ID, serialno_str, (VENDOR_SN_MAX-1));
 	if (ret > 0) {
-		i = strlen(serialno_str);
-		for (; i > 0; i--) {
+		j = strlen(serialno_str);
+		for (i = 0; i < j; i++) {
 			if ((serialno_str[i] >= 'a' && serialno_str[i] <= 'z') ||
 			    (serialno_str[i] >= 'A' && serialno_str[i] <= 'Z') ||
 			    (serialno_str[i] >= '0' && serialno_str[i] <= '9'))
+				continue;
+			else
 				break;
 		}
 
@@ -351,14 +355,26 @@ static void cmdline_handle(void)
 		return;
 
 	/*
-	 * From rk356x, the sd/udisk update flag was moved from
-	 * IDB to Android BCB.
+	 * 1. From rk356x, the sd/udisk recovery update flag was moved from
+	 *    IDB to Android BCB.
+	 *
+	 * 2. Udisk is init at the late boot_from_udisk(), but
+	 *    rockchip_get_boot_mode() actually only read once,
+	 *    we need to update boot mode according to udisk BCB.
 	 */
-	if (get_bcb_recovery_msg() == BCB_MSG_RECOVERY_RK_FWUPDATE) {
-		if (dev_desc->if_type == IF_TYPE_MMC && dev_desc->devnum == 1)
-			env_update("bootargs", "sdfwupdate");
-		else if (dev_desc->if_type == IF_TYPE_USB && dev_desc->devnum == 0)
-			env_update("bootargs", "usbfwupdate");
+	if ((dev_desc->if_type == IF_TYPE_MMC && dev_desc->devnum == 1) ||
+	    (dev_desc->if_type == IF_TYPE_USB && dev_desc->devnum == 0)) {
+		if (get_bcb_recovery_msg() == BCB_MSG_RECOVERY_RK_FWUPDATE) {
+			if (dev_desc->if_type == IF_TYPE_MMC && dev_desc->devnum == 1) {
+				env_update("bootargs", "sdfwupdate");
+			} else if (dev_desc->if_type == IF_TYPE_USB && dev_desc->devnum == 0) {
+				env_update("bootargs", "usbfwupdate");
+				env_set("reboot_mode", "recovery-usb");
+			}
+		} else {
+			if (dev_desc->if_type == IF_TYPE_USB && dev_desc->devnum == 0)
+				env_set("reboot_mode", "normal");
+		}
 	}
 }
 
@@ -376,9 +392,7 @@ int board_late_init(void)
 	rockchip_set_serialno();
 #endif
 	setup_download_mode();
-#if (CONFIG_ROCKCHIP_BOOT_MODE_REG > 0)
-	setup_boot_mode();
-#endif
+
 #ifdef CONFIG_ROCKCHIP_USB_BOOT
 	boot_from_udisk();
 #endif
@@ -390,6 +404,9 @@ int board_late_init(void)
 #endif
 #ifdef CONFIG_ROCKCHIP_EINK_DISPLAY
 	rockchip_eink_show_uboot_logo();
+#endif
+#if (CONFIG_ROCKCHIP_BOOT_MODE_REG > 0)
+	setup_boot_mode();
 #endif
 	env_fixup();
 	soc_clk_dump();
@@ -693,7 +710,9 @@ int board_init_f_boot_flags(void)
 	int boot_flags = 0;
 
 	arch_fpga_init();
-
+#ifdef CONFIG_PSTORE
+	param_parse_pstore();
+#endif
 	param_parse_pre_serial(&boot_flags);
 
 	/* The highest priority to turn off (override) console */

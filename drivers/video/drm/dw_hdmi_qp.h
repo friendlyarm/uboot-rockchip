@@ -18,6 +18,7 @@
 #define GLOBAL_SWRESET_REQUEST				0x40
 #define EARCRX_CMDC_SWINIT_P				BIT(27)
 #define AVP_DATAPATH_PACKET_AUDIO_SWINIT_P		BIT(10)
+#define AVP_DATAPATH_SWINIT_P				BIT(6)
 #define GLOBAL_SWDISABLE				0x44
 #define CEC_SWDISABLE					BIT(17)
 #define AVP_DATAPATH_PACKET_AUDIO_SWDISABLE		BIT(10)
@@ -134,6 +135,8 @@
 #define FRAME_COMPOSER_CONFIG7				0x85c
 #define FRAME_COMPOSER_CONFIG8				0x860
 #define FRAME_COMPOSER_CONFIG9				0x864
+#define KEEPOUT_REKEY_CFG				GENMASK(9, 8)
+#define KEEPOUT_REKEY_ALWAYS				(0x2 << 8)
 #define FRAME_COMPOSER_CONTROL0				0x86c
 /* Video Monitor Registers */
 #define VIDEO_MONITOR_CONFIG0				0x880
@@ -191,6 +194,7 @@
 #define PKTSCHED_PRQUEUE2_CONFIG2			0xa94
 #define PKTSCHED_PKT_CONFIG0				0xa98
 #define PKTSCHED_PKT_CONFIG1				0xa9c
+#define PKTSCHED_VSI_FIELDRATE				BIT(14)
 #define PKTSCHED_AVI_FIELDRATE				BIT(12)
 #define PKTSCHED_PKT_CONFIG2				0xaa0
 #define PKTSCHED_PKT_CONFIG3				0xaa4
@@ -198,6 +202,7 @@
 #define PKTSCHED_DRMI_TX_EN				BIT(17)
 #define PKTSCHED_AUDI_TX_EN				BIT(15)
 #define PKTSCHED_AVI_TX_EN				BIT(13)
+#define PKTSCHED_VSI_TX_EN				BIT(12)
 #define PKTSCHED_EMP_CVTEM_TX_EN			BIT(10)
 #define PKTSCHED_AMD_TX_EN				BIT(8)
 #define PKTSCHED_GCP_TX_EN				BIT(3)
@@ -928,7 +933,7 @@ void rk3588_set_grf_cfg(void *data);
 void dw_hdmi_qp_set_iomux(void *data);
 struct dw_hdmi_link_config *dw_hdmi_rockchip_get_link_cfg(void *data);
 void dw_hdmi_qp_selete_output(struct hdmi_edid_data *edid_data,
-			      struct connector_state *conn_state,
+			      struct rockchip_connector *conn,
 			      unsigned int *bus_format,
 			      struct overscan *overscan,
 			      enum dw_hdmi_devtype dev_type,

@@ -7,6 +7,8 @@
 #ifndef _DRM_MODES_H
 #define _DRM_MODES_H
 
+#include "fdtdec.h"
+
 #define DRM_DISPLAY_INFO_LEN	32
 #define DRM_CONNECTOR_NAME_LEN	32
 #define DRM_DISPLAY_MODE_LEN	32
@@ -38,6 +40,20 @@
 #define DRM_MODE_FLAG_DBLCLK			(1 << 12)
 #define DRM_MODE_FLAG_CLKDIV2			(1 << 13)
 #define DRM_MODE_FLAG_PPIXDATA			BIT(31)
+/*
+ * When adding a new stereo mode don't forget to adjust DRM_MODE_FLAGS_3D_MAX
+ * (define not exposed to user space).
+ */
+#define DRM_MODE_FLAG_3D_MASK			(0x1f << 14)
+#define  DRM_MODE_FLAG_3D_NONE			(0 << 14)
+#define  DRM_MODE_FLAG_3D_FRAME_PACKING		(1 << 14)
+#define  DRM_MODE_FLAG_3D_FIELD_ALTERNATIVE	(2 << 14)
+#define  DRM_MODE_FLAG_3D_LINE_ALTERNATIVE	(3 << 14)
+#define  DRM_MODE_FLAG_3D_SIDE_BY_SIDE_FULL	(4 << 14)
+#define  DRM_MODE_FLAG_3D_L_DEPTH		(5 << 14)
+#define  DRM_MODE_FLAG_3D_L_DEPTH_GFX_GFX_DEPTH	(6 << 14)
+#define  DRM_MODE_FLAG_3D_TOP_AND_BOTTOM	(7 << 14)
+#define  DRM_MODE_FLAG_3D_SIDE_BY_SIDE_HALF	(8 << 14)
 
 /* Panel Mirror control */
 #define DRM_MODE_FLAG_XMIRROR			(1<<28)
@@ -156,6 +172,12 @@ enum v4l2_colorspace {
 
 #define DRM_MODE_FLAG_3D_MAX	DRM_MODE_FLAG_3D_SIDE_BY_SIDE_HALF
 
+#define DRM_MODE_MATCH_TIMINGS		(1 << 0)
+#define DRM_MODE_MATCH_CLOCK		(1 << 1)
+#define DRM_MODE_MATCH_FLAGS		(1 << 2)
+#define DRM_MODE_MATCH_3D_FLAGS		(1 << 3)
+#define DRM_MODE_MATCH_ASPECT_RATIO	(1 << 4)
+
 struct drm_display_mode {
 	/* Proposed mode values */
 	int clock;		/* in kHz */
@@ -190,5 +212,35 @@ struct drm_display_mode {
 	int crtc_vtotal;
 	bool invalid;
 };
+
+/*
+ * Subsystem independent description of a videomode.
+ * Can be generated from struct display_timing.
+ */
+struct videomode {
+	unsigned long pixelclock;	/* pixelclock in Hz */
+
+	u32 hactive;
+	u32 hfront_porch;
+	u32 hback_porch;
+	u32 hsync_len;
+
+	u32 vactive;
+	u32 vfront_porch;
+	u32 vback_porch;
+	u32 vsync_len;
+
+	enum display_flags flags; /* display flags */
+};
+
+struct drm_display_mode *drm_mode_create(void);
+void drm_mode_destroy(struct drm_display_mode *mode);
+bool drm_mode_match(const struct drm_display_mode *mode1,
+		    const struct drm_display_mode *mode2,
+		    unsigned int match_flags);
+bool drm_mode_equal(const struct drm_display_mode *mode1,
+		    const struct drm_display_mode *mode2);
+void drm_display_mode_to_videomode(const struct drm_display_mode *dmode,
+				   struct videomode *vm);
 
 #endif

@@ -14,6 +14,7 @@
 struct display_state;
 struct rockchip_bridge;
 struct drm_display_mode;
+struct rockchip_connector;
 
 struct rockchip_bridge_funcs {
 	void (*enable)(struct rockchip_bridge *bridge);
@@ -22,16 +23,19 @@ struct rockchip_bridge_funcs {
 	void (*post_disable)(struct rockchip_bridge *bridge);
 	void (*mode_set)(struct rockchip_bridge *bridge,
 			 const struct drm_display_mode *mode);
+	bool (*detect)(struct rockchip_bridge *bridge);
 };
 
 struct rockchip_bridge {
 	struct udevice *dev;
 	const struct rockchip_bridge_funcs *funcs;
 	struct rockchip_bridge *next_bridge;
+	struct rockchip_connector *conn;
 	struct display_state *state;
 };
 
 void rockchip_bridge_init(struct rockchip_bridge *bridge,
+			  struct rockchip_connector *conn,
 			  struct display_state *state);
 void rockchip_bridge_enable(struct rockchip_bridge *bridge);
 void rockchip_bridge_disable(struct rockchip_bridge *bridge);
@@ -39,5 +43,6 @@ void rockchip_bridge_pre_enable(struct rockchip_bridge *bridge);
 void rockchip_bridge_post_disable(struct rockchip_bridge *bridge);
 void rockchip_bridge_mode_set(struct rockchip_bridge *bridge,
 			      const struct drm_display_mode *mode);
+bool rockchip_bridge_detect(struct rockchip_bridge *bridge);
 
 #endif
