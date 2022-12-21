@@ -66,6 +66,11 @@ __weak int rk_board_fdt_fixup(void *blob)
 	return 0;
 }
 
+__weak int rk_board_dm_fdt_fixup(void *blob)
+{
+	return 0;
+}
+
 __weak int soc_clk_dump(void)
 {
 	return 0;
@@ -523,6 +528,12 @@ int interrupt_debugger_init(void)
 
 int board_fdt_fixup(void *blob)
 {
+	/*
+	 * Device's platdata points to orignal fdt blob property,
+	 * access DM device before any fdt fixup.
+	 */
+	rk_board_dm_fdt_fixup(blob);
+
 	/* Common fixup for DRM */
 #ifdef CONFIG_DRM_ROCKCHIP
 	rockchip_display_fixup(blob);
@@ -709,7 +720,9 @@ int board_init_f_boot_flags(void)
 {
 	int boot_flags = 0;
 
+#ifdef CONFIG_FPGA_ROCKCHIP
 	arch_fpga_init();
+#endif
 #ifdef CONFIG_PSTORE
 	param_parse_pstore();
 #endif
@@ -970,7 +983,7 @@ void autoboot_command_fail_handle(void)
 #endif
 
 #ifdef CONFIG_AVB_VBMETA_PUBLIC_KEY_VALIDATE
-	run_command("rockusb 0 ${devtype} ${devnum}", 0);
+	run_command("download", 0);
 	run_command("fastboot usb 0;", 0);
 #endif
 
