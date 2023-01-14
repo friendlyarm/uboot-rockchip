@@ -70,6 +70,8 @@
 #define EDID_QUIRK_FORCE_6BPC			BIT(10)
 /* Force 10bpc */
 #define EDID_QUIRK_FORCE_10BPC			BIT(11)
+/* Prefer hight clock mode */
+#define EDID_QUIRK_PREFER_HIGH_CLOCK		BIT(12)
 
 struct detailed_mode_closure {
 	struct edid *edid;
@@ -132,7 +134,7 @@ static struct edid_quirk {
 	{ "SAM", 638, EDID_QUIRK_PREFER_LARGE_60 },
 
 	/* Skyworth */
-	{ "SKW", 1, EDID_QUIRK_PREFER_LARGE_60 },
+	{ "SKW", 1, (EDID_QUIRK_PREFER_LARGE_60 | EDID_QUIRK_PREFER_HIGH_CLOCK) },
 
 	/* Sony PVM-2541A does up to 12 bpc, but only reports max 8 bpc */
 	{ "SNY", 0x2541, EDID_QUIRK_FORCE_12BPC },
@@ -5314,13 +5316,22 @@ static void edid_fixup_preferred(struct hdmi_edid_data *data,
 			preferred_mode = cur_mode;
 
 		cur_vrefresh = cur_mode->vrefresh ?
-		cur_mode->vrefresh : drm_get_vrefresh(cur_mode);
+			cur_mode->vrefresh : drm_get_vrefresh(cur_mode);
 		preferred_vrefresh = preferred_mode->vrefresh ?
-		preferred_mode->vrefresh : drm_get_vrefresh(preferred_mode);
+			preferred_mode->vrefresh : drm_get_vrefresh(preferred_mode);
+
 		/* At a given size, try to get closest to target refresh */
 		if ((MODE_SIZE(cur_mode) == MODE_SIZE(preferred_mode)) &&
 		    MODE_REFRESH_DIFF(cur_vrefresh, target_refresh) <
 		    MODE_REFRESH_DIFF(preferred_vrefresh, target_refresh)) {
+			preferred_mode = cur_mode;
+		}
+
+		/* Consider the clock like drm_mode_compare() */
+		if ((quirks & EDID_QUIRK_PREFER_HIGH_CLOCK) &&
+		    (MODE_SIZE(cur_mode) == MODE_SIZE(preferred_mode)) &&
+		    (cur_vrefresh == preferred_vrefresh) &&
+		    (cur_mode->clock > preferred_mode->clock)) {
 			preferred_mode = cur_mode;
 		}
 	}
