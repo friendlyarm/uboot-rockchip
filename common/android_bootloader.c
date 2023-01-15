@@ -836,12 +836,15 @@ int android_fdt_overlay_apply(void *fdt_addr)
 		if ((hdr->header_version == 0) ||
 		    (hdr->header_version >= 3 && !strcmp(part_boot, PART_RECOVERY)))
 			goto out;
-
-	} else {
-		if (part_get_info_by_name(dev_desc, PART_DTBO, &part_info) < 0)
-			return -EINVAL;
-		part_dtbo = PART_DTBO;
 	}
+
+#ifdef CONFIG_VENDOR_FRIENDLYELEC
+	if (part_get_info_by_name(dev_desc, PART_DTBO, &part_info) > 0) {
+		part_dtbo = PART_DTBO;
+	} else {
+		printf("No %s partition\n", PART_DTBO);
+	}
+#endif
 
 	ret = android_get_dtbo(&fdt_dtbo, (void *)hdr, &index, part_dtbo);
 	if (!ret) {
@@ -882,7 +885,8 @@ int android_fdt_overlay_apply(void *fdt_addr)
 	}
 
 out:
-	free(hdr);
+	if (hdr)
+		free(hdr);
 
 	return 0;
 }
