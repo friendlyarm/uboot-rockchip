@@ -175,6 +175,9 @@ static bool hdmi_bus_fmt_is_yuv422(unsigned int bus_format)
 	case MEDIA_BUS_FMT_UYVY8_1X16:
 	case MEDIA_BUS_FMT_UYVY10_1X20:
 	case MEDIA_BUS_FMT_UYVY12_1X24:
+	case MEDIA_BUS_FMT_YUYV8_1X16:
+	case MEDIA_BUS_FMT_YUYV10_1X20:
+	case MEDIA_BUS_FMT_YUYV12_1X24:
 		return true;
 
 	default:
@@ -1047,6 +1050,9 @@ static int dw_hdmi_setup(struct dw_hdmi_qp *hdmi,
 	/* HDMI Initialization Step B.2 */
 	hdmi->phy.ops->set_pll(conn, hdmi->rk_hdmi, state);
 
+	/* Mark yuv422 10bit */
+	if (hdmi->hdmi_data.enc_out_bus_format == MEDIA_BUS_FMT_YUYV10_1X20)
+		hdmi_writel(hdmi, BIT(20), VIDEO_INTERFACE_CONFIG0);
 	rk3588_set_grf_cfg(hdmi->rk_hdmi);
 	link_cfg = dw_hdmi_rockchip_get_link_cfg(hdmi->rk_hdmi);
 
@@ -1094,6 +1100,9 @@ static int dw_hdmi_setup(struct dw_hdmi_qp *hdmi,
 		hdmi->phy.enabled = true;
 		printf("%s DVI mode\n", __func__);
 	}
+
+	/* Mark uboot hdmi is enabled */
+	hdmi_writel(hdmi, BIT(21), VIDEO_INTERFACE_CONFIG0);
 
 	return 0;
 }
@@ -1239,9 +1248,23 @@ int rockchip_dw_hdmi_qp_disable(struct rockchip_connector *conn, struct display_
 	return 0;
 }
 
-int rockchip_dw_hdmi_qp_get_timing(struct rockchip_connector *conn, struct display_state *state)
+static void rockchip_dw_hdmi_qp_mode_valid(struct dw_hdmi_qp *hdmi)
 {
-	int ret, i;
+	struct hdmi_edid_data *edid_data = &hdmi->edid_data;
+	int i;
+
+	for (i = 0; i < edid_data->modes; i++) {
+		if (edid_data->mode_buf[i].invalid)
+			continue;
+		if (edid_data->mode_buf[i].clock <= 25000)
+			edid_data->mode_buf[i].invalid = true;
+	}
+}
+
+static int _rockchip_dw_hdmi_qp_get_timing(struct rockchip_connector *conn,
+					   struct display_state *state, int edid_status)
+{
+	int i;
 	struct connector_state *conn_state = &state->conn_state;
 	struct drm_display_mode *mode = &conn_state->mode;
 	struct dw_hdmi_qp *hdmi = conn->data;
@@ -1254,14 +1277,13 @@ int rockchip_dw_hdmi_qp_get_timing(struct rockchip_connector *conn, struct displ
 	if (!hdmi)
 		return -EFAULT;
 
-	ret = drm_do_get_edid(&hdmi->adap, conn_state->edid);
-	if (!ret) {
+	if (!edid_status) {
 		hdmi->sink_is_hdmi =
 			drm_detect_hdmi_monitor(edid);
 		hdmi->sink_has_audio = drm_detect_monitor_audio(edid);
-		ret = drm_add_edid_modes(&hdmi->edid_data, conn_state->edid);
+		edid_status = drm_add_edid_modes(&hdmi->edid_data, conn_state->edid);
 	}
-	if (ret < 0) {
+	if (edid_status < 0) {
 		hdmi->sink_is_hdmi = true;
 		hdmi->sink_has_audio = true;
 		do_cea_modes(&hdmi->edid_data, def_modes_vic,
@@ -1270,8 +1292,7 @@ int rockchip_dw_hdmi_qp_get_timing(struct rockchip_connector *conn, struct displ
 		printf("failed to get edid\n");
 	}
 	drm_rk_filter_whitelist(&hdmi->edid_data);
-	if (hdmi->phy.ops->mode_valid)
-		hdmi->phy.ops->mode_valid(hdmi->rk_hdmi, state);
+	rockchip_dw_hdmi_qp_mode_valid(hdmi);
 	drm_mode_max_resolution_filter(&hdmi->edid_data,
 				       &state->crtc_state.max_output);
 	if (!drm_mode_prune_invalid(&hdmi->edid_data)) {
@@ -1298,15 +1319,17 @@ int rockchip_dw_hdmi_qp_get_timing(struct rockchip_connector *conn, struct displ
 	hdmi->hdmi_data.enc_out_bus_format = bus_format;
 
 	switch (bus_format) {
-	case MEDIA_BUS_FMT_UYVY10_1X20:
-		conn_state->bus_format = MEDIA_BUS_FMT_YUV10_1X30;
+	case MEDIA_BUS_FMT_YUYV10_1X20:
+		conn_state->bus_format = MEDIA_BUS_FMT_YUYV10_1X20;
 		hdmi->hdmi_data.enc_in_bus_format =
-			MEDIA_BUS_FMT_YUV10_1X30;
+			MEDIA_BUS_FMT_YUYV10_1X20;
+		conn_state->output_mode = ROCKCHIP_OUT_MODE_YUV422;
 		break;
-	case MEDIA_BUS_FMT_UYVY8_1X16:
-		conn_state->bus_format = MEDIA_BUS_FMT_YUV8_1X24;
+	case MEDIA_BUS_FMT_YUYV8_1X16:
+		conn_state->bus_format = MEDIA_BUS_FMT_YUYV8_1X16;
 		hdmi->hdmi_data.enc_in_bus_format =
-			MEDIA_BUS_FMT_YUV8_1X24;
+			MEDIA_BUS_FMT_YUYV8_1X16;
+		conn_state->output_mode = ROCKCHIP_OUT_MODE_YUV422;
 		break;
 	case MEDIA_BUS_FMT_UYYVYY8_0_5X24:
 	case MEDIA_BUS_FMT_UYYVYY10_0_5X30:
@@ -1333,6 +1356,21 @@ int rockchip_dw_hdmi_qp_get_timing(struct rockchip_connector *conn, struct displ
 
 	return 0;
 }
+
+int rockchip_dw_hdmi_qp_get_timing(struct rockchip_connector *conn, struct display_state *state)
+{
+	struct connector_state *conn_state = &state->conn_state;
+	struct dw_hdmi_qp *hdmi = conn->data;
+	int ret;
+
+	ret = drm_do_get_edid(&hdmi->adap, conn_state->edid);
+
+	if (conn_state->secondary)
+		_rockchip_dw_hdmi_qp_get_timing(conn_state->secondary, state, ret);
+
+	return _rockchip_dw_hdmi_qp_get_timing(conn, state, ret);
+}
+
 
 int rockchip_dw_hdmi_qp_detect(struct rockchip_connector *conn, struct display_state *state)
 {

@@ -7,22 +7,37 @@
 #ifndef _ROCKCHIP_DISPLAY_H
 #define _ROCKCHIP_DISPLAY_H
 
+#ifdef CONFIG_SPL_BUILD
+#include <linux/hdmi.h>
+#include <linux/media-bus-format.h>
+#else
 #include <bmp_layout.h>
-#include <drm_modes.h>
 #include <edid.h>
+#endif
+#include <drm_modes.h>
 #include <dm/ofnode.h>
 #include <drm/drm_dsc.h>
+#include <spl_display.h>
+#include <clk.h>
 
 /*
- * major: IP major vertion, used for IP structure
+ * major: IP major version, used for IP structure
  * minor: big feature change under same structure
+ * build: RTL current SVN number
  */
-#define VOP_VERSION(major, minor)	((major) << 8 | (minor))
-#define VOP_MAJOR(version)		((version) >> 8)
-#define VOP_MINOR(version)		((version) & 0xff)
+#define VOP_VERSION(major, minor)		((major) << 8 | (minor))
+#define VOP_MAJOR(version)			((version) >> 8)
+#define VOP_MINOR(version)			((version) & 0xff)
 
-#define VOP_VERSION_RK3568		VOP_VERSION(0x40, 0x15)
-#define VOP_VERSION_RK3588		VOP_VERSION(0x40, 0x17)
+#define VOP2_VERSION(major, minor, build)	((major) << 24 | (minor) << 16 | (build))
+#define VOP2_MAJOR(version)			(((version) >> 24) & 0xff)
+#define VOP2_MINOR(version)			(((version) >> 16) & 0xff)
+#define VOP2_BUILD(version)			((version) & 0xffff)
+
+#define VOP_VERSION_RK3528			VOP2_VERSION(0x50, 0x17, 0x1263)
+#define VOP_VERSION_RK3562			VOP2_VERSION(0x50, 0x17, 0x4350)
+#define VOP_VERSION_RK3568			VOP2_VERSION(0x40, 0x15, 0x8023)
+#define VOP_VERSION_RK3588			VOP2_VERSION(0x40, 0x17, 0x6786)
 
 #define ROCKCHIP_OUTPUT_DUAL_CHANNEL_LEFT_RIGHT_MODE	BIT(0)
 #define ROCKCHIP_OUTPUT_DUAL_CHANNEL_ODD_EVEN_MODE	BIT(1)
@@ -66,6 +81,7 @@ enum rockchip_mcu_cmd {
 #define ROCKCHIP_OUT_MODE_P565		2
 #define ROCKCHIP_OUT_MODE_BT656		5
 #define ROCKCHIP_OUT_MODE_S888		8
+#define ROCKCHIP_OUT_MODE_YUV422	9
 #define ROCKCHIP_OUT_MODE_S888_DUMMY	12
 #define ROCKCHIP_OUT_MODE_YUV420	14
 /* for use special outface */
@@ -141,6 +157,7 @@ struct crtc_state {
 	void *private;
 	ofnode node;
 	struct device_node *ports_node; /* if (ports_node) it's vop2; */
+	struct clk dclk;
 	int crtc_id;
 
 	int format;
@@ -160,6 +177,7 @@ struct crtc_state {
 	bool post_y2r_en;
 	bool bcsh_en;
 	bool splice_mode;
+	bool soft_te;
 	u8 splice_crtc_id;
 	u8 dsc_id;
 	u8 dsc_enable;
@@ -198,6 +216,7 @@ struct connector_state {
 	struct overscan overscan;
 	u8 edid[EDID_SIZE * 4];
 	int bus_format;
+	u32 bus_flags;
 	int output_mode;
 	int type;
 	int output_if;
@@ -223,6 +242,8 @@ struct connector_state {
 	u64 dsc_cds_clk;
 	struct rockchip_dsc_sink_cap dsc_sink_cap;
 	struct drm_dsc_picture_parameter_set pps;
+
+	struct gpio_desc *te_gpio;
 
 	struct {
 		u32 *lut;
@@ -268,7 +289,9 @@ struct display_state {
 	int enable;
 	int is_init;
 	int is_enable;
+	bool is_klogo_valid;
 	bool force_output;
+	bool enabled_at_spl;
 	struct drm_display_mode force_mode;
 	u32 force_bus_format;
 };
@@ -282,11 +305,22 @@ struct base2_disp_info *rockchip_get_disp_info(int type, int id);
 void drm_mode_max_resolution_filter(struct hdmi_edid_data *edid_data,
 				    struct vop_rect *max_output);
 unsigned long get_cubic_lut_buffer(int crtc_id);
-int rockchip_ofnode_get_display_mode(ofnode node, struct drm_display_mode *mode);
+int rockchip_ofnode_get_display_mode(ofnode node, struct drm_display_mode *mode,
+				     u32 *bus_flags);
+void rockchip_display_make_crc32_table(void);
+uint32_t rockchip_display_crc32c_cal(unsigned char *data, int length);
+void drm_mode_set_crtcinfo(struct drm_display_mode *p, int adjust_flags);
 
 int display_rect_calc_hscale(struct display_rect *src, struct display_rect *dst,
 			     int min_hscale, int max_hscale);
 int display_rect_calc_vscale(struct display_rect *src, struct display_rect *dst,
 			     int min_vscale, int max_vscale);
+const struct device_node *
+rockchip_of_graph_get_endpoint_by_regs(ofnode node, int port, int endpoint);
 
+#ifdef CONFIG_SPL_BUILD
+int rockchip_spl_vop_probe(struct crtc_state *crtc_state);
+int rockchip_spl_dw_hdmi_probe(struct connector_state *conn_state);
+int inno_spl_hdmi_phy_probe(struct display_state *state);
+#endif
 #endif

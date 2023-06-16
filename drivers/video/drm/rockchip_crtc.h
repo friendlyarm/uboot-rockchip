@@ -44,7 +44,11 @@ struct rockchip_crtc_funcs {
 	int (*send_mcu_cmd)(struct display_state *state, u32 type, u32 value);
 	int (*check)(struct display_state *state);
 	int (*mode_valid)(struct display_state *state);
+	int (*mode_fixup)(struct display_state *state);
 	int (*plane_check)(struct display_state *state);
+	int (*regs_dump)(struct display_state *state);
+	int (*active_regs_dump)(struct display_state *state);
+	int (*apply_soft_te)(struct display_state *state);
 };
 
 struct vop_data;
@@ -67,6 +71,8 @@ extern const struct vop_data rk3328_vop;
 extern const struct vop_data rv1106_vop;
 extern const struct vop_data rv1108_vop;
 extern const struct vop_data rv1126_vop;
+extern const struct vop2_data rk3528_vop;
+extern const struct vop2_data rk3562_vop;
 extern const struct vop2_data rk3568_vop;
 extern const struct vop2_data rk3588_vop;
 #endif

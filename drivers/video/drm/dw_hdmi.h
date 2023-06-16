@@ -1194,6 +1194,7 @@ enum {
 	HDMI_A_VIDPOLCFG_HSYNCPOL_ACTIVE_LOW = 0x0,
 
 /* I2CM_OPERATION field values */
+	HDMI_I2CM_OPERATION_BUS_CLEAR = 0x20,
 	HDMI_I2CM_OPERATION_WRITE = 0x10,
 	HDMI_I2CM_OPERATION_READ8_EXT = 0x8,
 	HDMI_I2CM_OPERATION_READ8 = 0x4,
@@ -1411,6 +1412,7 @@ void drm_rk_selete_output(struct hdmi_edid_data *edid_data,
 			  enum dw_hdmi_devtype dev_type,
 			  bool output_bus_format_rgb);
 void inno_dw_hdmi_set_domain(void *grf, int status);
-void dw_hdmi_set_iomux(void *grf, int dev_type);
+void dw_hdmi_set_iomux(void *grf, void *gpio_base, struct gpio_desc *hpd_gpiod,
+		       int dev_type);
 
 #endif /* _ROCKCHIP_HDMI_H_ */

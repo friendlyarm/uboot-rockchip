@@ -332,12 +332,18 @@ static ulong rk3588_top_set_clk(struct rk3588_clk_priv *priv,
 
 	switch (clk_id) {
 	case ACLK_TOP_ROOT:
-		src_clk_div = DIV_ROUND_UP(priv->gpll_hz, rate);
+		if (!(priv->cpll_hz % rate)) {
+			src_clk = ACLK_TOP_ROOT_SRC_SEL_CPLL;
+			src_clk_div = DIV_ROUND_UP(priv->cpll_hz, rate);
+		} else {
+			src_clk = ACLK_TOP_ROOT_SRC_SEL_GPLL;
+			src_clk_div = DIV_ROUND_UP(priv->gpll_hz, rate);
+		}
 		assert(src_clk_div - 1 <= 31);
 		rk_clrsetreg(&cru->clksel_con[8],
 			     ACLK_TOP_ROOT_DIV_MASK |
 			     ACLK_TOP_ROOT_SRC_SEL_MASK,
-			     (ACLK_TOP_ROOT_SRC_SEL_GPLL <<
+			     (src_clk <<
 			      ACLK_TOP_ROOT_SRC_SEL_SHIFT) |
 			     (src_clk_div - 1) << ACLK_TOP_ROOT_DIV_SHIFT);
 		break;
@@ -1148,13 +1154,23 @@ static ulong rk3588_dclk_vop_set_clk(struct rk3588_clk_priv *priv,
 	}
 
 	if (sel == DCLK_VOP_SRC_SEL_V0PLL) {
-		div = DIV_ROUND_UP(RK3588_VOP_PLL_LIMIT_FREQ, rate);
-		rk_clrsetreg(&cru->clksel_con[conid],
-			     mask,
-			     DCLK_VOP_SRC_SEL_V0PLL << sel_shift |
-			     ((div - 1) << div_shift));
-		rockchip_pll_set_rate(&rk3588_pll_clks[V0PLL],
-				      priv->cru, V0PLL, div * rate);
+		pll_rate = rockchip_pll_get_rate(&rk3588_pll_clks[V0PLL],
+						 priv->cru, V0PLL);
+		if (pll_rate >= RK3588_VOP_PLL_LIMIT_FREQ && pll_rate % rate == 0) {
+			div = DIV_ROUND_UP(pll_rate, rate);
+			rk_clrsetreg(&cru->clksel_con[conid],
+				     mask,
+				     DCLK_VOP_SRC_SEL_V0PLL << sel_shift |
+				     ((div - 1) << div_shift));
+		} else {
+			div = DIV_ROUND_UP(RK3588_VOP_PLL_LIMIT_FREQ, rate);
+			rk_clrsetreg(&cru->clksel_con[conid],
+				     mask,
+				     DCLK_VOP_SRC_SEL_V0PLL << sel_shift |
+				     ((div - 1) << div_shift));
+			rockchip_pll_set_rate(&rk3588_pll_clks[V0PLL],
+					      priv->cru, V0PLL, div * rate);
+		}
 	} else {
 		for (i = 0; i <= DCLK_VOP_SRC_SEL_AUPLL; i++) {
 			switch (i) {

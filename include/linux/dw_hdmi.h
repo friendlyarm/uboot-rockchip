@@ -92,6 +92,7 @@ enum dw_hdmi_devtype {
 	RK3366_HDMI,
 	RK3368_HDMI,
 	RK3399_HDMI,
+	RK3528_HDMI,
 	RK3568_HDMI,
 };
 
@@ -177,7 +178,7 @@ struct dw_hdmi_plat_data {
 	const struct dw_hdmi_mpll_config *mpll_cfg;
 	const struct dw_hdmi_mpll_config *mpll_cfg_420;
 	const struct dw_hdmi_curr_ctrl *cur_ctr;
-	const struct dw_hdmi_phy_config *phy_config;
+	struct dw_hdmi_phy_config *phy_config;
 	int (*configure_phy)(struct dw_hdmi *hdmi,
 			     const struct dw_hdmi_plat_data *pdata,
 			     unsigned long mpixelclock);

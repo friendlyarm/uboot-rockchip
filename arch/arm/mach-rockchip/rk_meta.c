@@ -50,6 +50,7 @@ int spl_load_meta(struct spl_image_info *spl_image, struct spl_load_info *info)
 	ulong sector;
 	char *data;
 	u64 len;
+	int meta_iq_item_size = 0;
 
 	if (part_get_info_by_name(info->dev, part_name, &part_info) <= 0) {
 		debug("%s: no partition\n", __func__);
@@ -91,32 +92,31 @@ int spl_load_meta(struct spl_image_info *spl_image, struct spl_load_info *info)
 
 	/* load compress data */
 	data = (char *)COMPRESS_LOAD_ADDR;
+	meta_iq_item_size = meta_p->iq_item_size + meta.comp_size;
 	if (meta_p->comp_type == META_COMPRESS_TYPE_GZ) {
 		if (info->read(info, sector + (MAX_META_SEGMENT_SIZE / info->bl_len),
-			       DIV_ROUND_UP(meta.comp_size, info->bl_len), data)
-			       != DIV_ROUND_UP(meta.comp_size, info->bl_len)) {
-			debug("%s: Failed to read compress data.\n", __func__);
+			       DIV_ROUND_UP(meta_iq_item_size, info->bl_len), data)
+			       != DIV_ROUND_UP(meta_iq_item_size, info->bl_len)) {
+			printf("%s: Failed to read compress data.\n", __func__);
 			return -EIO;
 		}
+
+		memcpy((void *)(meta_p->load + SENSOR_IQ_BIN_OFFSET), data, meta_p->iq_item_size);
 
 		if (rk_meta_iq_decom((meta_p->load + meta_p->comp_off),
 				     (unsigned long)(data + meta_p->comp_off -
 							MAX_META_SEGMENT_SIZE),
 					 meta.comp_size, &len)) {
-			debug("%s: Failed to decompress.\n", __func__);
+			printf("%s: Failed to decompress.\n", __func__);
 			return -EIO;
 		}
-		/* update decompress gz's file size */
-		unsigned int *p_len = (unsigned int *)
-			(meta_p->load + MAX_META_SEGMENT_SIZE + MAX_HEAD_SIZE);
-		*p_len = (u32)len;
-		/* TODO: update decompress gz's file crc32 */
+
 	} else {
 		if (info->read(info, sector + (MAX_META_SEGMENT_SIZE / info->bl_len),
-			       DIV_ROUND_UP(meta.comp_size, info->bl_len),
+			       DIV_ROUND_UP(meta_iq_item_size, info->bl_len),
 		   (void *)(meta_p->load + MAX_META_SEGMENT_SIZE))
-		   != DIV_ROUND_UP(meta.comp_size, info->bl_len)) {
-			debug("%s: Failed to read\n", __func__);
+		   != DIV_ROUND_UP(meta_iq_item_size, info->bl_len)) {
+			printf("%s: Failed to read\n", __func__);
 			return -EIO;
 		}
 	}
@@ -125,6 +125,7 @@ int spl_load_meta(struct spl_image_info *spl_image, struct spl_load_info *info)
 	flush_cache(meta_p->load, meta_p->size);
 	rk_meta_process();
 
+	printf("\nMeta: ok\n");
 	return 0;
 }
 

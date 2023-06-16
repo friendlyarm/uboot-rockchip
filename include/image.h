@@ -703,6 +703,7 @@ int boot_get_fdt(int flag, int argc, char * const argv[], uint8_t arch,
 		 bootm_headers_t *images,
 		 char **of_flat_tree, ulong *of_size);
 void boot_fdt_add_mem_rsv_regions(struct lmb *lmb, void *fdt_blob);
+void boot_mem_rsv_regions(struct lmb *lmb, void *fdt_blob);
 #ifdef CONFIG_SYSMEM
 int boot_fdt_add_sysmem_rsv_regions(void *fdt_blob);
 #else
@@ -1347,9 +1348,13 @@ static inline int fit_image_check_target_arch(const void *fdt, int node)
 #endif /* CONFIG_FIT */
 
 #if defined(CONFIG_ANDROID_BOOT_IMAGE)
+#include <android_image.h>
+
 struct andr_img_hdr;
 u32 android_bcb_msg_sector_offset(void);
-u32 android_image_major_version(void);
+int android_image_init_resource(struct blk_desc *desc,
+				disk_partition_t *out_part,
+				ulong *out_blk_offset);
 int android_image_check_header(const struct andr_img_hdr *hdr);
 int android_image_get_kernel(const struct andr_img_hdr *hdr, int verify,
 			     ulong *os_data, ulong *os_len);
@@ -1368,6 +1373,10 @@ int android_image_memcpy_separate(struct andr_img_hdr *hdr, ulong *load_address)
 
 struct andr_img_hdr *populate_andr_img_hdr(struct blk_desc *dev_desc,
 					   disk_partition_t *part_boot);
+int populate_boot_info(const struct boot_img_hdr_v34 *boot_hdr,
+		       const struct vendor_boot_img_hdr_v34 *vendor_boot_hdr,
+		       const struct boot_img_hdr_v34 *init_boot_hdr,
+		       struct andr_img_hdr *hdr, bool save_hdr);
 
 /** android_image_load - Load an Android Image from storage.
  *
@@ -1392,6 +1401,9 @@ long android_image_load(struct blk_desc *dev_desc,
 int android_image_load_by_partname(struct blk_desc *dev_desc,
 				   const char *boot_partname,
 				   unsigned long *load_address);
+
+int android_image_verify_resource(const char *boot_part, ulong *resc_buf);
+
 #endif /* CONFIG_ANDROID_BOOT_IMAGE */
 
 int bootm_parse_comp(const unsigned char *hdr);

@@ -15,7 +15,7 @@
 		u-boot,spl-boot-order = &sdmmc, &spi_nor, &spi_nand, &emmc;
 	};
 
-	secure_otp: secure_otp@ff3fd8000 {
+	secure-otp@ff3fd8000 {
 		compatible = "rockchip,rv1106-secure-otp";
 		reg = <0xff3d8000 0x4000>;
 		secure_conf = <0xff07a018>;
@@ -112,8 +112,28 @@
 	u-boot,dm-spl;
 };
 
+&gpio0 {
+	u-boot,dm-pre-reloc;
+	status = "okay";
+};
+
+&gpio1 {
+	u-boot,dm-pre-reloc;
+	status = "okay";
+};
+
+&gpio2 {
+	u-boot,dm-pre-reloc;
+	status = "okay";
+};
+
 &gpio3 {
 	u-boot,dm-spl;
+	status = "okay";
+};
+
+&gpio4 {
+	u-boot,dm-pre-reloc;
 	status = "okay";
 };
 
@@ -158,4 +178,24 @@
 		spi-rx-bus-width = <4>;
 		spi-max-frequency = <100000000>;
 	};
+};
+
+&u2phy {
+	u-boot,dm-pre-reloc;
+	status = "okay";
+};
+
+&u2phy_otg {
+	u-boot,dm-pre-reloc;
+	status = "okay";
+};
+
+&usbdrd {
+	u-boot,dm-pre-reloc;
+	status = "okay";
+};
+
+&usbdrd_dwc3 {
+	u-boot,dm-pre-reloc;
+	status = "okay";
 };

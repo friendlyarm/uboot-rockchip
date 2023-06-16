@@ -19,6 +19,8 @@
 #include <key.h>
 #include <mmc.h>
 #include <malloc.h>
+#include <mp_boot.h>
+#include <mtd_blk.h>
 #include <nvme.h>
 #include <scsi.h>
 #include <stdlib.h>
@@ -91,6 +93,10 @@ static void boot_devtype_init(void)
 
 	if (done)
 		return;
+
+#ifdef CONFIG_MP_BOOT
+	mpb_post(0);
+#endif
 
 	/* configuration */
 	if (!param_parse_assign_bootdev(&devtype, &devnum)) {
@@ -269,6 +275,9 @@ struct blk_desc *rockchip_get_bootdev(void)
 
 	printf("PartType: %s\n", part_get_type(dev_desc));
 
+#ifdef CONFIG_MTD_BLK
+	mtd_blk_map_partitions(dev_desc);
+#endif
 	return dev_desc;
 }
 
@@ -512,7 +521,7 @@ enum {
 	LOCATE_END,
 };
 
-static int rkimg_traverse_read_dtb(void *fdt, int where)
+static int dtb_scan(void *fdt, int where)
 {
 	if (where == LOCATE_DISTRO) {
 #ifdef CONFIG_ROCKCHIP_EARLY_DISTRO_DTB
@@ -557,19 +566,13 @@ int rockchip_read_dtb_file(void *fdt)
 	int locate, ret;
 	int size;
 
-	/* init resource list */
-#ifdef CONFIG_ROCKCHIP_RESOURCE_IMAGE
-	resource_traverse_init_list();
-#endif
-
-	/* traverse location */
 	for (locate = 0; locate < LOCATE_END; locate++) {
-		ret = rkimg_traverse_read_dtb(fdt, locate);
+		ret = dtb_scan(fdt, locate);
 		if (!ret)
 			break;
 	}
 	if (ret) {
-		printf("No find valid DTB, ret=%d\n", ret);
+		printf("No valid DTB, ret=%d\n", ret);
 		return ret;
 	}
 
@@ -608,7 +611,7 @@ int rockchip_ram_read_dtb_file(void *img, void *fdt)
 		offset = hdr->page_size + ALIGN(hdr->kernel_size, hdr->page_size) +
 			ALIGN(hdr->ramdisk_size, hdr->page_size);
 #ifdef CONFIG_ROCKCHIP_RESOURCE_IMAGE
-		ret = resource_create_ram_list(dev_desc, (void *)hdr + offset);
+		ret = resource_setup_ram_list(dev_desc, (void *)hdr + offset);
 		if (ret)
 			return ret;
 
@@ -650,9 +653,9 @@ int rockchip_ram_read_dtb_file(void *img, void *fdt)
 		if (!dev_desc)
 			return -ENODEV;
 
-		ret = resource_create_ram_list(dev_desc, (void *)data);
+		ret = resource_setup_ram_list(dev_desc, (void *)data);
 		if (ret) {
-			printf("resource_create_ram_list fail, ret=%d\n", ret);
+			printf("resource_setup_ram_list fail, ret=%d\n", ret);
 			return ret;
 		}
 

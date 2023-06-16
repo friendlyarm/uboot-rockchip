@@ -381,6 +381,61 @@ config TPL_STACK
 
 endif
 
+config ROCKCHIP_RK3528
+	bool "Support Rockchip RK3528"
+	select ARM64 if !ARM64_BOOT_AARCH32
+	select GICV2 if !ARM64_BOOT_AARCH32
+	select SUPPORT_TPL if !ARM64_BOOT_AARCH32
+	select SUPPORT_SPL if !ARM64_BOOT_AARCH32
+	select TPL_TINY_FRAMEWORK if TPL
+	select DEBUG_UART_BOARD_INIT
+	imply TPL if !ARM64_BOOT_AARCH32
+	imply SPL if !ARM64_BOOT_AARCH32
+	imply TPL_SERIAL_SUPPORT
+	help
+	  The Rockchip RK3528 is a ARM-based SoC with a quad-core Cortex-A53.
+
+if ROCKCHIP_RK3528
+
+config TPL_LDSCRIPT
+	default "arch/arm/mach-rockchip/u-boot-tpl-v8.lds"
+
+config TPL_TEXT_BASE
+	default 0xfe481000
+
+config TPL_MAX_SIZE
+	default 61440
+
+endif
+
+config ROCKCHIP_RK3562
+	bool "Support Rockchip RK3562"
+	select GICV2
+	select ARM64
+	select ARM_SMCCC
+	select SUPPORT_TPL
+	select SUPPORT_SPL
+	select TPL_TINY_FRAMEWORK if TPL
+	select DEBUG_UART_BOARD_INIT
+	imply TPL
+	imply SPL
+	imply TPL_SERIAL_SUPPORT
+	help
+	  The Rockchip RK3562 is a ARM-based SoC with a quad-core Cortex-A53.
+
+if ROCKCHIP_RK3562
+
+config TPL_LDSCRIPT
+	default "arch/arm/mach-rockchip/u-boot-tpl-v8.lds"
+
+config TPL_TEXT_BASE
+	default 0xfe481000
+
+config TPL_MAX_SIZE
+	default 61440
+
+endif
+
 config ROCKCHIP_RK3568
 	bool "Support Rockchip RK3568"
 	select ARM64 if !ARM64_BOOT_AARCH32
@@ -597,6 +652,8 @@ config ROCKCHIP_BOOT_MODE_REG
 	default 0xff1005c8 if ROCKCHIP_RK3328
 	default 0xff738200 if ROCKCHIP_RK3368
 	default 0xff320300 if ROCKCHIP_RK3399
+	default 0xff370200 if ROCKCHIP_RK3528
+	default 0xff010220 if ROCKCHIP_RK3562
 	default 0xfdc20200 if ROCKCHIP_RK3568
 	default 0xfd588080 if ROCKCHIP_RK3588
 	default 0xfe020200 if ROCKCHIP_RK1808
@@ -622,6 +679,8 @@ config ROCKCHIP_STIMER_BASE
 	default 0xff1d0020 if ROCKCHIP_RK3328
 	default 0xff830020 if ROCKCHIP_RK3368
 	default 0xff8680a0 if ROCKCHIP_RK3399
+	default 0xff620000 if ROCKCHIP_RK3528
+	default 0xffa90020 if ROCKCHIP_RK3562
 	default 0xfdd1c020 if ROCKCHIP_RK3568
 	default 0xfd8c8000 if ROCKCHIP_RK3588
 	default 0xff590020 if ROCKCHIP_RV1106
@@ -644,6 +703,8 @@ config ROCKCHIP_IRAM_START_ADDR
 	default 0xff091000 if ROCKCHIP_RK3328
 	default 0xff8c0000 if ROCKCHIP_RK3368
 	default 0xff8c0000 if ROCKCHIP_RK3399
+	default 0xfe480000 if ROCKCHIP_RK3528
+	default 0xfe480000 if ROCKCHIP_RK3562
 	default 0xfdcc0000 if ROCKCHIP_RK3568
 	default 0xff000000 if ROCKCHIP_RK3588
 	default 0xff6c0000 if ROCKCHIP_RV1106
@@ -813,16 +874,22 @@ config USING_KERNEL_DTB_V2
 	    - U-Boot: only some necessary U-Boot devices(storage, crypto...) in dm tree.
 	    - kernel: all the devices(except the U-Boot only) in dm tree.
 
+config EMBED_KERNEL_DTB
+	bool "Enable embedded dtb support"
+	default n
+	help
+	  Enable embedded dtb support.
+
 config EMBED_KERNEL_DTB_PATH
-	string "Embeded kernel dtb file path"
-	depends on USING_KERNEL_DTB
+	string "Embedded kernel dtb file path"
+	depends on EMBED_KERNEL_DTB && USING_KERNEL_DTB
 	default "dts/kern.dtb"
 	help
 	  This file will auto be appended to the u-boot.bin.
 
 config EMBED_KERNEL_DTB_ALWAYS
-	bool "Always using embed kernel dtb"
-	depends on USING_KERNEL_DTB
+	bool "Always using embedded kernel dtb"
+	depends on EMBED_KERNEL_DTB && USING_KERNEL_DTB
 	default n
 	help
 	  Allow fallback to always use a prepared kernel dtb even USING_KERNEL_DTB
@@ -914,6 +981,16 @@ config ROCKCHIP_HOTKEY
 	default y
 	help
 	  Define a lot of hotkeys for debug.
+
+config ROCKCHIP_CMD
+	string "Rockchip specific command"
+	default ""
+	help
+	  It defines a command to be run when the key is pressed if assigned.
+	  String format: "cmd key".
+	  @cmd: any U-Boot cmd.
+	  @key: any key map id, '-' standard for ignore.
+	  e.g. "sd_update 115", 115 is KEY_VOLUMEUP.
 
 config GICV2
 	bool "ARM GICv2"
@@ -1013,14 +1090,16 @@ config PERSISTENT_RAM_ADDR
 	default 0x0
 	depends on PSTORE
 	help
-	  This select linux pstore buffer address for uboot.
+	  This select linux pstore buffer address for U-Boot. When value is
+	  0, U-Boot auto gets this address from preloader atags.
 
 config PERSISTENT_RAM_SIZE
 	hex "Linux pstore buffer size"
 	default 0x0
-	depends on PSTORE
+	depends on (PERSISTENT_RAM_ADDR != 0)
 	help
-	  This select linux pstore buffer size for uboot.
+	  This select linux pstore buffer size for U-Boot, the value must be
+	  set if PERSISTENT_RAM_ADDR != 0.
 
 config VENDOR_FRIENDLYELEC
 	bool
@@ -1037,6 +1116,8 @@ source "arch/arm/mach-rockchip/rk3308/Kconfig"
 source "arch/arm/mach-rockchip/rk3328/Kconfig"
 source "arch/arm/mach-rockchip/rk3368/Kconfig"
 source "arch/arm/mach-rockchip/rk3399/Kconfig"
+source "arch/arm/mach-rockchip/rk3528/Kconfig"
+source "arch/arm/mach-rockchip/rk3562/Kconfig"
 source "arch/arm/mach-rockchip/rk3568/Kconfig"
 source "arch/arm/mach-rockchip/rk3588/Kconfig"
 source "arch/arm/mach-rockchip/rk1808/Kconfig"

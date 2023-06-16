@@ -6,14 +6,16 @@
 
 #include <common.h>
 #include <image.h>
-#include <android_image.h>
+#include <android_ab.h>
 #include <android_bootloader.h>
+#include <android_image.h>
 #include <malloc.h>
 #include <mapmem.h>
 #include <errno.h>
 #include <boot_rkimg.h>
 #include <crypto.h>
 #include <sysmem.h>
+#include <mp_boot.h>
 #include <u-boot/sha1.h>
 #ifdef CONFIG_RKIMG_BOOTLOADER
 #include <asm/arch/resource_img.h>
@@ -28,8 +30,8 @@
 DECLARE_GLOBAL_DATA_PTR;
 
 #define ANDROID_IMAGE_DEFAULT_KERNEL_ADDR	0x10008000
-#define ANDROID_Q_VER				10
 #define ANDROID_PARTITION_VENDOR_BOOT		"vendor_boot"
+#define ANDROID_PARTITION_INIT_BOOT		"init_boot"
 
 #define BLK_CNT(_num_bytes, _block_size)	\
 		((_num_bytes + _block_size - 1) / _block_size)
@@ -37,27 +39,110 @@ DECLARE_GLOBAL_DATA_PTR;
 static char andr_tmp_str[ANDR_BOOT_ARGS_SIZE + 1];
 static u32 android_kernel_comp_type = IH_COMP_NONE;
 
-u32 android_image_major_version(void)
+static int android_version_init(void)
 {
-	/* MSB 7-bits */
-	return gd->bd->bi_andr_version >> 25;
+	struct andr_img_hdr *hdr = NULL;
+	struct blk_desc *desc;
+	const char *part_name = PART_BOOT;
+	disk_partition_t part;
+	int os_version;
+
+	desc = rockchip_get_bootdev();
+	if (!desc) {
+		printf("No bootdev\n");
+		return -1;
+	}
+
+#ifdef CONFIG_ANDROID_AB
+	part_name = ab_can_find_recovery_part() ? PART_RECOVERY : PART_BOOT;
+#endif
+	if (part_get_info_by_name(desc, part_name, &part) < 0)
+		return -1;
+
+	hdr = populate_andr_img_hdr(desc, &part);
+	if (!hdr)
+		return -1;
+
+	os_version = hdr->os_version;
+	if (os_version)
+		printf("Android %u.%u, Build %u.%u, v%d\n",
+		       (os_version >> 25) & 0x7f, (os_version >> 18) & 0x7F,
+		       ((os_version >> 4) & 0x7f) + 2000, os_version & 0x0F,
+		       hdr->header_version);
+	free(hdr);
+
+	return (os_version >> 25) & 0x7f;
 }
 
 u32 android_bcb_msg_sector_offset(void)
 {
+	static int android_version = -1;	/* static */
+
 	/*
-	 * Rockchip platforms defines BCB message at the 16KB offset of
-	 * misc partition while the Google defines it at 0x00 offset.
+	 * get android os version:
 	 *
-	 * From Android-Q, the 0x00 offset is mandary on Google VTS, so that
-	 * this is a compatibility according to android image 'os_version'.
+	 * There are two types of misc.img:
+	 *	Rockchip platforms defines BCB message at the 16KB offset of
+	 *	misc.img except for the Android version >= 10. Because Google
+	 *	defines it at 0x00 offset, and from Android-10 it becoms mandary
+	 *	on Google VTS.
+	 *
+	 * So we must get android 'os_version' to identify which type we
+	 * are using, then we could able to use rockchip_get_boot_mode()
+	 * which reads BCB from misc.img.
 	 */
 #ifdef CONFIG_RKIMG_BOOTLOADER
-	return (android_image_major_version() >= ANDROID_Q_VER) ? 0x00 : 0x20;
+	if (android_version < 0)
+		android_version = android_version_init();
+
+	return (android_version >= 10) ? 0x00 : 0x20;
 #else
 	return 0x00;
 #endif
 }
+
+#ifdef CONFIG_ROCKCHIP_RESOURCE_IMAGE
+int android_image_init_resource(struct blk_desc *desc,
+				disk_partition_t *out_part,
+				ulong *out_blk_offset)
+{
+	struct andr_img_hdr *hdr = NULL;
+	const char *part_name = ANDROID_PARTITION_BOOT;
+	disk_partition_t part;
+	ulong offset;
+	int ret = 0;
+
+	if (!desc)
+		return -ENODEV;
+
+#ifndef CONFIG_ANDROID_AB
+	if (rockchip_get_boot_mode() == BOOT_MODE_RECOVERY)
+		part_name = ANDROID_PARTITION_RECOVERY;
+#endif
+	if (part_get_info_by_name(desc, part_name, &part) < 0)
+		return -ENOENT;
+
+	hdr = populate_andr_img_hdr(desc, &part);
+	if (!hdr)
+		return -EINVAL;
+
+	if (hdr->header_version >= 2 && hdr->dtb_size)
+		env_update("bootargs", "androidboot.dtb_idx=0");
+
+	if (hdr->header_version <= 2) {
+		offset = hdr->page_size +
+			ALIGN(hdr->kernel_size, hdr->page_size) +
+			ALIGN(hdr->ramdisk_size, hdr->page_size);
+		*out_part = part;
+		*out_blk_offset = DIV_ROUND_UP(offset, desc->blksz);
+	} else {
+		ret = -EINVAL;
+	}
+	free(hdr);
+
+	return ret;
+}
+#endif
 
 static ulong android_image_get_kernel_addr(const struct andr_img_hdr *hdr)
 {
@@ -323,7 +408,7 @@ static void print_hash(const char *label, u8 *hash, int len)
 
 typedef enum {
 	IMG_KERNEL,
-	IMG_RAMDISK,
+	IMG_RAMDISK,	/* within boot.img or init_boot.img(Android-13 or later) */
 	IMG_SECOND,
 	IMG_RECOVERY_DTBO,
 	IMG_RK_DTB,	/* within resource.img in second position */
@@ -343,7 +428,9 @@ static int image_load(img_t img, struct andr_img_hdr *hdr,
 {
 	struct blk_desc *desc = rockchip_get_bootdev();
 	disk_partition_t part_vendor_boot;
+	disk_partition_t part_init_boot;
 	__maybe_unused u32 typesz;
+	u32 andr_version = (hdr->os_version >> 25) & 0x7f;
 	ulong pgsz = hdr->page_size;
 	ulong blksz = desc->blksz;
 	ulong blkcnt, blkoff;
@@ -352,6 +439,7 @@ static int image_load(img_t img, struct andr_img_hdr *hdr,
 	ulong extra = 0;
 	ulong length;
 	void *buffer;
+	void *tmp = NULL;
 	int ret = 0;
 
 	switch (img) {
@@ -366,17 +454,20 @@ static int image_load(img_t img, struct andr_img_hdr *hdr,
 			return -ENOMEM;
 		break;
 	case IMG_VENDOR_RAMDISK:
-		if (part_get_info_by_name(desc,
-					  ANDROID_PARTITION_VENDOR_BOOT,
-					  &part_vendor_boot) < 0) {
-			printf("No vendor boot partition\n");
-			return -ENOENT;
+		if (hdr->vendor_boot_buf) {
+			ram_base = hdr->vendor_boot_buf;
+		} else {
+			if (part_get_info_by_name(desc,
+						  ANDROID_PARTITION_VENDOR_BOOT,
+						  &part_vendor_boot) < 0) {
+				printf("No vendor boot partition\n");
+				return -ENOENT;
+			}
+			ram_base = 0;
 		}
-		/* Always load vendor boot from storage: avb full load boot/recovery */
+
 		blkstart = part_vendor_boot.start;
 		pgsz = hdr->vendor_page_size;
-		ram_base = 0;
-
 		bsoffs = ALIGN(VENDOR_BOOT_HDRv3_SIZE, pgsz);
 		length = hdr->vendor_ramdisk_size;
 		buffer = (void *)env_get_ulong("ramdisk_addr_r", 16, 0);
@@ -400,7 +491,25 @@ static int image_load(img_t img, struct andr_img_hdr *hdr,
 			return -ENOMEM;
 		break;
 	case IMG_RAMDISK:
-		bsoffs = pgsz + ALIGN(hdr->kernel_size, pgsz);
+		/* get ramdisk from init_boot.img ? */
+		if (hdr->header_version >= 4 && andr_version >= 13) {
+			if (hdr->init_boot_buf) {
+				ram_base = hdr->init_boot_buf;
+			} else {
+				if (part_get_info_by_name(desc,
+				    ANDROID_PARTITION_INIT_BOOT, &part_init_boot) < 0) {
+					printf("No init boot partition\n");
+					return -ENOENT;
+				}
+				blkstart = part_init_boot.start;
+				ram_base = 0;
+			}
+			bsoffs = pgsz;
+		} else {
+			/* get ramdisk from generic boot.img */
+			bsoffs = pgsz + ALIGN(hdr->kernel_size, pgsz);
+		}
+
 		length = hdr->ramdisk_size;
 		buffer = (void *)env_get_ulong("ramdisk_addr_r", 16, 0);
 		blkcnt = DIV_ROUND_UP(hdr->ramdisk_size, blksz);
@@ -412,15 +521,20 @@ static int image_load(img_t img, struct andr_img_hdr *hdr,
 		 *	|    ramdisk     |
 		 *	|----------------|
 		 *
-		 * ramdisk_addr_r v3:
+		 * ramdisk_addr_r v3 (Android-11 and later):
 		 *	|----------------|---------|
 		 *	| vendor-ramdisk | ramdisk |
 		 *	|----------------|---------|
 		 *
-		 * ramdisk_addr_r v4:
+		 * ramdisk_addr_r v4 (Android-12 and later):
 		 *	|----------------|---------|------------|------------|
 		 *	| vendor-ramdisk | ramdisk | bootconfig | bootparams |
 		 *	|----------------|---------|------------|------------|
+		 *
+		 * ramdisk_addr_r v4 + init_boot(Android-13 and later):
+		 *	|----------------|----------------|------------|------------|
+		 *	| vendor-ramdisk | (init_)ramdisk | bootconfig | bootparams |
+		 *	|----------------|----------------|------------|------------|
 		 */
 		if (hdr->header_version >= 3) {
 			buffer += hdr->vendor_ramdisk_size;
@@ -439,17 +553,20 @@ static int image_load(img_t img, struct andr_img_hdr *hdr,
 	case IMG_BOOTCONFIG:
 		if (hdr->header_version < 4)
 			return 0;
-		if (part_get_info_by_name(desc,
-					  ANDROID_PARTITION_VENDOR_BOOT,
-					  &part_vendor_boot) < 0) {
-			printf("No vendor boot partition\n");
-			return -ENOENT;
-		}
 
+		if (hdr->vendor_boot_buf) {
+			ram_base = hdr->vendor_boot_buf;
+		} else {
+			if (part_get_info_by_name(desc,
+						  ANDROID_PARTITION_VENDOR_BOOT,
+						  &part_vendor_boot) < 0) {
+				printf("No vendor boot partition\n");
+				return -ENOENT;
+			}
+			ram_base = 0;
+		}
 		blkstart = part_vendor_boot.start;
 		pgsz = hdr->vendor_page_size;
-		ram_base = 0;
-
 		bsoffs = ALIGN(VENDOR_BOOT_HDRv4_SIZE, pgsz) +
 			 ALIGN(hdr->vendor_ramdisk_size, pgsz) +
 			 ALIGN(hdr->dtb_size, pgsz) +
@@ -471,7 +588,7 @@ static int image_load(img_t img, struct andr_img_hdr *hdr,
 			 ALIGN(hdr->ramdisk_size, pgsz);
 		length = hdr->second_size;
 		blkcnt = DIV_ROUND_UP(hdr->second_size, blksz);
-		buffer = malloc(blkcnt * blksz);
+		buffer = tmp = malloc(blkcnt * blksz);
 		typesz = sizeof(hdr->second_size);
 		break;
 	case IMG_RECOVERY_DTBO:
@@ -481,7 +598,7 @@ static int image_load(img_t img, struct andr_img_hdr *hdr,
 			 ALIGN(hdr->second_size, pgsz);
 		length = hdr->recovery_dtbo_size;
 		blkcnt = DIV_ROUND_UP(hdr->recovery_dtbo_size, blksz);
-		buffer = malloc(blkcnt * blksz);
+		buffer = tmp = malloc(blkcnt * blksz);
 		typesz = sizeof(hdr->recovery_dtbo_size);
 		break;
 	case IMG_DTB:
@@ -492,7 +609,7 @@ static int image_load(img_t img, struct andr_img_hdr *hdr,
 			 ALIGN(hdr->recovery_dtbo_size, pgsz);
 		length = hdr->dtb_size;
 		blkcnt = DIV_ROUND_UP(hdr->dtb_size, blksz);
-		buffer = malloc(blkcnt * blksz);
+		buffer = tmp = malloc(blkcnt * blksz);
 		typesz = sizeof(hdr->dtb_size);
 		break;
 	case IMG_RK_DTB:
@@ -540,14 +657,19 @@ crypto_calc:
 	if (hdr->header_version < 3) {
 #ifdef CONFIG_ANDROID_BOOT_IMAGE_HASH
 #ifdef CONFIG_DM_CRYPTO
-		crypto_sha_update(crypto, (u32 *)buffer, length);
-		crypto_sha_update(crypto, (u32 *)&length, typesz);
+		if (crypto) {
+			crypto_sha_update(crypto, (u32 *)buffer, length);
+			crypto_sha_update(crypto, (u32 *)&length, typesz);
+		}
 #else
 		sha1_update(&sha1_ctx, (void *)buffer, length);
 		sha1_update(&sha1_ctx, (void *)&length, typesz);
 #endif
 #endif
 	}
+
+	if (tmp)
+		free(tmp);
 
 	return 0;
 }
@@ -605,7 +727,12 @@ static int android_image_separate(struct andr_img_hdr *hdr,
 		return -1;
 
 #ifdef CONFIG_ANDROID_BOOT_IMAGE_HASH
-	if (hdr->header_version < 3) {
+	int verify = 1;
+
+#ifdef CONFIG_MP_BOOT
+	verify = mpb_post(3);
+#endif
+	if (hdr->header_version < 3 && verify) {
 		struct udevice *dev = NULL;
 		uchar hash[20];
 #ifdef CONFIG_DM_CRYPTO
@@ -936,6 +1063,7 @@ extract_boot_image_v34_header(struct blk_desc *dev_desc,
 			      const disk_partition_t *boot_img)
 {
 	struct boot_img_hdr_v34 *boot_hdr;
+	disk_partition_t part;
 	long blk_cnt, blks_read;
 
 	blk_cnt = BLK_CNT(sizeof(struct boot_img_hdr_v34), dev_desc->blksz);
@@ -960,6 +1088,13 @@ extract_boot_image_v34_header(struct blk_desc *dev_desc,
 		printf("boot header %d, is not >= v3.\n",
 		       boot_hdr->header_version);
 		return NULL;
+	}
+
+	/* Start from android-13 GKI, it doesn't assign 'os_version' */
+	if (boot_hdr->header_version >= 4 && boot_hdr->os_version == 0) {
+		if (part_get_info_by_name(dev_desc,
+				ANDROID_PARTITION_INIT_BOOT, &part) > 0)
+			boot_hdr->os_version = 13 << 25;
 	}
 
 	return boot_hdr;
@@ -1003,19 +1138,26 @@ extract_vendor_boot_image_v34_header(struct blk_desc *dev_desc,
 	return vboot_hdr;
 }
 
-static int populate_boot_info(const struct boot_img_hdr_v34 *boot_hdr,
-			      const struct vendor_boot_img_hdr_v34 *vendor_hdr,
-			      struct andr_img_hdr *hdr)
+int populate_boot_info(const struct boot_img_hdr_v34 *boot_hdr,
+		       const struct vendor_boot_img_hdr_v34 *vendor_boot_hdr,
+		       const struct boot_img_hdr_v34 *init_boot_hdr,
+		       struct andr_img_hdr *hdr, bool save_hdr)
 {
 	memset(hdr->magic, 0, ANDR_BOOT_MAGIC_SIZE);
 	memcpy(hdr->magic, boot_hdr->magic, ANDR_BOOT_MAGIC_SIZE);
 
 	hdr->kernel_size = boot_hdr->kernel_size;
-	/* don't use vendor_hdr->kernel_addr, we prefer "hdr + hdr->page_size" */
+	/* don't use vendor_boot_hdr->kernel_addr, we prefer "hdr + hdr->page_size" */
 	hdr->kernel_addr = ANDROID_IMAGE_DEFAULT_KERNEL_ADDR;
-	/* generic ramdisk: immediately following the vendor ramdisk */
-	hdr->boot_ramdisk_size = boot_hdr->ramdisk_size;
-	hdr->ramdisk_size = boot_hdr->ramdisk_size;
+
+	/*
+	 * generic ramdisk: immediately following the vendor ramdisk.
+	 * It can be from init_boot.img or boot.img.
+	 */
+	if (init_boot_hdr)
+		hdr->ramdisk_size = init_boot_hdr->ramdisk_size;
+	else
+		hdr->ramdisk_size = boot_hdr->ramdisk_size;
 
 	/* actually, useless */
 	hdr->ramdisk_addr = env_get_ulong("ramdisk_addr_r", 16, 0);
@@ -1024,7 +1166,7 @@ static int populate_boot_info(const struct boot_img_hdr_v34 *boot_hdr,
 	hdr->second_size = 0;
 	hdr->second_addr = 0;
 
-	hdr->tags_addr = vendor_hdr->tags_addr;
+	hdr->tags_addr = vendor_boot_hdr->tags_addr;
 
 	/* fixed in v3 */
 	hdr->page_size = 4096;
@@ -1032,7 +1174,7 @@ static int populate_boot_info(const struct boot_img_hdr_v34 *boot_hdr,
 	hdr->os_version = boot_hdr->os_version;
 
 	memset(hdr->name, 0, ANDR_BOOT_NAME_SIZE);
-	strncpy(hdr->name, (const char *)vendor_hdr->name, ANDR_BOOT_NAME_SIZE);
+	strncpy(hdr->name, (const char *)vendor_boot_hdr->name, ANDR_BOOT_NAME_SIZE);
 
 	/* removed in v3 */
 	memset(hdr->cmdline, 0, ANDR_BOOT_ARGS_SIZE);
@@ -1042,14 +1184,14 @@ static int populate_boot_info(const struct boot_img_hdr_v34 *boot_hdr,
 	hdr->recovery_dtbo_offset = 0;
 
 	hdr->header_size = boot_hdr->header_size;
-	hdr->dtb_size = vendor_hdr->dtb_size;
-	hdr->dtb_addr = vendor_hdr->dtb_addr;
+	hdr->dtb_size = vendor_boot_hdr->dtb_size;
+	hdr->dtb_addr = vendor_boot_hdr->dtb_addr;
 
 	/* boot_img_hdr_v34 fields */
-	hdr->vendor_ramdisk_size = vendor_hdr->vendor_ramdisk_size;
-	hdr->vendor_page_size = vendor_hdr->page_size;
-	hdr->vendor_header_version = vendor_hdr->header_version;
-	hdr->vendor_header_size = vendor_hdr->header_size;
+	hdr->vendor_ramdisk_size = vendor_boot_hdr->vendor_ramdisk_size;
+	hdr->vendor_page_size = vendor_boot_hdr->page_size;
+	hdr->vendor_header_version = vendor_boot_hdr->header_version;
+	hdr->vendor_header_size = vendor_boot_hdr->header_size;
 
 	hdr->total_cmdline = calloc(1, TOTAL_BOOT_ARGS_SIZE);
 	if (!hdr->total_cmdline)
@@ -1057,30 +1199,33 @@ static int populate_boot_info(const struct boot_img_hdr_v34 *boot_hdr,
 	strncpy(hdr->total_cmdline, (const char *)boot_hdr->cmdline,
 		sizeof(boot_hdr->cmdline));
 	strncat(hdr->total_cmdline, " ", 1);
-	strncat(hdr->total_cmdline, (const char *)vendor_hdr->cmdline,
-		sizeof(vendor_hdr->cmdline));
+	strncat(hdr->total_cmdline, (const char *)vendor_boot_hdr->cmdline,
+		sizeof(vendor_boot_hdr->cmdline));
 
 	/* new for header v4 */
-	if (vendor_hdr->header_version > 3) {
+	if (vendor_boot_hdr->header_version >= 4) {
 		hdr->vendor_ramdisk_table_size =
-				vendor_hdr->vendor_ramdisk_table_size;
+				vendor_boot_hdr->vendor_ramdisk_table_size;
 		hdr->vendor_ramdisk_table_entry_num =
-				vendor_hdr->vendor_ramdisk_table_entry_num;
+				vendor_boot_hdr->vendor_ramdisk_table_entry_num;
 		hdr->vendor_ramdisk_table_entry_size =
-				vendor_hdr->vendor_ramdisk_table_entry_size;
+				vendor_boot_hdr->vendor_ramdisk_table_entry_size;
 		/*
 		 * If we place additional "androidboot.xxx" parameters after
 		 * bootconfig, this field value should be increased,
 		 * but not over than ANDROID_ADDITION_BOOTCONFIG_PARAMS_MAX_SIZE.
 		 */
 		hdr->vendor_bootconfig_size =
-				vendor_hdr->vendor_bootconfig_size;
+				vendor_boot_hdr->vendor_bootconfig_size;
 	} else {
 		hdr->vendor_ramdisk_table_size = 0;
 		hdr->vendor_ramdisk_table_entry_num = 0;
 		hdr->vendor_ramdisk_table_entry_size = 0;
 		hdr->vendor_bootconfig_size = 0;
 	}
+
+	hdr->init_boot_buf = save_hdr ? (void *)init_boot_hdr : 0;
+	hdr->vendor_boot_buf = save_hdr ? (void *)vendor_boot_hdr : 0;
 
 	if (hdr->page_size < sizeof(*hdr)) {
 		printf("android hdr is over size\n");
@@ -1110,10 +1255,13 @@ struct andr_img_hdr *populate_andr_img_hdr(struct blk_desc *dev_desc,
 					   disk_partition_t *part_boot)
 {
 	disk_partition_t part_vendor_boot;
-	struct vendor_boot_img_hdr_v34 *vboot_hdr;
-	struct boot_img_hdr_v34 *boot_hdr;
-	struct andr_img_hdr *andr_hdr;
+	disk_partition_t part_init_boot;
+	struct vendor_boot_img_hdr_v34 *vboot_hdr = NULL;
+	struct boot_img_hdr_v34 *iboot_hdr = NULL;
+	struct boot_img_hdr_v34 *boot_hdr = NULL;
+	struct andr_img_hdr *andr_hdr = NULL;
 	int header_version;
+	int andr_version;
 
 	if (!dev_desc || !part_boot)
 		return NULL;
@@ -1134,6 +1282,7 @@ struct andr_img_hdr *populate_andr_img_hdr(struct blk_desc *dev_desc,
 
 	header_version = andr_hdr->header_version;
 	free(andr_hdr);
+	andr_hdr = NULL;
 
 	if (header_version < 3) {
 		return extract_boot_image_v012_header(dev_desc, part_boot);
@@ -1150,6 +1299,23 @@ struct andr_img_hdr *populate_andr_img_hdr(struct blk_desc *dev_desc,
 		if (!boot_hdr || !vboot_hdr)
 			goto image_load_exit;
 
+		andr_version = (boot_hdr->os_version >> 25) & 0x7f;
+		if (header_version >= 4 && andr_version >= 13) {
+			if (part_get_info_by_name(dev_desc,
+						  ANDROID_PARTITION_INIT_BOOT,
+						  &part_init_boot) < 0) {
+				printf("No init boot partition\n");
+				return NULL;
+			}
+			iboot_hdr = extract_boot_image_v34_header(dev_desc, &part_init_boot);
+			if (!iboot_hdr)
+				goto image_load_exit;
+			if (!iboot_hdr->ramdisk_size) {
+				printf("No ramdisk in init boot partition\n");
+				goto image_load_exit;
+			}
+		}
+
 		andr_hdr = (struct andr_img_hdr *)
 				malloc(sizeof(struct andr_img_hdr));
 		if (!andr_hdr) {
@@ -1157,21 +1323,21 @@ struct andr_img_hdr *populate_andr_img_hdr(struct blk_desc *dev_desc,
 			goto image_load_exit;
 		}
 
-		if (populate_boot_info(boot_hdr, vboot_hdr, andr_hdr)) {
+		if (populate_boot_info(boot_hdr, vboot_hdr,
+				       iboot_hdr, andr_hdr, false)) {
 			printf("populate boot info failed\n");
 			goto image_load_exit;
 		}
 
-		free(boot_hdr);
-		free(vboot_hdr);
+image_load_exit:
+		if (boot_hdr)
+			free(boot_hdr);
+		if (iboot_hdr)
+			free(iboot_hdr);
+		if (vboot_hdr)
+			free(vboot_hdr);
 
 		return andr_hdr;
-
-image_load_exit:
-		free(boot_hdr);
-		free(vboot_hdr);
-
-		return NULL;
 	}
 
 	return NULL;

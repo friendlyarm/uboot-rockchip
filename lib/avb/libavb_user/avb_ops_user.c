@@ -81,10 +81,9 @@ static AvbIOResult get_size_of_partition(AvbOps *ops,
 		return AVB_IO_RESULT_ERROR_NO_SUCH_PARTITION;
 	}
 
-	if (part_get_info_by_name(dev_desc, partition, &part_info) < 0) {
-		printf("Could not find \"%s\" partition\n", partition);
+	if (part_get_info_by_name(dev_desc, partition, &part_info) < 0)
 		return AVB_IO_RESULT_ERROR_NO_SUCH_PARTITION;
-	}
+
 	*out_size_in_bytes = (part_info.size) * 512;
 	return AVB_IO_RESULT_OK;
 }
@@ -281,6 +280,7 @@ static AvbIOResult read_is_device_unlocked(AvbOps *ops, bool *out_is_unlocked)
 {
 	if (out_is_unlocked) {
 #ifdef CONFIG_OPTEE_CLIENT
+		uint8_t vboot_flag = 0;
 		int ret;
 
 		ret = trusty_read_lock_state((uint8_t *)out_is_unlocked);
@@ -291,7 +291,16 @@ static AvbIOResult read_is_device_unlocked(AvbOps *ops, bool *out_is_unlocked)
 		case TEE_ERROR_GENERIC:
 		case TEE_ERROR_NO_DATA:
 		case TEE_ERROR_ITEM_NOT_FOUND:
-			*out_is_unlocked = 1;
+			if (trusty_read_vbootkey_enable_flag(&vboot_flag)) {
+				printf("Can't read vboot flag\n");
+				return AVB_IO_RESULT_ERROR_IO;
+			}
+
+			if (vboot_flag)
+				*out_is_unlocked = 0;
+			else
+				*out_is_unlocked = 1;
+
 			if (trusty_write_lock_state(*out_is_unlocked)) {
 				printf("%s: init lock state error\n", __FILE__);
 				ret = AVB_IO_RESULT_ERROR_IO;
@@ -429,30 +438,111 @@ static AvbIOResult get_preloaded_partition(AvbOps* ops,
 					   size_t* out_num_bytes_preloaded,
 					   int allow_verification_error)
 {
+	struct preloaded_partition *preload_info = NULL;
+	struct AvbOpsData *data = ops->user_data;
 	struct blk_desc *dev_desc;
+	disk_partition_t part_info;
 	ulong load_addr;
-	int ret;
+	AvbIOResult ret;
+	int full_preload = 0;
 
-	/* no need go further */
-	if (!allow_verification_error)
-		return AVB_IO_RESULT_OK;
-
-	printf("get image from preloaded partition...\n");
 	dev_desc = rockchip_get_bootdev();
 	if (!dev_desc)
-	    return AVB_IO_RESULT_ERROR_NO_SUCH_PARTITION;
+		return AVB_IO_RESULT_ERROR_IO;
 
-	load_addr = env_get_ulong("kernel_addr_r", 16, 0);
-	if (!load_addr)
-		return AVB_IO_RESULT_ERROR_NO_SUCH_VALUE;
+	if (part_get_info_by_name(dev_desc, partition, &part_info) < 0) {
+		printf("Could not find \"%s\" partition\n", partition);
+		return AVB_IO_RESULT_ERROR_NO_SUCH_PARTITION;
+	}
 
-	ret = android_image_load_by_partname(dev_desc, partition, &load_addr);
-	if (!ret) {
-		*out_pointer = (u8 *)load_addr;
-		*out_num_bytes_preloaded = num_bytes; /* return what it expects */
+	if (!allow_verification_error) {
+		if (!strncmp(partition, ANDROID_PARTITION_BOOT, 4) ||
+		    !strncmp(partition, ANDROID_PARTITION_RECOVERY, 8))
+			preload_info = &data->boot;
+		else if (!strncmp(partition, ANDROID_PARTITION_VENDOR_BOOT, 11))
+			preload_info = &data->vendor_boot;
+		else if (!strncmp(partition, ANDROID_PARTITION_INIT_BOOT, 9))
+			preload_info = &data->init_boot;
+		else if (!strncmp(partition, ANDROID_PARTITION_RESOURCE, 8))
+			preload_info = &data->resource;
+
+		if (!preload_info) {
+			printf("Error: unknown full load partition '%s'\n", partition);
+			return AVB_IO_RESULT_ERROR_NO_SUCH_PARTITION;
+		}
+
+		printf("preloaded(s): %sfull image from '%s' at 0x%08lx - 0x%08lx\n",
+		       preload_info->size ? "pre-" : "", partition,
+		       (ulong)preload_info->addr,
+		       (ulong)preload_info->addr + num_bytes);
+
+		/* If the partition hasn't yet been preloaded, do it now.*/
+		if (preload_info->size == 0) {
+			ret = ops->read_from_partition(ops, partition,
+						       0, num_bytes,
+						       preload_info->addr,
+						       &preload_info->size);
+			if (ret != AVB_IO_RESULT_OK)
+				return ret;
+		}
+		*out_pointer = preload_info->addr;
+		*out_num_bytes_preloaded = preload_info->size;
 		ret = AVB_IO_RESULT_OK;
 	} else {
-		ret = AVB_IO_RESULT_ERROR_IO;
+		if (!strncmp(partition, ANDROID_PARTITION_INIT_BOOT, 9) ||
+		    !strncmp(partition, ANDROID_PARTITION_VENDOR_BOOT, 11) ||
+		    !strncmp(partition, ANDROID_PARTITION_BOOT, 4) ||
+		    !strncmp(partition, ANDROID_PARTITION_RECOVERY, 8) ||
+		    !strncmp(partition, ANDROID_PARTITION_RESOURCE, 8)) {
+			/* If already full preloaded, just use it */
+			if (!strncmp(partition, ANDROID_PARTITION_BOOT, 4) ||
+			    !strncmp(partition, ANDROID_PARTITION_RECOVERY, 8)) {
+				preload_info = &data->boot;
+				if (preload_info->size) {
+					*out_pointer = preload_info->addr;
+					*out_num_bytes_preloaded = num_bytes;
+					full_preload = 1;
+				}
+			}
+			printf("preloaded: %s image from '%s\n",
+			       full_preload ? "pre-full" : "distribute", partition);
+		} else {
+			printf("Error: unknown preloaded partition '%s'\n", partition);
+			return AVB_IO_RESULT_ERROR_OOM;
+		}
+
+		/*
+		 * Already preloaded during boot/recovery loading,
+		 * here we just return a dummy buffer.
+		 */
+		if (!strncmp(partition, ANDROID_PARTITION_INIT_BOOT, 9) ||
+		    !strncmp(partition, ANDROID_PARTITION_VENDOR_BOOT, 11) ||
+		    !strncmp(partition, ANDROID_PARTITION_RESOURCE, 8)) {
+			*out_pointer = (u8 *)avb_malloc(ARCH_DMA_MINALIGN);
+			*out_num_bytes_preloaded = num_bytes; /* return what it expects */
+			return AVB_IO_RESULT_OK;
+		}
+
+		/* If already full preloaded, there is nothing to do and just return */
+		if (full_preload)
+			return AVB_IO_RESULT_OK;
+
+		/*
+		 * only boot/recovery partition can reach here
+		 * and init/vendor_boot are loaded at this round.
+		 */
+		load_addr = env_get_ulong("kernel_addr_r", 16, 0);
+		if (!load_addr)
+			return AVB_IO_RESULT_ERROR_NO_SUCH_VALUE;
+
+		ret = android_image_load_by_partname(dev_desc, partition, &load_addr);
+		if (!ret) {
+			*out_pointer = (u8 *)load_addr;
+			*out_num_bytes_preloaded = num_bytes; /* return what it expects */
+			ret = AVB_IO_RESULT_OK;
+		} else {
+			ret = AVB_IO_RESULT_ERROR_IO;
+		}
 	}
 
 	return ret;
@@ -489,7 +579,8 @@ AvbIOResult validate_public_key_for_partition(AvbOps *ops,
 
 AvbOps *avb_ops_user_new(void)
 {
-	AvbOps *ops;
+	AvbOps *ops = NULL;
+	struct AvbOpsData *ops_data = NULL;
 
 	ops = calloc(1, sizeof(AvbOps));
 	if (!ops) {
@@ -510,8 +601,20 @@ AvbOps *avb_ops_user_new(void)
 		free(ops);
 		goto out;
 	}
+
+	ops_data = calloc(1, sizeof(struct AvbOpsData));
+	if (!ops_data) {
+		printf("Error allocating memory for AvbOpsData.\n");
+		free(ops->atx_ops);
+		free(ops->ab_ops);
+		free(ops);
+		goto out;
+	}
+
 	ops->ab_ops->ops = ops;
 	ops->atx_ops->ops = ops;
+	ops_data->ops = ops;
+	ops->user_data = ops_data;
 
 	ops->read_from_partition = read_from_partition;
 	ops->write_to_partition = write_to_partition;
@@ -533,12 +636,14 @@ AvbOps *avb_ops_user_new(void)
 	ops->atx_ops->set_key_version = avb_set_key_version;
 	ops->atx_ops->get_random = rk_get_random;
 
-out:
 	return ops;
+out:
+	return NULL;
 }
 
 void avb_ops_user_free(AvbOps *ops)
 {
+	free(ops->user_data);
 	free(ops->ab_ops);
 	free(ops->atx_ops);
 	free(ops);

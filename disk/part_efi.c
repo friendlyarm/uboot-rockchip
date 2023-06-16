@@ -368,7 +368,7 @@ static void gpt_entry_modify(struct blk_desc *dev_desc,
 	if (gpt_pte[i - 1].ending_lba <= (dev_desc->lba - 0x22))
 		return;
 	/* The last partition size need align to 4KB, here align to 32KB. */
-	gpt_pte[i - 1].ending_lba = dev_desc->lba - 0x40;
+	gpt_pte[i - 1].ending_lba = dev_desc->lba - 0x41;
 	calc_crc32 = efi_crc32((const unsigned char *)gpt_pte,
 			       le32_to_cpu(gpt_head->num_partition_entries) *
 			       le32_to_cpu(gpt_head->sizeof_partition_entry));
@@ -963,7 +963,8 @@ int is_valid_gpt_buf(struct blk_desc *dev_desc, void *buf)
 		       dev_desc->blksz);
 
 	if ((le64_to_cpu(gpt_h->alternate_lba) + 1)
-			!= cpu_to_le64(dev_desc->lba)) {
+			!= cpu_to_le64(dev_desc->lba) &&
+			le64_to_cpu(gpt_h->last_usable_lba) != FACTORY_UNKNOWN_LBA) {
 		printf("%s: failed checking '%s'\n", __func__,
 		       "invalid GPT Disk Size");
 		return -1;

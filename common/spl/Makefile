@@ -24,7 +24,7 @@ endif
 
 ifdef CONFIG_SPL_BUILD
 obj-$(CONFIG_$(SPL_TPL_)BOOTROM_SUPPORT) += spl_bootrom.o
-ifdef CONFIG_SPL_KERNEL_BOOT
+ifdef CONFIG_SPL_KERNEL_BOOT_PREBUILT
 ifdef CONFIG_ARM64
 obj-$(CONFIG_$(SPL_TPL_)LOAD_FIT) += spl_fit_tb_arm64.o
 else
@@ -57,4 +57,5 @@ obj-$(CONFIG_$(SPL_TPL_)DFU) += spl_dfu.o
 obj-$(CONFIG_$(SPL_TPL_)SPI_LOAD) += spl_spi.o
 obj-$(CONFIG_$(SPL_TPL_)RAM_SUPPORT) += spl_ram.o
 obj-$(CONFIG_$(SPL_TPL_)USB_SDP_SUPPORT) += spl_sdp.o
+obj-$(CONFIG_$(SPL_TPL_)BOOT_IMAGE) += spl_boot_image.o
 endif

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (c) 2020 Fuzhou Rockchip Electronics Co., Ltd
- * Author: Elaine Zhang <zhangqing@rock-chips.com>
+ * Author: Joseph Chen <chenjh@rock-chips.com>
  */
 
 #include <common.h>
@@ -1160,7 +1160,7 @@ static ulong rk3568_pwm_get_clk(struct rk3568_clk_priv *priv, ulong clk_id)
 
 	switch (clk_id) {
 	case CLK_PWM1:
-		sel = (con & CLK_PWM1_SEL_MASK) >> CLK_PWM3_SEL_SHIFT;
+		sel = (con & CLK_PWM1_SEL_MASK) >> CLK_PWM1_SEL_SHIFT;
 		break;
 	case CLK_PWM2:
 		sel = (con & CLK_PWM2_SEL_MASK) >> CLK_PWM2_SEL_SHIFT;

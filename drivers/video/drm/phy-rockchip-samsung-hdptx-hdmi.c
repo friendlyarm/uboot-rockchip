@@ -1278,9 +1278,9 @@ static int hdptx_ropll_cmn_config(struct rockchip_hdptx_phy *hdptx, unsigned lon
 	hdptx_write(hdptx, CMN_REG0043, 0x00);
 	hdptx_write(hdptx, CMN_REG0044, 0x46);
 	hdptx_write(hdptx, CMN_REG0045, 0x24);
-	hdptx_write(hdptx, CMN_REG0046, 0xff);
+	hdptx_write(hdptx, CMN_REG0046, 0xdd);
 	hdptx_write(hdptx, CMN_REG0047, 0x00);
-	hdptx_write(hdptx, CMN_REG0048, 0x44);
+	hdptx_write(hdptx, CMN_REG0048, 0x11);
 	hdptx_write(hdptx, CMN_REG0049, 0xfa);
 	hdptx_write(hdptx, CMN_REG004A, 0x08);
 	hdptx_write(hdptx, CMN_REG004B, 0x00);
@@ -1705,6 +1705,28 @@ static int hdptx_lcpll_ropll_frl_mode_config(struct rockchip_hdptx_phy *hdptx)
 	hdptx_write(hdptx, LANE_REG061F, 0x15);
 	hdptx_write(hdptx, LANE_REG0620, 0xa0);
 
+	hdptx_write(hdptx, LANE_REG0303, 0x2f);
+	hdptx_write(hdptx, LANE_REG0403, 0x2f);
+	hdptx_write(hdptx, LANE_REG0503, 0x2f);
+	hdptx_write(hdptx, LANE_REG0603, 0x2f);
+	hdptx_write(hdptx, LANE_REG0305, 0x03);
+	hdptx_write(hdptx, LANE_REG0405, 0x03);
+	hdptx_write(hdptx, LANE_REG0505, 0x03);
+	hdptx_write(hdptx, LANE_REG0605, 0x03);
+	hdptx_write(hdptx, LANE_REG0306, 0xfc);
+	hdptx_write(hdptx, LANE_REG0406, 0xfc);
+	hdptx_write(hdptx, LANE_REG0506, 0xfc);
+	hdptx_write(hdptx, LANE_REG0606, 0xfc);
+
+	hdptx_write(hdptx, LANE_REG0305, 0x4f);
+	hdptx_write(hdptx, LANE_REG0405, 0x4f);
+	hdptx_write(hdptx, LANE_REG0505, 0x4f);
+	hdptx_write(hdptx, LANE_REG0605, 0x4f);
+	hdptx_write(hdptx, LANE_REG0304, 0x14);
+	hdptx_write(hdptx, LANE_REG0404, 0x14);
+	hdptx_write(hdptx, LANE_REG0504, 0x14);
+	hdptx_write(hdptx, LANE_REG0604, 0x14);
+
 	return hdptx_post_enable_lane(hdptx);
 }
 
@@ -1951,12 +1973,14 @@ static int rockchip_hdptx_phy_hdmi_bind(struct udevice *parent)
 
 	subnode = ofnode_find_subnode(parent->node, "clk-port");
 	if (!ofnode_valid(subnode)) {
-		printf("%s: no subnode for %s", __func__, parent->name);
+		free(str);
+		printf("%s: no subnode for %s\n", __func__, parent->name);
 		return -ENXIO;
 	}
 
 	ret = device_bind_driver_to_node(parent, "clk_hdptx", str, subnode, &child);
 	if (ret) {
+		free(str);
 		printf("%s: clk-port cannot bind its driver\n", __func__);
 		return ret;
 	}
@@ -2019,18 +2043,6 @@ static ulong hdptx_clk_set_rate(struct clk *clk, ulong rate)
 				new_rate = rate;
 				priv->rate = rate;
 			}
-		}
-	} else {
-		if (!hdptx_ropll_cmn_config(hdptx, rate)) {
-			new_rate = rate;
-			priv->rate = rate;
-		}
-	}
-
-	if (rate > (HDMI20_MAX_RATE / 100)) {
-		if (!hdptx_lcpll_cmn_config(hdptx, rate)) {
-			new_rate = rate;
-			priv->rate = rate;
 		}
 	} else {
 		if (!hdptx_ropll_cmn_config(hdptx, rate)) {

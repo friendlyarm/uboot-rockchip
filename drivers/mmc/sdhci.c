@@ -178,6 +178,7 @@ static int sdhci_send_command(struct mmc *mmc, struct mmc_cmd *cmd,
 			} else {
 				puts("timeout.\n");
 				/* remove timeout return error and try to send command */
+				break;
 			}
 		}
 		time++;
@@ -313,6 +314,29 @@ static int sdhci_send_command(struct mmc *mmc, struct mmc_cmd *cmd,
 		return -ECOMM;
 }
 
+void sdhci_enable_clk(struct sdhci_host *host, u16 clk)
+{
+	unsigned int timeout;
+
+	clk |= SDHCI_CLOCK_INT_EN;
+	sdhci_writew(host, clk, SDHCI_CLOCK_CONTROL);
+
+	/* Wait max 20 ms */
+	timeout = 20;
+	while (!((clk = sdhci_readw(host, SDHCI_CLOCK_CONTROL))
+		& SDHCI_CLOCK_INT_STABLE)) {
+		if (timeout == 0) {
+			printf("%s: Internal clock never stabilised.\n",
+			       __func__);
+			return;
+		}
+		timeout--;
+		udelay(1000);
+	}
+	clk |= SDHCI_CLOCK_CARD_EN;
+	sdhci_writew(host, clk, SDHCI_CLOCK_CONTROL);
+}
+
 int sdhci_set_clock(struct sdhci_host *host, unsigned int clock)
 {
 	unsigned int div, clk = 0, timeout;
@@ -379,23 +403,8 @@ int sdhci_set_clock(struct sdhci_host *host, unsigned int clock)
 	clk |= (div & SDHCI_DIV_MASK) << SDHCI_DIVIDER_SHIFT;
 	clk |= ((div & SDHCI_DIV_HI_MASK) >> SDHCI_DIV_MASK_LEN)
 		<< SDHCI_DIVIDER_HI_SHIFT;
-	clk |= SDHCI_CLOCK_INT_EN;
-	sdhci_writew(host, clk, SDHCI_CLOCK_CONTROL);
 
-	/* Wait max 20 ms */
-	timeout = 20;
-	while (!((clk = sdhci_readw(host, SDHCI_CLOCK_CONTROL))
-		& SDHCI_CLOCK_INT_STABLE)) {
-		if (timeout == 0) {
-			printf("%s: Internal clock never stabilised.\n",
-			       __func__);
-			return -EBUSY;
-		}
-		timeout--;
-		udelay(1000);
-	}
-	clk |= SDHCI_CLOCK_CARD_EN;
-	sdhci_writew(host, clk, SDHCI_CLOCK_CONTROL);
+	sdhci_enable_clk(host, clk);
 
 	host->clock = clock;
 	return 0;
@@ -681,11 +690,23 @@ int sdhci_probe(struct udevice *dev)
 	return sdhci_init(mmc);
 }
 
+static int sdhci_set_enhanced_strobe(struct udevice *dev)
+{
+	struct mmc *mmc = mmc_get_mmc_dev(dev);
+	struct sdhci_host *host = mmc->priv;
+
+	if (host->ops && host->ops->set_enhanced_strobe)
+		return host->ops->set_enhanced_strobe(host);
+
+	return -ENOTSUPP;
+}
+
 const struct dm_mmc_ops sdhci_ops = {
 	.card_busy	= sdhci_card_busy,
 	.send_cmd	= sdhci_send_command,
 	.set_ios	= sdhci_set_ios,
 	.execute_tuning = sdhci_execute_tuning,
+	.set_enhanced_strobe = sdhci_set_enhanced_strobe,
 };
 #else
 static const struct mmc_ops sdhci_ops = {

@@ -192,6 +192,8 @@
 #define EXT_CSD_HS_TIMING		185	/* R/W */
 #define EXT_CSD_REV			192	/* RO */
 #define EXT_CSD_CARD_TYPE		196	/* RO */
+#define EXT_CSD_CARD_TYPE		196	/* RO */
+#define EXT_CSD_DRIVER_STRENGTH		197	/* RO */
 #define EXT_CSD_SEC_CNT			212	/* RO, 4 bytes */
 #define EXT_CSD_HC_WP_GRP_SIZE		221	/* RO */
 #define EXT_CSD_HC_ERASE_GRP_SIZE	224	/* RO */
@@ -231,6 +233,7 @@
 #define EXT_CSD_BUS_WIDTH_8	2	/* Card is in 8 bit mode */
 #define EXT_CSD_DDR_BUS_WIDTH_4	5	/* Card is in 4 bit DDR mode */
 #define EXT_CSD_DDR_BUS_WIDTH_8	6	/* Card is in 8 bit DDR mode */
+#define EXT_CSD_BUS_WIDTH_STROBE BIT(7) /* Enhanced strobe mode */
 
 #define EXT_CSD_TIMING_BC	0	/* Backwards compatility */
 #define EXT_CSD_TIMING_HS	1	/* High speed */
@@ -470,6 +473,8 @@ struct dm_mmc_ops {
 	 * @return 0 if write-enabled, 1 if write-protected, -ve on error
 	 */
 	int (*execute_tuning)(struct udevice *dev, u32 opcode);
+	/* set_enhanced_strobe() - set HS400 enhanced strobe */
+	int (*set_enhanced_strobe)(struct udevice *dev);
 };
 
 #define mmc_get_ops(dev)        ((struct dm_mmc_ops *)(dev)->driver->ops)
@@ -487,6 +492,7 @@ int mmc_set_ios(struct mmc *mmc);
 int mmc_getcd(struct mmc *mmc);
 int mmc_getwp(struct mmc *mmc);
 
+int mmc_set_enhanced_strobe(struct mmc *mmc);
 #else
 struct mmc_ops {
 	bool (*card_busy)(struct mmc *mmc);
@@ -511,6 +517,7 @@ struct mmc_config {
 	uint f_max;
 	uint b_max;
 	unsigned char part_type;
+	u8 fixed_drv_type;
 };
 
 struct sd_ssr {
@@ -598,6 +605,7 @@ struct mmc {
 #if CONFIG_IS_ENABLED(DM_MMC)
 	struct udevice *dev;	/* Device for this MMC controller */
 #endif
+	u8 raw_driver_strength;
 };
 
 struct mmc_hwpart_conf {
@@ -784,6 +792,8 @@ struct blk_desc *mmc_get_blk_desc(struct mmc *mmc);
  *
  */
 void mmc_gpio_init_direct(void);
+
+#define mmc_driver_type_mask(n)		(1 << (n))
 
 #endif /* _MMC_H_ */
 

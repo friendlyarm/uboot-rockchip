@@ -152,7 +152,8 @@ static struct reg_data rk817_init_reg[] = {
 	{ RK817_PMIC_SYS_CFG1, 0x20, 0x70},
 	/* Set pmic_sleep as none function */
 	{ RK817_PMIC_SYS_CFG3, 0x00, 0x18 },
-
+	/* GATE pin function: gate function */
+	{ RK817_GPIO_INT_CFG, 0x00, 0x20 },
 #ifdef CONFIG_DM_CHARGE_DISPLAY
 	/* Set pmic_int active low */
 	{ RK817_GPIO_INT_CFG,  0x00, 0x02 },
@@ -408,6 +409,9 @@ static int rk8xx_ofdata_to_platdata(struct udevice *dev)
 	val = dev_read_u32_default(dev, "not-save-power-en", 0);
 	rk8xx->not_save_power_en = val;
 
+	val = dev_read_bool(dev, "vsys-off-shutdown");
+	rk8xx->sys_can_sd = val;
+
 	return 0;
 }
 
@@ -534,6 +538,16 @@ static int rk8xx_probe(struct udevice *dev)
 		break;
 	case RK809_ID:
 	case RK817_ID:
+		if (device_is_compatible(dev, "rockchip,rk809") && (priv->variant != RK809_ID)) {
+			dev_err(dev, "the dts is RK809, the hardware is RK817\n");
+			run_command("download", 0);
+		}
+
+		if (device_is_compatible(dev, "rockchip,rk817") && (priv->variant != RK817_ID)) {
+			dev_err(dev, "the dts is RK817, the hardware is RK809\n");
+			run_command("download", 0);
+		}
+
 		on_source = RK817_ON_SOURCE;
 		off_source = RK817_OFF_SOURCE;
 		pwron_key = RK817_PWRON_KEY;
@@ -541,27 +555,46 @@ static int rk8xx_probe(struct udevice *dev)
 		lp_act_msk = RK8XX_LP_ACTION_MSK;
 		init_data = rk817_init_reg;
 		init_data_num = ARRAY_SIZE(rk817_init_reg);
+
+		/* whether the system voltage can be shutdown in PWR_off mode */
+		if (priv->sys_can_sd) {
+			ret = rk8xx_read(dev, RK817_PMIC_CHRG_TERM, &value, 1);
+			if (ret)
+				return ret;
+			value |= 0x80;
+			ret = rk8xx_write(dev, RK817_PMIC_CHRG_TERM, &value, 1);
+			if (ret)
+				return ret;
+		} else {
+			ret = rk8xx_read(dev, RK817_PMIC_CHRG_TERM, &value, 1);
+			if (ret)
+				return ret;
+			value &= 0x7f;
+			ret = rk8xx_write(dev, RK817_PMIC_CHRG_TERM, &value, 1);
+			if (ret)
+				return ret;
+		}
+
 		/* judge whether save the PMIC_POWER_EN register */
-		if (priv->not_save_power_en)
-			break;
+		if (!priv->not_save_power_en) {
+			ret = rk8xx_read(dev, RK817_POWER_EN0, &power_en0, 1);
+			if (ret)
+				return ret;
+			ret = rk8xx_read(dev, RK817_POWER_EN1, &power_en1, 1);
+			if (ret)
+				return ret;
+			ret = rk8xx_read(dev, RK817_POWER_EN2, &power_en2, 1);
+			if (ret)
+				return ret;
+			ret = rk8xx_read(dev, RK817_POWER_EN3, &power_en3, 1);
+			if (ret)
+				return ret;
 
-		ret = rk8xx_read(dev, RK817_POWER_EN0, &power_en0, 1);
-		if (ret)
-			return ret;
-		ret = rk8xx_read(dev, RK817_POWER_EN1, &power_en1, 1);
-		if (ret)
-			return ret;
-		ret = rk8xx_read(dev, RK817_POWER_EN2, &power_en2, 1);
-		if (ret)
-			return ret;
-		ret = rk8xx_read(dev, RK817_POWER_EN3, &power_en3, 1);
-		if (ret)
-			return ret;
-
-		value = (power_en0 & 0x0f) | ((power_en1 & 0x0f) << 4);
-		rk8xx_write(dev, RK817_POWER_EN_SAVE0, &value, 1);
-		value = (power_en2 & 0x0f) | ((power_en3 & 0x0f) << 4);
-		rk8xx_write(dev, RK817_POWER_EN_SAVE1, &value, 1);
+			value = (power_en0 & 0x0f) | ((power_en1 & 0x0f) << 4);
+			rk8xx_write(dev, RK817_POWER_EN_SAVE0, &value, 1);
+			value = (power_en2 & 0x0f) | ((power_en3 & 0x0f) << 4);
+			rk8xx_write(dev, RK817_POWER_EN_SAVE1, &value, 1);
+		}
 		break;
 	default:
 		printf("Unknown PMIC: RK%x!!\n", priv->variant);

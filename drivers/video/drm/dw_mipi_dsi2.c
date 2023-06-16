@@ -12,6 +12,7 @@
 #include <common.h>
 #include <errno.h>
 #include <asm/unaligned.h>
+#include <asm/gpio.h>
 #include <asm/io.h>
 #include <asm/hardware.h>
 #include <dm/device.h>
@@ -22,7 +23,6 @@
 #include <asm/arch-rockchip/clock.h>
 #include <linux/iopoll.h>
 
-#include "rockchip_bridge.h"
 #include "rockchip_display.h"
 #include "rockchip_crtc.h"
 #include "rockchip_connector.h"
@@ -289,6 +289,7 @@ struct dw_mipi_dsi2 {
 	struct drm_display_mode mode;
 	bool data_swap;
 
+	struct gpio_desc te_gpio;
 	struct mipi_dsi_device *device;
 	struct mipi_dphy_configure mipi_dphy_cfg;
 	const struct dw_mipi_dsi2_plat_data *pdata;
@@ -693,42 +694,79 @@ static void dw_mipi_dsi2_post_disable(struct dw_mipi_dsi2 *dsi2)
 static int dw_mipi_dsi2_connector_pre_init(struct rockchip_connector *conn,
 					   struct display_state *state)
 {
+	struct connector_state *conn_state = &state->conn_state;
 	struct dw_mipi_dsi2 *dsi2 = dev_get_priv(conn->dev);
 	struct mipi_dsi_host *host = dev_get_platdata(dsi2->dev);
 	struct mipi_dsi_device *device;
 	char name[20];
-	struct udevice *dev;
 
-	device = calloc(1, sizeof(struct dw_mipi_dsi2));
-	if (!device)
-		return -ENOMEM;
+	conn_state->type = DRM_MODE_CONNECTOR_DSI;
 
-	if (conn->bridge)
-		dev = conn->bridge->dev;
-	else if (conn->panel)
-		dev = conn->panel->dev;
-	else
-		return -ENODEV;
+	if (conn->bridge) {
+		device = dev_get_platdata(conn->bridge->dev);
+		if (!device)
+			return -ENODEV;
 
-	device->dev = dev;
-	device->host = host;
-	device->lanes = dev_read_u32_default(dev, "dsi,lanes", 4);
-	device->channel = dev_read_u32_default(dev, "reg", 0);
-	device->format = dev_read_u32_default(dev, "dsi,format",
-					      MIPI_DSI_FMT_RGB888);
-	device->mode_flags = dev_read_u32_default(dev, "dsi,flags",
-						  MIPI_DSI_MODE_VIDEO |
-						  MIPI_DSI_MODE_VIDEO_BURST |
-						  MIPI_DSI_MODE_VIDEO_HBP |
-						  MIPI_DSI_MODE_LPM |
-						  MIPI_DSI_MODE_EOT_PACKET);
+		device->host = host;
+		sprintf(name, "%s.%d", host->dev->name, device->channel);
+		device_set_name(conn->bridge->dev, name);
+		mipi_dsi_attach(device);
+	}
 
-	sprintf(name, "%s.%d", host->dev->name, device->channel);
-	device_set_name(dev, name);
-	dsi2->device = device;
-	dev->parent_platdata = device;
+	return 0;
+}
 
-	mipi_dsi_attach(dsi2->device);
+static int dw_mipi_dsi2_get_dsc_params_from_sink(struct dw_mipi_dsi2 *dsi2)
+{
+	struct udevice *dev = dsi2->device->dev;
+	struct rockchip_cmd_header *header;
+	struct drm_dsc_picture_parameter_set *pps = NULL;
+	u8 *dsc_packed_pps;
+	const void *data;
+	int len;
+
+	dsi2->c_option = dev_read_bool(dev, "phy-c-option");
+	dsi2->scrambling_en = dev_read_bool(dev, "scrambling-enable");
+	dsi2->dsc_enable = dev_read_bool(dev, "compressed-data");
+
+	if (dsi2->slave) {
+		dsi2->slave->c_option = dsi2->c_option;
+		dsi2->slave->scrambling_en = dsi2->scrambling_en;
+		dsi2->slave->dsc_enable = dsi2->dsc_enable;
+	}
+
+	dsi2->slice_width = dev_read_u32_default(dev, "slice-width", 0);
+	dsi2->slice_height = dev_read_u32_default(dev, "slice-height", 0);
+	dsi2->version_major = dev_read_u32_default(dev, "version-major", 0);
+	dsi2->version_minor = dev_read_u32_default(dev, "version-minor", 0);
+
+	data = dev_read_prop(dev, "panel-init-sequence", &len);
+	if (!data)
+		return -EINVAL;
+
+	while (len > sizeof(*header)) {
+		header = (struct rockchip_cmd_header *)data;
+		data += sizeof(*header);
+		len -= sizeof(*header);
+
+		if (header->payload_length > len)
+			return -EINVAL;
+
+		if (header->data_type == MIPI_DSI_PICTURE_PARAMETER_SET) {
+			dsc_packed_pps = calloc(1, header->payload_length);
+			if (!dsc_packed_pps)
+				return -ENOMEM;
+
+			memcpy(dsc_packed_pps, data, header->payload_length);
+			pps = (struct drm_dsc_picture_parameter_set *)dsc_packed_pps;
+			break;
+		}
+
+		data += header->payload_length;
+		len -= header->payload_length;
+	}
+
+	dsi2->pps = pps;
 
 	return 0;
 }
@@ -792,6 +830,13 @@ static int dw_mipi_dsi2_connector_init(struct rockchip_connector *conn, struct d
 		dsi2->slave->dcphy.phy = phy;
 		if (phy->funcs && phy->funcs->init)
 			return phy->funcs->init(phy);
+	}
+
+	dw_mipi_dsi2_get_dsc_params_from_sink(dsi2);
+
+	if (dm_gpio_is_valid(&dsi2->te_gpio)) {
+		cstate->soft_te = true;
+		conn_state->te_gpio = &dsi2->te_gpio;
 	}
 
 	if (dsi2->dsc_enable) {
@@ -905,7 +950,7 @@ static void dw_mipi_dsi2_phy_mode_cfg(struct dw_mipi_dsi2 *dsi2)
 
 static void dw_mipi_dsi2_phy_clk_mode_cfg(struct dw_mipi_dsi2 *dsi2)
 {
-	u32 sys_clk = SYS_CLK / MSEC_PER_SEC;
+	u32 sys_clk = SYS_CLK / USEC_PER_SEC;
 	u32 esc_clk_div;
 	u32 val = 0;
 
@@ -913,7 +958,7 @@ static void dw_mipi_dsi2_phy_clk_mode_cfg(struct dw_mipi_dsi2 *dsi2)
 		val |= NON_CONTINUOUS_CLK;
 
 	/* The Escape clock ranges from 1MHz to 20MHz. */
-	esc_clk_div = DIV_ROUND_UP(sys_clk, 10 * 2);
+	esc_clk_div = DIV_ROUND_UP(sys_clk, 20 * 2);
 	val |= PHY_LPTX_CLK_DIV(esc_clk_div);
 
 	dsi_write(dsi2, DSI2_PHY_CLK_CFG, val);
@@ -1102,6 +1147,41 @@ static int dw_mipi_dsi2_connector_disable(struct rockchip_connector *conn,
 	return 0;
 }
 
+static int dw_mipi_dsi2_connector_mode_valid(struct rockchip_connector *conn,
+					     struct display_state *state)
+{
+	struct dw_mipi_dsi2 *dsi2 = dev_get_priv(conn->dev);
+	struct connector_state *conn_state = &state->conn_state;
+	u8 min_pixels = dsi2->slave ? 8 : 4;
+	struct videomode vm;
+
+	drm_display_mode_to_videomode(&conn_state->mode, &vm);
+
+	/*
+	 * the minimum region size (HSA,HBP,HACT,HFP) is 4 pixels
+	 * which is the ip known issues and limitations.
+	 */
+	if (!(vm.hsync_len < min_pixels || vm.hback_porch < min_pixels ||
+	    vm.hfront_porch < min_pixels || vm.hactive < min_pixels))
+		return MODE_OK;
+
+	if (vm.hsync_len < min_pixels)
+		vm.hsync_len = min_pixels;
+
+	if (vm.hback_porch < min_pixels)
+		vm.hback_porch = min_pixels;
+
+	if (vm.hfront_porch < min_pixels)
+		vm.hfront_porch = min_pixels;
+
+	if (vm.hactive < min_pixels)
+		vm.hactive = min_pixels;
+
+	drm_display_mode_from_videomode(&vm, &conn_state->mode);
+
+	return MODE_OK;
+}
+
 static const struct rockchip_connector_funcs dw_mipi_dsi2_connector_funcs = {
 	.pre_init = dw_mipi_dsi2_connector_pre_init,
 	.init = dw_mipi_dsi2_connector_init,
@@ -1109,6 +1189,7 @@ static const struct rockchip_connector_funcs dw_mipi_dsi2_connector_funcs = {
 	.unprepare = dw_mipi_dsi2_connector_unprepare,
 	.enable = dw_mipi_dsi2_connector_enable,
 	.disable = dw_mipi_dsi2_connector_disable,
+	.mode_valid = dw_mipi_dsi2_connector_mode_valid,
 };
 
 static int dw_mipi_dsi2_probe(struct udevice *dev)
@@ -1132,6 +1213,13 @@ static int dw_mipi_dsi2_probe(struct udevice *dev)
 	id = of_alias_get_id(ofnode_to_np(dev->node), "dsi");
 	if (id < 0)
 		id = 0;
+
+	ret = gpio_request_by_name(dev, "te-gpios", 0,
+				   &dsi2->te_gpio, GPIOD_IS_IN);
+	if (ret && ret != -ENOENT) {
+		printf("%s: Cannot get TE GPIO: %d\n", __func__, ret);
+		return ret;
+	}
 
 	dsi2->dev = dev;
 	dsi2->pdata = pdata;
@@ -1185,61 +1273,6 @@ static ssize_t dw_mipi_dsi2_host_transfer(struct mipi_dsi_host *host,
 	return dw_mipi_dsi2_transfer(dsi2, msg);
 }
 
-static int dw_mipi_dsi2_get_dsc_params_from_sink(struct dw_mipi_dsi2 *dsi2)
-{
-	struct udevice *dev = dsi2->device->dev;
-	struct rockchip_cmd_header *header;
-	struct drm_dsc_picture_parameter_set *pps = NULL;
-	u8 *dsc_packed_pps;
-	const void *data;
-	int len;
-
-	dsi2->c_option = dev_read_bool(dev, "phy-c-option");
-	dsi2->scrambling_en = dev_read_bool(dev, "scrambling-enable");
-	dsi2->dsc_enable = dev_read_bool(dev, "compressed-data");
-
-	if (dsi2->slave) {
-		dsi2->slave->c_option = dsi2->c_option;
-		dsi2->slave->scrambling_en = dsi2->scrambling_en;
-		dsi2->slave->dsc_enable = dsi2->dsc_enable;
-	}
-
-	dsi2->slice_width = dev_read_u32_default(dev, "slice-width", 0);
-	dsi2->slice_height = dev_read_u32_default(dev, "slice-height", 0);
-	dsi2->version_major = dev_read_u32_default(dev, "version-major", 0);
-	dsi2->version_minor = dev_read_u32_default(dev, "version-minor", 0);
-
-	data = dev_read_prop(dev, "panel-init-sequence", &len);
-	if (!data)
-		return -EINVAL;
-
-	while (len > sizeof(*header)) {
-		header = (struct rockchip_cmd_header *)data;
-		data += sizeof(*header);
-		len -= sizeof(*header);
-
-		if (header->payload_length > len)
-			return -EINVAL;
-
-		if (header->data_type == MIPI_DSI_PICTURE_PARAMETER_SET) {
-			dsc_packed_pps = calloc(1, header->payload_length);
-			if (!dsc_packed_pps)
-				return -ENOMEM;
-
-			memcpy(dsc_packed_pps, data, header->payload_length);
-			pps = (struct drm_dsc_picture_parameter_set *)dsc_packed_pps;
-			break;
-		}
-
-		data += header->payload_length;
-		len -= header->payload_length;
-	}
-
-	dsi2->pps = pps;
-
-	return 0;
-}
-
 static int dw_mipi_dsi2_host_attach(struct mipi_dsi_host *host,
 				   struct mipi_dsi_device *device)
 {
@@ -1252,8 +1285,7 @@ static int dw_mipi_dsi2_host_attach(struct mipi_dsi_host *host,
 	dsi2->channel = device->channel;
 	dsi2->format = device->format;
 	dsi2->mode_flags = device->mode_flags;
-
-	dw_mipi_dsi2_get_dsc_params_from_sink(dsi2);
+	dsi2->device = device;
 
 	return 0;
 }
@@ -1273,6 +1305,45 @@ static int dw_mipi_dsi2_bind(struct udevice *dev)
 	return dm_scan_fdt_dev(dev);
 }
 
+static int dw_mipi_dsi2_child_post_bind(struct udevice *dev)
+{
+	struct mipi_dsi_host *host = dev_get_platdata(dev->parent);
+	struct mipi_dsi_device *device = dev_get_parent_platdata(dev);
+	char name[20];
+
+	sprintf(name, "%s.%d", host->dev->name, device->channel);
+	device_set_name(dev, name);
+
+	device->dev = dev;
+	device->host = host;
+	device->lanes = dev_read_u32_default(dev, "dsi,lanes", 4);
+	device->format = dev_read_u32_default(dev, "dsi,format",
+					      MIPI_DSI_FMT_RGB888);
+	device->mode_flags = dev_read_u32_default(dev, "dsi,flags",
+						  MIPI_DSI_MODE_VIDEO |
+						  MIPI_DSI_MODE_VIDEO_BURST |
+						  MIPI_DSI_MODE_VIDEO_HBP |
+						  MIPI_DSI_MODE_LPM |
+						  MIPI_DSI_MODE_EOT_PACKET);
+	device->channel = dev_read_u32_default(dev, "reg", 0);
+
+	return 0;
+}
+
+static int dw_mipi_dsi2_child_pre_probe(struct udevice *dev)
+{
+	struct mipi_dsi_device *device = dev_get_parent_platdata(dev);
+	int ret;
+
+	ret = mipi_dsi_attach(device);
+	if (ret) {
+		dev_err(dev, "mipi_dsi_attach() failed: %d\n", ret);
+		return ret;
+	}
+
+	return 0;
+}
+
 U_BOOT_DRIVER(dw_mipi_dsi2) = {
 	.name = "dw_mipi_dsi2",
 	.id = UCLASS_DISPLAY,
@@ -1280,5 +1351,8 @@ U_BOOT_DRIVER(dw_mipi_dsi2) = {
 	.probe = dw_mipi_dsi2_probe,
 	.bind = dw_mipi_dsi2_bind,
 	.priv_auto_alloc_size = sizeof(struct dw_mipi_dsi2),
+	.per_child_platdata_auto_alloc_size = sizeof(struct mipi_dsi_device),
 	.platdata_auto_alloc_size = sizeof(struct mipi_dsi_host),
+	.child_post_bind = dw_mipi_dsi2_child_post_bind,
+	.child_pre_probe = dw_mipi_dsi2_child_pre_probe,
 };
