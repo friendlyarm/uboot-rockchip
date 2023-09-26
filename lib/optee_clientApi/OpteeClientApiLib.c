@@ -26,15 +26,15 @@ static bool optee_api_revision_is_compatible(void)
 	ArmSmcArgs.Arg0 = OPTEE_SMC_CALLS_REVISION;
 
 	tee_smc_call(&ArmSmcArgs);
+	printf("optee api revision: %d.%d\n",
+	       ArmSmcArgs.Arg0, ArmSmcArgs.Arg1);
 
 	if (ArmSmcArgs.Arg0 == OPTEE_MSG_REVISION_MAJOR &&
 	    ArmSmcArgs.Arg1 >= OPTEE_MSG_REVISION_MINOR) {
-		printf("optee api revision: %d.%d\n",
-		       ArmSmcArgs.Arg0, ArmSmcArgs.Arg1);
 		return true;
 	} else {
-		printf("optee check api revision fail: %d.%d\n",
-		       ArmSmcArgs.Arg0, ArmSmcArgs.Arg1);
+		debug("optee check api revision fail: %d.%d\n",
+		      ArmSmcArgs.Arg0, ArmSmcArgs.Arg1);
 		return false;
 	}
 }
@@ -62,8 +62,13 @@ TEEC_Result OpteeClientApiLibInitialize(void)
 		return TEEC_SUCCESS;
 
 	/* check api revision compatibility */
-	if (!optee_api_revision_is_compatible())
+	if (!optee_api_revision_is_compatible()) {
+#ifdef CONFIG_OPTEE_V2
 		panic("optee api revision is too low");
+#else
+		return -1;
+#endif
+	}
 
 	status = OpteeClientMemInit();
 	if (status != TEEC_SUCCESS) {
