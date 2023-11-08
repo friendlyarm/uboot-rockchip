@@ -54,7 +54,8 @@ static int board_check_supply(void)
 	adc_channel_single_shot("saradc", 2, &adc_reading);
 	debug("ADC reading %d\n", adc_reading);
 
-	if (adc_reading > 200 && adc_reading < 650) {
+	/* should be in 3v ~ 20v */
+	if (adc_reading > 160 && adc_reading < 1024) {
 		mv = adc_reading * 196 - 2130;
 		mv /= 10;
 	}
