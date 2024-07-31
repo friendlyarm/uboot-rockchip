@@ -28,6 +28,13 @@
 
 DECLARE_GLOBAL_DATA_PTR;
 
+#if CONFIG_IS_ENABLED(FIT)
+__weak int board_get_fdt(char **of_flat_tree, ulong *of_size)
+{
+	return 0;
+}
+#endif
+
 static void fdt_error(const char *msg)
 {
 	puts("ERROR: ");
@@ -419,9 +426,10 @@ int boot_get_fdt(int flag, int argc, char * const argv[], uint8_t arch,
 			fdt_noffset = fit_get_node_from_config(images,
 							       FIT_FDT_PROP,
 							       fdt_addr);
-			if (fdt_noffset == -ENOENT)
+			if (fdt_noffset == -ENOENT) {
+				board_get_fdt(of_flat_tree, of_size);
 				return 0;
-			else if (fdt_noffset < 0)
+			} else if (fdt_noffset < 0)
 				return 1;
 		}
 #endif
