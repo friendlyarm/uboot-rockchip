@@ -340,7 +340,7 @@ static int rad_panel_probe(struct udevice *dev)
 	u32 video_mode;
 
 	rad->dft_brightness = 255;
-	rad->mode_flags = MIPI_DSI_MODE_VIDEO_HSE | MIPI_DSI_MODE_EOT_PACKET;
+	rad->mode_flags = MIPI_DSI_MODE_VIDEO_HSE | MIPI_DSI_MODE_NO_EOT_PACKET;
 
 	video_mode = dev_read_u32_default(dev, "video-mode", 0);
 	switch (video_mode) {
