@@ -27,6 +27,7 @@
 #define SIP_VPU_RESET			0x8200000c
 #define SIP_SOC_BUS_DIV			0x8200000d
 #define SIP_LAST_LOG			0x8200000e
+#define SIP_ACCESS_MEM_OS_REG		0x8200000f
 #define SIP_AMP_CFG			0x82000022
 #define SIP_HDCP_CONFIG			0x82000025
 #define SIP_MCU_CFG			0x82000028
@@ -47,6 +48,12 @@
 #define ROCKCHIP_SIP_CONFIG_DRAM_ECC		0x0d
 #define ROCKCHIP_SIP_CONFIG_DRAM_GET_FREQ_INFO	0x0e
 #define ROCKCHIP_SIP_CONFIG_DRAM_FSP_INIT	0x0f
+
+/* SIP_ACCESS_MEM_OS_REG child configs */
+enum {
+	RK_MEM_OS_REG_READ = 0,
+	RK_MEM_OS_REG_WRITE,
+};
 
 /* RK_SIP_MCU_CFG child configs, MCU ID */
 #define ROCKCHIP_SIP_CONFIG_BUSMCU_0_ID		0x00
@@ -117,6 +124,12 @@ int sip_smc_set_suspend_mode(unsigned long ctrl,
 			     unsigned long config2);
 
 int sip_smc_remotectl_config(unsigned long func, unsigned long data);
+
+/*
+ * sip_smc_access_mem_os_reg() - access mem os reg
+ */
+int sip_smc_access_mem_os_reg(unsigned long func, unsigned long id,
+			      unsigned long *val);
 
 /*
  * sip_smc_amp_cfg() - config AMP

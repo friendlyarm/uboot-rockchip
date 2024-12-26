@@ -26,6 +26,7 @@
 #include <asm/arch-rockchip/sys_proto.h>
 #include <asm/io.h>
 #include <asm/arch/param.h>
+#include <asm/arch/rk_hwid.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -85,9 +86,11 @@ __weak void rockchip_stimer_init(void)
 	u32 reg = readl(CONFIG_ROCKCHIP_STIMER_BASE + 0x10);
 	if ( reg & 0x1 )
 		return;
+#ifdef COUNTER_FREQUENCY
 #ifndef CONFIG_ARM64
 	asm volatile("mcr p15, 0, %0, c14, c0, 0"
 		     : : "r"(COUNTER_FREQUENCY));
+#endif
 #endif
 	writel(0, CONFIG_ROCKCHIP_STIMER_BASE + 0x10);
 	writel(0xffffffff, CONFIG_ROCKCHIP_STIMER_BASE);
@@ -268,7 +271,13 @@ int board_init_f_boot_flags(void)
 {
 	int boot_flags = 0;
 
-#ifdef CONFIG_FPGA_ROCKCHIP
+#ifdef CONFIG_ARM64
+	asm volatile("mrs %0, cntfrq_el0" : "=r" (gd->arch.timer_rate_hz));
+#else
+	asm volatile("mrc p15, 0, %0, c14, c0, 0" : "=r" (gd->arch.timer_rate_hz));
+#endif
+
+#if CONFIG_IS_ENABLED(FPGA_ROCKCHIP)
 	arch_fpga_init();
 #endif
 #ifdef CONFIG_PSTORE
@@ -356,17 +365,6 @@ void spl_board_init(void)
 }
 #endif
 
-void spl_perform_fixups(struct spl_image_info *spl_image)
-{
-#ifdef CONFIG_ROCKCHIP_PRELOADER_ATAGS
-	atags_set_bootdev_by_spl_bootdevice(spl_image->boot_device);
-  #ifdef BUILD_SPL_TAG
-	atags_set_shared_fwver(FW_SPL, "spl-"BUILD_SPL_TAG);
-  #endif
-#endif
-	return;
-}
-
 #ifdef CONFIG_SPL_KERNEL_BOOT
 static int spl_rockchip_dnl_key_pressed(void)
 {
@@ -443,9 +441,7 @@ out:
 
 	return;
 }
-#endif
 
-#ifdef CONFIG_SPL_KERNEL_BOOT
 const char *spl_kernel_partition(struct spl_image_info *spl,
 				 struct spl_load_info *info)
 {
@@ -480,7 +476,70 @@ const char *spl_kernel_partition(struct spl_image_info *spl,
 
 	return (boot_mode == BOOT_RECOVERY) ? PART_RECOVERY : PART_BOOT;
 }
+
+static void spl_fdt_fixup_memory(struct spl_image_info *spl_image)
+{
+	void *blob = spl_image->fdt_addr;
+	struct tag *t;
+	u64 start[CONFIG_NR_DRAM_BANKS];
+	u64 size[CONFIG_NR_DRAM_BANKS];
+	int i, count, err;
+
+	err = fdt_check_header(blob);
+	if (err < 0) {
+		printf("Invalid dtb\n");
+		return;
+	}
+
+	/* Fixup memory node based on ddr_mem atags */
+	t = atags_get_tag(ATAG_DDR_MEM);
+	if (t && t->u.ddr_mem.count) {
+		count = t->u.ddr_mem.count;
+		for (i = 0; i < count; i++) {
+			start[i] = t->u.ddr_mem.bank[i];
+			size[i] = t->u.ddr_mem.bank[i + count];
+			if (size[i] == 0)
+				continue;
+			debug("Adding bank: 0x%08llx - 0x%08llx (size: 0x%08llx)\n",
+			       start[i], start[i] + size[i], size[i]);
+		}
+
+		fdt_increase_size(blob, 512);
+
+		err = fdt_fixup_memory_banks(blob, start, size, count);
+		if (err < 0) {
+			printf("Fixup kernel dtb memory node failed: %s\n", fdt_strerror(err));
+			return;
+		}
+	}
+
+	return;
+}
+
+#if defined(CONFIG_SPL_ROCKCHIP_HWID_DTB)
+int spl_find_hwid_dtb(const char *fdt_name)
+{
+	hwid_init_data();
+
+	return hwid_dtb_is_available(fdt_name);
+}
 #endif
+#endif
+
+void spl_perform_fixups(struct spl_image_info *spl_image)
+{
+#ifdef CONFIG_ROCKCHIP_PRELOADER_ATAGS
+	atags_set_bootdev_by_spl_bootdevice(spl_image->boot_device);
+  #ifdef BUILD_SPL_TAG
+	atags_set_shared_fwver(FW_SPL, "spl-"BUILD_SPL_TAG);
+  #endif
+#endif
+#if defined(CONFIG_SPL_KERNEL_BOOT)
+	if (spl_image->next_stage == SPL_NEXT_STAGE_KERNEL)
+		spl_fdt_fixup_memory(spl_image);
+#endif
+	return;
+}
 
 void spl_hang_reset(void)
 {

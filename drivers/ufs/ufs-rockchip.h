@@ -53,7 +53,7 @@ struct ufs_rockchip_host {
 	void __iomem *ufs_phy_ctrl;
 	void __iomem *ufs_sys_ctrl;
 	void __iomem *mphy_base;
-	struct reset_control *rst;
+	struct reset_ctl_bulk rsts;
 	struct clk ref_out_clk;
 	uint64_t caps;
 	uint32_t phy_config_mode;

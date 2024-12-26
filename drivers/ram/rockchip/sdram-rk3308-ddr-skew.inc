@@ -6,7 +6,7 @@
 	.g_d3_lp3_freq = (589 << 16) | 0,
 	.g_d4_lp4_freq = 0x00000000,
 	.g_uart_info = (2 << 28) | (1 << 24) | 1500000,
-	.g_sr_pd_idle = (48 << 16) | 10,
+	.g_sr_pd_idle = (0 << 16) | 10,
 	.g_ch_info = 0 | 128,
 	.g_2t_info = 1,
 	.reserved11 = 0,

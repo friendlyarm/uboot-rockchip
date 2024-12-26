@@ -17,8 +17,10 @@
 #include <asm/io.h>
 #include <asm-generic/gpio.h>
 #include <asm/arch-rockchip/clock.h>
+#include <linux/bitfield.h>
 #include <linux/iopoll.h>
 #include <linux/ioport.h>
+#include <linux/log2.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -68,8 +70,10 @@ struct rk_pcie {
 	struct gpio_desc	rst_gpio;
 	struct pci_region	io;
 	struct pci_region	mem;
+	struct pci_region	mem64;
 	bool		is_bifurcation;
 	u32 gen;
+	u32 lanes;
 };
 
 enum {
@@ -79,6 +83,7 @@ enum {
 };
 
 #define msleep(a)		udelay((a) * 1000)
+#define MAX_LINKUP_RETRIES		2
 
 /* Parameters for the waiting for iATU enabled routine */
 #define PCIE_CLIENT_GENERAL_DEBUG	0x104
@@ -110,11 +115,26 @@ enum {
 #define LINK_SPEED_GEN_2		0x2
 #define LINK_SPEED_GEN_3		0x3
 
+#define PCIE_PORT_LINK_CONTROL          0x710
+#define PORT_LINK_FAST_LINK_MODE        BIT(7)
 #define PCIE_MISC_CONTROL_1_OFF		0x8bc
 #define PCIE_DBI_RO_WR_EN		BIT(0)
 
 #define PCIE_LINK_WIDTH_SPEED_CONTROL	0x80c
 #define PORT_LOGIC_SPEED_CHANGE		BIT(17)
+#define PORT_LINK_MODE_MASK             GENMASK(21, 16)
+#define PORT_LINK_MODE(n)               FIELD_PREP(PORT_LINK_MODE_MASK, n)
+#define PORT_LINK_MODE_1_LANES          PORT_LINK_MODE(0x1)
+#define PORT_LINK_MODE_2_LANES          PORT_LINK_MODE(0x3)
+#define PORT_LINK_MODE_4_LANES          PORT_LINK_MODE(0x7)
+#define PORT_LINK_MODE_8_LANES          PORT_LINK_MODE(0xf)
+#define PORT_LOGIC_LINK_WIDTH_MASK      GENMASK(12, 8)
+#define PORT_LOGIC_LINK_WIDTH(n)        FIELD_PREP(PORT_LOGIC_LINK_WIDTH_MASK, n)
+#define PORT_LOGIC_LINK_WIDTH_1_LANES   PORT_LOGIC_LINK_WIDTH(0x1)
+#define PORT_LOGIC_LINK_WIDTH_2_LANES   PORT_LOGIC_LINK_WIDTH(0x2)
+#define PORT_LOGIC_LINK_WIDTH_4_LANES   PORT_LOGIC_LINK_WIDTH(0x4)
+#define PORT_LOGIC_LINK_WIDTH_8_LANES   PORT_LOGIC_LINK_WIDTH(0x8)
+
 
 /*
  * iATU Unroll-specific register definitions
@@ -129,6 +149,7 @@ enum {
 #define PCIE_ATU_UNR_LOWER_TARGET	0x14
 #define PCIE_ATU_UNR_UPPER_TARGET	0x18
 
+#define PCIE_ATU_REGION_INDEX2		(0x2 << 0)
 #define PCIE_ATU_REGION_INDEX1		(0x1 << 0)
 #define PCIE_ATU_REGION_INDEX0		(0x0 << 0)
 #define PCIE_ATU_TYPE_MEM		(0x0 << 0)
@@ -314,7 +335,7 @@ static void rk_pcie_setup_host(struct rk_pcie *rk_pcie)
 	rk_pcie_dbi_write_enable(rk_pcie, false);
 }
 
-static void rk_pcie_configure(struct rk_pcie *pci, u32 cap_speed)
+static void rk_pcie_configure(struct rk_pcie *pci, u32 cap_speed, u32 cap_lanes)
 {
 	u32 val;
 
@@ -329,6 +350,49 @@ static void rk_pcie_configure(struct rk_pcie *pci, u32 cap_speed)
 	val &= ~TARGET_LINK_SPEED_MASK;
 	val |= cap_speed;
 	writel(val, pci->dbi_base + PCIE_LINK_CTL_2);
+
+	val = readl(pci->dbi_base + PCIE_PORT_LINK_CONTROL);
+
+        /* Set the number of lanes */
+        val &= ~PORT_LINK_FAST_LINK_MODE;
+        val &= ~PORT_LINK_MODE_MASK;
+	switch (cap_lanes) {
+	case 1:
+		val |= PORT_LINK_MODE_1_LANES;
+		break;
+	case 2:
+		val |= PORT_LINK_MODE_2_LANES;
+		break;
+	case 4:
+		val |= PORT_LINK_MODE_4_LANES;
+		break;
+	case 8:
+		val |= PORT_LINK_MODE_8_LANES;
+		break;
+	default:
+		dev_err(pci->dev, "cap_lanes %u: invalid value\n", cap_lanes);
+		return;
+	}
+	writel(val, pci->dbi_base + PCIE_PORT_LINK_CONTROL);
+
+	/* Set link width speed control register */
+	val = readl(pci->dbi_base + PCIE_LINK_WIDTH_SPEED_CONTROL);
+	val &= ~PORT_LOGIC_LINK_WIDTH_MASK;
+	switch (cap_lanes) {
+	case 1:
+		val |= PORT_LOGIC_LINK_WIDTH_1_LANES;
+		break;
+	case 2:
+		val |= PORT_LOGIC_LINK_WIDTH_2_LANES;
+		break;
+	case 4:
+		val |= PORT_LOGIC_LINK_WIDTH_4_LANES;
+		break;
+	case 8:
+		val |= PORT_LOGIC_LINK_WIDTH_8_LANES;
+		break;
+	}
+	writel(val, pci->dbi_base + PCIE_LINK_WIDTH_SPEED_CONTROL);
 
 	rk_pcie_dbi_write_enable(pci, false);
 }
@@ -541,7 +605,7 @@ static int is_link_up(struct rk_pcie *priv)
 	return 0;
 }
 
-static int rk_pcie_link_up(struct rk_pcie *priv, u32 cap_speed)
+static int rk_pcie_link_up(struct rk_pcie *priv, u32 cap_speed, u32 cap_lanes)
 {
 	int retries;
 
@@ -551,7 +615,7 @@ static int rk_pcie_link_up(struct rk_pcie *priv, u32 cap_speed)
 	}
 
 	/* DW pre link configurations */
-	rk_pcie_configure(priv, cap_speed);
+	rk_pcie_configure(priv, cap_speed, cap_lanes);
 
 	/* Release the device */
 	if (dm_gpio_is_valid(&priv->rst_gpio)) {
@@ -593,12 +657,16 @@ static int rk_pcie_link_up(struct rk_pcie *priv, u32 cap_speed)
 	}
 
 	dev_err(priv->dev, "PCIe-%d Link Fail\n", priv->dev->seq);
+	rk_pcie_disable_ltssm(priv);
+	if (dm_gpio_is_valid(&priv->rst_gpio))
+		dm_gpio_set_value(&priv->rst_gpio, 0);
+
 	return -EINVAL;
 }
 
 static int rockchip_pcie_init_port(struct udevice *dev)
 {
-	int ret;
+	int ret, retries;
 	u32 val;
 	struct rk_pcie *priv = dev_get_priv(dev);
 	union phy_configure_opts phy_cfg;
@@ -627,7 +695,7 @@ static int rockchip_pcie_init_port(struct udevice *dev)
 	ret = generic_phy_init(&priv->phy);
 	if (ret) {
 		dev_err(dev, "failed to init phy (ret=%d)\n", ret);
-		return ret;
+		goto err_disable_3v3;
 	}
 
 	ret = generic_phy_power_on(&priv->phy);
@@ -657,8 +725,18 @@ static int rockchip_pcie_init_port(struct udevice *dev)
 	rk_pcie_writel_apb(priv, 0x0, 0xf00040);
 	rk_pcie_setup_host(priv);
 
-	ret = rk_pcie_link_up(priv, priv->gen);
-	if (ret < 0)
+	for (retries = MAX_LINKUP_RETRIES; retries > 0; retries--) {
+		ret = rk_pcie_link_up(priv, priv->gen, priv->lanes);
+		if (ret >= 0)
+			return 0;
+		if(priv->vpcie3v3) {
+			regulator_set_enable(priv->vpcie3v3, false);
+			msleep(200);
+			regulator_set_enable(priv->vpcie3v3, true);
+		}
+	}
+
+	if (retries <= 0)
 		goto err_link_up;
 
 	return 0;
@@ -667,16 +745,21 @@ err_link_up:
 err_deassert_bulk:
 	reset_assert_bulk(&priv->rsts);
 err_power_off_phy:
-	generic_phy_power_off(&priv->phy);
+	if (!priv->is_bifurcation)
+		generic_phy_power_off(&priv->phy);
 err_exit_phy:
-	generic_phy_exit(&priv->phy);
+	if (!priv->is_bifurcation)
+		generic_phy_exit(&priv->phy);
+err_disable_3v3:
+	if(priv->vpcie3v3 && !priv->is_bifurcation)
+		regulator_set_enable(priv->vpcie3v3, false);
 	return ret;
 }
 
 static int rockchip_pcie_parse_dt(struct udevice *dev)
 {
 	struct rk_pcie *priv = dev_get_priv(dev);
-	u32 max_link_speed;
+	u32 max_link_speed, num_lanes;
 	int ret;
 	struct resource res;
 
@@ -733,6 +816,10 @@ static int rockchip_pcie_parse_dt(struct udevice *dev)
 	else
 		priv->gen = max_link_speed;
 
+	ret = ofnode_read_u32(dev->node, "num-lanes", &num_lanes);
+	if (ret >= 0 && ilog2(num_lanes) >= 0 && ilog2(num_lanes) <= 3)
+		priv->lanes = num_lanes;
+
 	return 0;
 }
 
@@ -752,7 +839,7 @@ static int rockchip_pcie_probe(struct udevice *dev)
 
 	ret = rockchip_pcie_init_port(dev);
 	if (ret)
-		return ret;
+		goto free_rst;
 
 	dev_info(dev, "PCIE-%d: Link up (Gen%d-x%d, Bus%d)\n",
 		 dev->seq, rk_pcie_get_link_speed(priv),
@@ -765,17 +852,59 @@ static int rockchip_pcie_probe(struct udevice *dev)
 			priv->io.bus_start  = hose->regions[ret].bus_start;  /* IO_bus_addr */
 			priv->io.size       = hose->regions[ret].size;      /* IO size */
 		} else if (hose->regions[ret].flags == PCI_REGION_MEM) {
-			priv->mem.phys_start = hose->regions[ret].phys_start; /* MEM base */
-			priv->mem.bus_start  = hose->regions[ret].bus_start;  /* MEM_bus_addr */
-			priv->mem.size	     = hose->regions[ret].size;	    /* MEM size */
+			if (upper_32_bits(hose->regions[ret].bus_start)) {/* MEM64 base */
+				priv->mem64.phys_start = hose->regions[ret].phys_start;
+				priv->mem64.bus_start  = hose->regions[ret].bus_start;
+				priv->mem64.size       = hose->regions[ret].size;
+			} else { /* MEM32 base */
+				priv->mem.phys_start = hose->regions[ret].phys_start;
+				priv->mem.bus_start  = hose->regions[ret].bus_start;
+				priv->mem.size	     = hose->regions[ret].size;
+			}
 		} else if (hose->regions[ret].flags == PCI_REGION_SYS_MEMORY) {
 			priv->cfg_base = (void *)(priv->io.phys_start - priv->io.size);
 			priv->cfg_size = priv->io.size;
+		} else if (hose->regions[ret].flags == PCI_REGION_PREFETCH) {
+			dev_err(dev, "don't support prefetchable memory, please fix your dtb.\n");
 		} else {
-			dev_err(dev, "invalid flags type!\n");
+			dev_err(dev, "invalid flags type\n");
 		}
 	}
 
+#ifdef CONFIG_SYS_PCI_64BIT
+	dev_dbg(dev, "Config space: [0x%p - 0x%p, size 0x%llx]\n",
+		priv->cfg_base, priv->cfg_base + priv->cfg_size,
+		priv->cfg_size);
+
+	dev_dbg(dev, "IO space: [0x%llx - 0x%llx, size 0x%llx]\n",
+		priv->io.phys_start, priv->io.phys_start + priv->io.size,
+		priv->io.size);
+
+	dev_dbg(dev, "IO bus:   [0x%llx - 0x%llx, size 0x%llx]\n",
+		priv->io.bus_start, priv->io.bus_start + priv->io.size,
+		priv->io.size);
+
+	dev_dbg(dev, "MEM32 space: [0x%llx - 0x%llx, size 0x%llx]\n",
+		priv->mem.phys_start, priv->mem.phys_start + priv->mem.size,
+		priv->mem.size);
+
+	dev_dbg(dev, "MEM32 bus:   [0x%llx - 0x%llx, size 0x%llx]\n",
+		priv->mem.bus_start, priv->mem.bus_start + priv->mem.size,
+		priv->mem.size);
+
+	dev_dbg(dev, "MEM64 space: [0x%llx - 0x%llx, size 0x%llx]\n",
+		priv->mem64.phys_start, priv->mem64.phys_start + priv->mem64.size,
+		priv->mem64.size);
+
+	dev_dbg(dev, "MEM64 bus:   [0x%llx - 0x%llx, size 0x%llx]\n",
+		priv->mem64.bus_start, priv->mem64.bus_start + priv->mem64.size,
+		priv->mem64.size);
+
+	rk_pcie_prog_outbound_atu_unroll(priv, PCIE_ATU_REGION_INDEX2,
+					 PCIE_ATU_TYPE_MEM,
+					 priv->mem64.phys_start,
+					 priv->mem64.bus_start, priv->mem64.size);
+#else
 	dev_dbg(dev, "Config space: [0x%p - 0x%p, size 0x%llx]\n",
 		priv->cfg_base, priv->cfg_base + priv->cfg_size,
 		priv->cfg_size);
@@ -788,19 +917,24 @@ static int rockchip_pcie_probe(struct udevice *dev)
 		priv->io.bus_start, priv->io.bus_start + priv->io.size,
 		priv->io.size);
 
-	dev_dbg(dev, "MEM space: [0x%llx - 0x%llx, size 0x%x]\n",
+	dev_dbg(dev, "MEM32 space: [0x%llx - 0x%llx, size 0x%x]\n",
 		priv->mem.phys_start, priv->mem.phys_start + priv->mem.size,
 		priv->mem.size);
 
-	dev_dbg(dev, "MEM bus:   [0x%x - 0x%x, size 0x%x]\n",
+	dev_dbg(dev, "MEM32 bus:   [0x%x - 0x%x, size 0x%x]\n",
 		priv->mem.bus_start, priv->mem.bus_start + priv->mem.size,
 		priv->mem.size);
 
+#endif
 	rk_pcie_prog_outbound_atu_unroll(priv, PCIE_ATU_REGION_INDEX0,
 					 PCIE_ATU_TYPE_MEM,
 					 priv->mem.phys_start,
 					 priv->mem.bus_start, priv->mem.size);
+
 	return 0;
+free_rst:
+	dm_gpio_free(dev, &priv->rst_gpio);
+	return ret;
 }
 
 static const struct dm_pci_ops rockchip_pcie_ops = {

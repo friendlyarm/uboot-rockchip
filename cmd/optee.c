@@ -43,7 +43,9 @@ int test_secure_storage_default(void)
 						    TEEC_NONE,
 						    TEEC_NONE);
 	/*0 nand or emmc "security" partition , 1 rpmb*/
-	if (dev_desc->if_type == IF_TYPE_MMC && dev_desc->devnum == 0)
+	if (dev_desc->if_type == IF_TYPE_MMC && dev_desc->devnum == 0)//emmc
+		TeecOperation.params[0].value.a = 1;
+	else if (dev_desc->if_type == IF_TYPE_SCSI)//ufs
 		TeecOperation.params[0].value.a = 1;
 	else
 		TeecOperation.params[0].value.a = 0;

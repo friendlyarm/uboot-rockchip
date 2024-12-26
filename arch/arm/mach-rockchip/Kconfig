@@ -381,6 +381,39 @@ config TPL_STACK
 
 endif
 
+config ROCKCHIP_RK3506
+	bool "Support Rockchip RK3506"
+	select CPU_V7
+	select ROCKCHIP_BROM_HELPER
+	select DEBUG_UART_BOARD_INIT
+	select ARM_SMCCC
+	select GICV2
+	imply SUPPORT_SPL
+	imply SUPPORT_TPL
+	imply SPL
+	imply TPL
+	imply TPL_SERIAL_SUPPORT
+	imply SPL_SERIAL_SUPPORT
+	imply TPL_TINY_FRAMEWORK if TPL
+	imply BOARD_LATE_INIT
+	imply ROCKCHIP_GPIO_V2
+
+	help
+	  The Rockchip RK3506 is a ARM-based SoC with a tri-core Cortex-A7.
+
+if ROCKCHIP_RK3506
+
+config TPL_LDSCRIPT
+	default "arch/arm/mach-rockchip/u-boot-tpl.lds"
+
+config TPL_TEXT_BASE
+	default 0xfff81000
+
+config TPL_MAX_SIZE
+	default 45056
+
+endif
+
 config ROCKCHIP_RK3528
 	bool "Support Rockchip RK3528"
 	select ARM64 if !ARM64_BOOT_AARCH32
@@ -551,6 +584,37 @@ config COPROCESSOR_RK1808
 
 endif
 
+config ROCKCHIP_RV1103B
+	bool "Support Rockchip RV1103B"
+	select CPU_V7
+	select ARM_ZERO_CNTVOFF
+	select ROCKCHIP_BROM_HELPER
+	select DEBUG_UART_BOARD_INIT
+	imply SUPPORT_SPL
+	imply SUPPORT_TPL
+	imply SPL
+	imply TPL
+	imply TPL_SERIAL_SUPPORT
+	imply TPL_TINY_FRAMEWORK if TPL
+	imply BOARD_LATE_INIT
+	imply ROCKCHIP_GPIO_V2
+
+	help
+	  The Rockchip RV1103B is a ARM-based SoC with a Cortex-A7 and
+	  other modules.
+
+if ROCKCHIP_RV1103B
+
+config TPL_LDSCRIPT
+	default "arch/arm/mach-rockchip/u-boot-tpl.lds"
+
+config TPL_TEXT_BASE
+	default 0x210f7000
+
+config TPL_MAX_SIZE
+	default 32768
+endif
+
 config ROCKCHIP_RV1106
 	bool "Support Rockchip RV1106"
 	select CPU_V7
@@ -683,12 +747,14 @@ config ROCKCHIP_BOOT_MODE_REG
 	default 0xff1005c8 if ROCKCHIP_RK3328
 	default 0xff738200 if ROCKCHIP_RK3368
 	default 0xff320300 if ROCKCHIP_RK3399
+	default 0xff910200 if ROCKCHIP_RK3506
 	default 0xff370200 if ROCKCHIP_RK3528
 	default 0xff010220 if ROCKCHIP_RK3562
 	default 0xfdc20200 if ROCKCHIP_RK3568
 	default 0x26024040 if ROCKCHIP_RK3576
 	default 0xfd588080 if ROCKCHIP_RK3588
 	default 0xfe020200 if ROCKCHIP_RK1808
+	default 0x20160200 if ROCKCHIP_RV1103B
 	default 0xff020200 if ROCKCHIP_RV1106
 	default 0x10300580 if ROCKCHIP_RV1108
 	default 0xfe020200 if ROCKCHIP_RV1126
@@ -711,11 +777,13 @@ config ROCKCHIP_STIMER_BASE
 	default 0xff1d0020 if ROCKCHIP_RK3328
 	default 0xff830020 if ROCKCHIP_RK3368
 	default 0xff8680a0 if ROCKCHIP_RK3399
+	default 0xff980000 if ROCKCHIP_RK3506
 	default 0xff620000 if ROCKCHIP_RK3528
 	default 0xffa90020 if ROCKCHIP_RK3562
 	default 0xfdd1c020 if ROCKCHIP_RK3568
 	default 0x27400000 if ROCKCHIP_RK3576
 	default 0xfd8c8000 if ROCKCHIP_RK3588
+	default 0x20500000 if ROCKCHIP_RV1103B
 	default 0xff590020 if ROCKCHIP_RV1106
 	default 0x10350020 if ROCKCHIP_RV1108
 	default 0xff670020 if ROCKCHIP_RV1126
@@ -736,11 +804,13 @@ config ROCKCHIP_IRAM_START_ADDR
 	default 0xff091000 if ROCKCHIP_RK3328
 	default 0xff8c0000 if ROCKCHIP_RK3368
 	default 0xff8c0000 if ROCKCHIP_RK3399
+	default 0xfff80000 if ROCKCHIP_RK3506
 	default 0xfe480000 if ROCKCHIP_RK3528
 	default 0xfe480000 if ROCKCHIP_RK3562
 	default 0xfdcc0000 if ROCKCHIP_RK3568
 	default 0x3ff80000 if ROCKCHIP_RK3576
 	default 0xff000000 if ROCKCHIP_RK3588
+	default 0x210f6000 if ROCKCHIP_RV1103B
 	default 0xff6c0000 if ROCKCHIP_RV1106
 	default 0x10080000 if ROCKCHIP_RV1108
 	default 0xff700000 if ROCKCHIP_RV1126
@@ -876,6 +946,14 @@ config ROCKCHIP_HWID_DTB
 	default n
 	help
 	  This enables select the expected DTB from sets by hardware id,
+	  i.e. GPIO or ADC value.
+
+config SPL_ROCKCHIP_HWID_DTB
+	bool "Enable support for selecting DTB by hardware id in SPL"
+	depends on SPL_KERNEL_BOOT
+	default n
+	help
+	  This enables select the expected kernel DTB from sets by hardware id in SPL,
 	  i.e. GPIO or ADC value.
 
 config ROCKCHIP_VENDOR_PARTITION
@@ -1183,12 +1261,14 @@ source "arch/arm/mach-rockchip/rk3308/Kconfig"
 source "arch/arm/mach-rockchip/rk3328/Kconfig"
 source "arch/arm/mach-rockchip/rk3368/Kconfig"
 source "arch/arm/mach-rockchip/rk3399/Kconfig"
+source "arch/arm/mach-rockchip/rk3506/Kconfig"
 source "arch/arm/mach-rockchip/rk3528/Kconfig"
 source "arch/arm/mach-rockchip/rk3562/Kconfig"
 source "arch/arm/mach-rockchip/rk3568/Kconfig"
 source "arch/arm/mach-rockchip/rk3576/Kconfig"
 source "arch/arm/mach-rockchip/rk3588/Kconfig"
 source "arch/arm/mach-rockchip/rk1808/Kconfig"
+source "arch/arm/mach-rockchip/rv1103b/Kconfig"
 source "arch/arm/mach-rockchip/rv1106/Kconfig"
 source "arch/arm/mach-rockchip/rv1108/Kconfig"
 source "arch/arm/mach-rockchip/rv1126/Kconfig"

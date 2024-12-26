@@ -274,6 +274,15 @@ int regulator_autoset(struct udevice *dev)
 	if (!uc_pdata->always_on && !uc_pdata->boot_on)
 		return -EMEDIUMTYPE;
 
+	/*
+	 * To compatible the old possible failure before adding this code,
+	 * ignore the result.
+	 */
+	if (uc_pdata->type == REGULATOR_TYPE_FIXED) {
+		regulator_set_enable(dev, true);
+		return 0;
+	}
+
 	if (uc_pdata->flags & REGULATOR_FLAG_AUTOSET_UV) {
 		ret = regulator_set_value(dev, uc_pdata->min_uV);
 	} else {

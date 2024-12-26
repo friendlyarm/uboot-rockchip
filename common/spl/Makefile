@@ -32,6 +32,7 @@ else
 obj-$(CONFIG_ARM64) += spl_fit_tb_arm64.o
 endif
 obj-$(CONFIG_ROCKCHIP_RV1106) += spl_fit_tb_rv1106.o
+obj-$(CONFIG_ROCKCHIP_RV1103B) += spl_fit_tb_rv1106.o
 obj-$(CONFIG_ROCKCHIP_RV1126) += spl_fit_tb_rv1126.o
 endif
 else

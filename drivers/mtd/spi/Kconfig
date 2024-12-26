@@ -239,4 +239,13 @@ config SPL_SPI_FLASH_MTD
 
 	  If unsure, say N
 
+config SPI_FLASH_AUTO_MERGE
+	bool "SPI flash auto merge two flash in one"
+	default n
+	depends on SPI_FLASH
+	help
+          Enable the auto merge the two SPI flash in one.
+
+	  If unsure, say N
+
 endmenu # menu "SPI Flash Support"

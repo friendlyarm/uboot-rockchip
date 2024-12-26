@@ -114,6 +114,9 @@ struct spi_slave {
 	unsigned int bus;
 	unsigned int cs;
 #endif
+#ifdef CONFIG_SPI_FLASH_AUTO_MERGE
+	unsigned int auto_merge_cs_cur;
+#endif
 	uint mode;
 	unsigned int wordlen;
 	unsigned int max_read_size;

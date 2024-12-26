@@ -20,4 +20,6 @@ obj-$(CONFIG_SPI_NAND_SILICONGO) += silicongo.o
 obj-$(CONFIG_SPI_NAND_UNIM) += unim.o
 obj-$(CONFIG_SPI_NAND_SKYHIGH) += skyhigh.o
 obj-$(CONFIG_SPI_NAND_GSTO) += gsto.o
+obj-$(CONFIG_SPI_NAND_ZBIT) += zbit.o
+obj-$(CONFIG_SPI_NAND_HIKSEMI) += hiksemi.o
 obj-$(CONFIG_MTD_SPI_NAND) += spinand.o

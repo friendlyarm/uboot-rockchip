@@ -5,6 +5,7 @@
  * SPDX-License-Identifier:	GPL-2.0+
  */
 #include <common.h>
+#include <boot_rkimg.h>
 #include <stdlib.h>
 #include <command.h>
 #include <mmc.h>
@@ -14,6 +15,8 @@
 #include <optee_include/teesmc.h>
 #include <optee_include/teesmc_v2.h>
 #include <optee_include/teesmc_optee.h>
+#include <optee_include/tee_mmc_rpmb.h>
+#include <optee_include/tee_ufs_rpmb.h>
 #include <optee_include/tee_rpc_types.h>
 #include <optee_include/tee_rpc.h>
 #ifdef CONFIG_OPTEE_V1
@@ -92,277 +95,24 @@ Exit:
 /*
  * Execute an RPMB storage operation.
  */
-
-uint16_t global_block_count;
-#ifdef CONFIG_SUPPORT_EMMC_RPMB
 TEEC_Result OpteeRpcCmdRpmb(t_teesmc32_arg *TeeSmc32Arg)
 {
-	struct tee_rpc_rpmb_dev_info *DevInfo;
-	TEEC_Result EfiStatus;
-	uint16_t RequestMsgType, i;
-	EFI_RK_RPMB_DATA_PACKET *RequestPackets;
-	EFI_RK_RPMB_DATA_PACKET *ResponsePackets;
-	EFI_RK_RPMB_DATA_PACKET *tempPackets;
-	EFI_RK_RPMB_DATA_PACKET_BACK *RequestPackets_back;
-	EFI_RK_RPMB_DATA_PACKET_BACK *tempPackets_back;
-	struct tee_rpc_rpmb_cmd *RpmbRequest;
-	TEEC_Result TeecResult = TEEC_SUCCESS;
-	t_teesmc32_param *TeeSmc32Param;
-	struct mmc *mmc;
+	struct blk_desc *dev_desc;
 
-	debug("TEEC: Entered RPMB RPC\n");
-
-	if (TeeSmc32Arg->num_params != 2) {
-		TeecResult = TEEC_ERROR_BAD_PARAMETERS;
-		goto Exit;
+	dev_desc = rockchip_get_bootdev();
+	if (!dev_desc) {
+		printf("%s: dev_desc is NULL!\n", __func__);
+		return TEEC_ERROR_GENERIC;
 	}
 
-	TeeSmc32Param = TEESMC32_GET_PARAMS(TeeSmc32Arg);
-	RpmbRequest = (struct tee_rpc_rpmb_cmd *)(size_t)
-		TeeSmc32Param[0].u.memref.buf_ptr;
-	switch (RpmbRequest->cmd) {
-	case TEE_RPC_RPMB_CMD_DATA_REQ: {
-		RequestPackets = (EFI_RK_RPMB_DATA_PACKET *)(RpmbRequest + 1);
-		ResponsePackets = (EFI_RK_RPMB_DATA_PACKET *)(size_t)
-		TeeSmc32Param[1].u.memref.buf_ptr;
+	if (dev_desc->if_type == IF_TYPE_MMC && dev_desc->devnum == 0)//emmc
+		return emmc_rpmb_process(TeeSmc32Arg);
+	else if (dev_desc->if_type == IF_TYPE_SCSI)//ufs
+		return ufs_rpmb_process(TeeSmc32Arg);
 
-		global_block_count =
-			(RpmbRequest->block_count == 0 ?
-			1 : RpmbRequest->block_count);
-		RequestPackets_back =
-			memalign(CONFIG_SYS_CACHELINE_SIZE,
-			sizeof(EFI_RK_RPMB_DATA_PACKET_BACK) * global_block_count);
-		memcpy(RequestPackets_back->stuff,
-			RequestPackets->stuff_bytes,
-			RPMB_STUFF_DATA_SIZE);
-		memcpy(RequestPackets_back->mac,
-			RequestPackets->key_mac,
-			RPMB_KEY_MAC_SIZE);
-		memcpy(RequestPackets_back->data,
-			RequestPackets->data,
-			RPMB_DATA_SIZE);
-		memcpy(RequestPackets_back->nonce,
-			RequestPackets->nonce,
-			RPMB_NONCE_SIZE);
-		RequestPackets_back->write_counter =
-			((RequestPackets->write_counter[3]) << 24) +
-			((RequestPackets->write_counter[2]) << 16) +
-			((RequestPackets->write_counter[1]) << 8) +
-			(RequestPackets->write_counter[0]);
-		RequestPackets_back->address =
-			((RequestPackets->address[1]) << 8) +
-			(RequestPackets->address[0]);
-		RequestPackets_back->block_count =
-			((RequestPackets->block_count[1]) << 8) +
-			(RequestPackets->block_count[0]);
-		RequestPackets_back->result =
-			((RequestPackets->op_result[1]) << 8) +
-			(RequestPackets->op_result[0]);
-		RequestPackets_back->request =
-			((RequestPackets->msg_type[1]) << 8) +
-			(RequestPackets->msg_type[0]);
-
-		RequestMsgType = RPMB_PACKET_DATA_TO_UINT16(
-				RequestPackets->msg_type);
-
-		debug("TEEC: RPMB Data request %d\n", RequestMsgType);
-
-		switch (RequestMsgType) {
-		case TEE_RPC_RPMB_MSG_TYPE_REQ_AUTH_KEY_PROGRAM: {
-			if (init_rpmb() != 0) {
-				TeecResult = TEEC_ERROR_GENERIC;
-				break;
-			}
-
-			EfiStatus = do_programkey((struct s_rpmb *)
-				RequestPackets_back);
-
-			if (finish_rpmb() != 0) {
-				TeecResult = TEEC_ERROR_GENERIC;
-				break;
-			}
-
-			if (EfiStatus != 0) {
-				TeecResult = TEEC_ERROR_GENERIC;
-				break;
-			}
-
-			break;
-		}
-
-		case TEE_RPC_RPMB_MSG_TYPE_REQ_WRITE_COUNTER_VAL_READ: {
-			if (init_rpmb() != 0) {
-				TeecResult = TEEC_ERROR_GENERIC;
-				break;
-			}
-
-			EfiStatus = do_readcounter((struct s_rpmb *)
-				RequestPackets_back);
-
-			if (finish_rpmb() != 0) {
-				TeecResult = TEEC_ERROR_GENERIC;
-				break;
-			}
-
-			TeecResult = TEEC_SUCCESS;
-			break;
-		}
-
-		case TEE_RPC_RPMB_MSG_TYPE_REQ_AUTH_DATA_WRITE: {
-			if (init_rpmb() != 0) {
-				TeecResult = TEEC_ERROR_GENERIC;
-				break;
-			}
-
-			EfiStatus = do_authenticatedwrite((struct s_rpmb *)
-				RequestPackets_back);
-
-			if (finish_rpmb() != 0) {
-				TeecResult = TEEC_ERROR_GENERIC;
-				break;
-			}
-
-			if (EfiStatus != 0) {
-				TeecResult = TEEC_ERROR_GENERIC;
-				break;
-			}
-
-			break;
-		}
-
-		case TEE_RPC_RPMB_MSG_TYPE_REQ_AUTH_DATA_READ: {
-			if (init_rpmb() != 0) {
-				TeecResult = TEEC_ERROR_GENERIC;
-				break;
-			}
-
-			EfiStatus = do_authenticatedread((struct s_rpmb *)
-				RequestPackets_back, global_block_count);
-
-			if (finish_rpmb() != 0) {
-				TeecResult = TEEC_ERROR_GENERIC;
-				break;
-			}
-
-			if (EfiStatus != 0) {
-				TeecResult = TEEC_ERROR_GENERIC;
-				break;
-			}
-
-			break;
-		}
-
-		default:
-			TeecResult = TEEC_ERROR_BAD_PARAMETERS;
-			break;
-		}
-		debug("TEEC: RPMB TeecResult %d\n", TeecResult);
-		break;
-	}
-
-	case TEE_RPC_RPMB_CMD_GET_DEV_INFO: {
-		if (init_rpmb()) {
-			TeecResult = TEEC_ERROR_GENERIC;
-			goto Exit;
-		}
-
-		mmc = do_returnmmc();
-		if (finish_rpmb()) {
-			TeecResult = TEEC_ERROR_GENERIC;
-			goto Exit;
-		}
-
-		if (mmc == NULL) {
-			TeecResult = TEEC_ERROR_GENERIC;
-			goto Exit;
-		}
-
-		DevInfo = (struct tee_rpc_rpmb_dev_info *)(size_t)
-		TeeSmc32Param[1].u.memref.buf_ptr;
-
-		DevInfo->cid[0] = (mmc->cid[0]) >> 24 & 0xff;
-		DevInfo->cid[1] = (mmc->cid[0]) >> 16 & 0xff;
-		DevInfo->cid[2] = (mmc->cid[0]) >> 8 & 0xff;
-		DevInfo->cid[3] = (mmc->cid[0]) & 0xff;
-		DevInfo->cid[4] = (mmc->cid[1]) >> 24 & 0xff;
-		DevInfo->cid[5] = (mmc->cid[1]) >> 16 & 0xff;
-		DevInfo->cid[6] = (mmc->cid[1]) >> 8 & 0xff;
-		DevInfo->cid[7] = (mmc->cid[1]) & 0xff;
-		DevInfo->cid[8] = (mmc->cid[2]) >> 24 & 0xff;
-		DevInfo->cid[9] = (mmc->cid[2]) >> 16 & 0xff;
-		DevInfo->cid[10] = (mmc->cid[2]) >> 8 & 0xff;
-		DevInfo->cid[11] = (mmc->cid[2]) & 0xff;
-		DevInfo->cid[12] = (mmc->cid[3]) >> 24 & 0xff;
-		DevInfo->cid[13] = (mmc->cid[3]) >> 16 & 0xff;
-		DevInfo->cid[14] = (mmc->cid[3]) >> 8 & 0xff;
-		DevInfo->cid[15] = (mmc->cid[3]) & 0xff;
-		DevInfo->rel_wr_sec_c = 1;
-		DevInfo->rpmb_size_mult =
-			(uint8_t)(mmc->capacity_rpmb / (128 * 1024));
-		DevInfo->ret_code = 0;
-
-		goto Exit;
-	}
-
-	default:
-		TeecResult = TEEC_ERROR_BAD_PARAMETERS;
-
-		goto Exit;
-	}
-
-	tempPackets = ResponsePackets;
-	tempPackets_back = RequestPackets_back;
-
-	for (i = 0; i < global_block_count; i++) {
-		memcpy(tempPackets->stuff_bytes,
-			tempPackets_back->stuff,
-			RPMB_STUFF_DATA_SIZE);
-		memcpy(tempPackets->key_mac,
-			tempPackets_back->mac,
-			RPMB_KEY_MAC_SIZE);
-		memcpy(tempPackets->data,
-			tempPackets_back->data,
-			RPMB_DATA_SIZE);
-		memcpy(tempPackets->nonce,
-			tempPackets_back->nonce,
-			RPMB_NONCE_SIZE);
-		tempPackets->write_counter[3] =
-			((tempPackets_back->write_counter) >> 24) & 0xFF;
-		tempPackets->write_counter[2] =
-			((tempPackets_back->write_counter) >> 16) & 0xFF;
-		tempPackets->write_counter[1] =
-			((tempPackets_back->write_counter) >> 8) & 0xFF;
-		tempPackets->write_counter[0] =
-			(tempPackets_back->write_counter) & 0xFF;
-		tempPackets->address[1] =
-			((tempPackets_back->address) >> 8) & 0xFF;
-		tempPackets->address[0] =
-			(tempPackets_back->address) & 0xFF;
-		tempPackets->block_count[1] =
-			((tempPackets_back->block_count) >> 8) & 0xFF;
-		tempPackets->block_count[0] =
-			(tempPackets_back->block_count) & 0xFF;
-		tempPackets->op_result[1] =
-			((tempPackets_back->result) >> 8) & 0xFF;
-		tempPackets->op_result[0] =
-			(tempPackets_back->result) & 0xFF;
-		tempPackets->msg_type[1] =
-			((tempPackets_back->request) >> 8) & 0xFF;
-		tempPackets->msg_type[0] =
-			(tempPackets_back->request) & 0xFF;
-		tempPackets++;
-		tempPackets_back++;
-	}
-
-	free(RequestPackets_back);
-
-Exit:
-	TeeSmc32Arg->ret = TeecResult;
-	TeeSmc32Arg->ret_origin = TEEC_ORIGIN_API;
-
-	return TeecResult;
+	printf("Device not support rpmb!\n");
+	return TEEC_ERROR_NOT_IMPLEMENTED;
 }
-#endif
 
 /*
  * Execute a normal world local file system operation.
@@ -464,12 +214,10 @@ TEEC_Result OpteeRpcCallback(ARM_SMC_ARGS *ArmSmcArgs)
 			break;
 
 		}
-#ifdef CONFIG_SUPPORT_EMMC_RPMB
 		case OPTEE_MSG_RPC_CMD_RPMB_V2: {
 			TeecResult = OpteeRpcCmdRpmb(TeeSmc32Arg);
 			break;
 		}
-#endif
 		case OPTEE_MSG_RPC_CMD_FS_V2: {
 			TeecResult = OpteeRpcCmdFs(TeeSmc32Arg);
 			break;

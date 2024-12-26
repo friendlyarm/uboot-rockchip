@@ -426,7 +426,7 @@ int rockchip_ofnode_get_display_mode(ofnode node, struct drm_display_mode *mode,
 	FDT_GET_BOOL(val, "doublescan");
 	flags |= val ? DRM_MODE_FLAG_DBLSCAN : 0;
 	FDT_GET_BOOL(val, "doubleclk");
-	flags |= val ? DISPLAY_FLAGS_DOUBLECLK : 0;
+	flags |= val ? DRM_MODE_FLAG_DBLCLK : 0;
 
 	FDT_GET_INT(val, "de-active");
 	*bus_flags |= val ? DRM_BUS_FLAG_DE_HIGH : DRM_BUS_FLAG_DE_LOW;
@@ -928,6 +928,23 @@ static int display_enable(struct display_state *state)
 
 	if (state->enabled_at_spl == false)
 		rockchip_connector_enable(state);
+
+#ifdef CONFIG_DRM_ROCKCHIP_RK628
+	/*
+	 * trigger .probe helper of U_BOOT_DRIVER(rk628) in ./rk628/rk628.c
+	 */
+	struct udevice * dev;
+	int phandle, ret;
+
+	phandle = ofnode_read_u32_default(state->node, "bridge", -1);
+	if (phandle < 0)
+		printf("%s failed to find bridge phandle\n", ofnode_get_name(state->node));
+
+	ret = uclass_get_device_by_phandle_id(UCLASS_I2C_GENERIC, phandle, &dev);
+	if (ret && ret != -ENOENT)
+		printf("%s:%d failed to get rk628 device ret:%d\n", __func__, __LINE__, ret);
+
+#endif
 
 	if (crtc_state->soft_te)
 		crtc_funcs->apply_soft_te(state);
@@ -1461,8 +1478,10 @@ static int load_bmp_logo(struct logo_info *logo, const char *bmp_name)
 	}
 
 	bmp_data = malloc(MAX_IMAGE_BYTES);
-	if (!bmp_data)
+	if (!bmp_data) {
+		printf("failed to alloc bmp data\n");
 		return -ENOMEM;
+	}
 
 	bmp_create(&bmp, &bitmap_callbacks);
 
@@ -1479,6 +1498,14 @@ static int load_bmp_logo(struct logo_info *logo, const char *bmp_name)
 		ret = -EINVAL;
 		goto free_bmp_data;
 	}
+
+	if (bmp.buffer_size > MAX_IMAGE_BYTES) {
+		printf("bmp[%s] data size[%dKB] is over the limitation MAX_IMAGE_BYTES[%dKB]\n",
+			bmp_name, bmp.buffer_size / 1024, MAX_IMAGE_BYTES / 1024);
+		ret = -EINVAL;
+		goto free_bmp_data;
+	}
+
 	/* fix bpp to 32 */
 	logo->bpp = 32;
 	logo->offset = 0;
@@ -1492,13 +1519,6 @@ static int load_bmp_logo(struct logo_info *logo, const char *bmp_name)
 		/* allow partially decoded images */
 		if (code != BMP_INSUFFICIENT_DATA && code != BMP_DATA_ERROR) {
 			printf("failed to allocate the buffer of bmp:%s\n", bmp_name);
-			ret = -EINVAL;
-			goto free_bmp_data;
-		}
-
-		/* skip if the partially decoded image would be ridiculously large */
-		if ((bmp.width * bmp.height) > 200000) {
-			printf("partially decoded bmp:%s can not be too large\n", bmp_name);
 			ret = -EINVAL;
 			goto free_bmp_data;
 		}

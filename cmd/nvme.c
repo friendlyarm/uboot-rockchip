@@ -49,6 +49,7 @@ U_BOOT_CMD(
 	"nvme info - show all available NVMe devices\n"
 	"nvme device [dev] - show or set current NVMe device\n"
 	"nvme part [dev] - print partition table of one or all NVMe devices\n"
+	"nvme erase blk# cnt - erase 'cnt' blocks strating at block\n"
 	"nvme read addr blk# cnt - read `cnt' blocks starting at block\n"
 	"     `blk#' to memory address `addr'\n"
 	"nvme write addr blk# cnt - write `cnt' blocks starting at block\n"

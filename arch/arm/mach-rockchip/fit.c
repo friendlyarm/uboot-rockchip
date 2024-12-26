@@ -253,11 +253,41 @@ int fit_image_pre_process(const void *fit)
 
 	ret = fit_image_fixup_alloc(fit, FIT_FDT_PROP,
 				    "fdt_addr_r", MEM_FDT);
-	if (ret < 0)
+	if (ret < 0) {
 		return ret;
+	}
 
-	ret = fit_image_fixup_alloc(fit, FIT_KERNEL_PROP,
-				    "kernel_addr_r", MEM_KERNEL);
+#if !defined(CONFIG_ARM64) && defined(CONFIG_CMD_BOOTZ)
+	int cfg_noffset, noffset;
+	const void *buf;
+	ulong start, end;
+	size_t size;
+
+	cfg_noffset = fit_conf_get_node(fit, NULL);
+	if (cfg_noffset < 0) {
+		printf("Could not find configuration node\n");
+		return -ENOENT;
+	}
+
+	noffset = fit_conf_get_prop_node_index(fit, cfg_noffset, FIT_KERNEL_PROP, 0);
+	if (noffset < 0) {
+		printf("Could not find subimage node\n");
+		return -ENOENT;
+	}
+
+	/* get image data address and length */
+	if (fit_image_get_data(fit, noffset, &buf, &size)) {
+		printf("Could not find %s subimage data!\n", FIT_KERNEL_PROP);
+		return -ENOENT;
+	}
+
+	if (!bootz_setup((ulong)buf, &start, &end))
+		ret = fit_image_fixup_alloc(fit, FIT_KERNEL_PROP,
+					    "kernel_addr_c", MEM_KERNEL);
+	else
+#endif
+		ret = fit_image_fixup_alloc(fit, FIT_KERNEL_PROP,
+					    "kernel_addr_r", MEM_KERNEL);
 	if (ret < 0)
 		return ret;
 

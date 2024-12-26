@@ -3,6 +3,7 @@
  * (C) Copyright 2020 Rockchip Electronics Co., Ltd
  */
 
+#include <asm/arch/cpu.h>
 #include <common.h>
 #include <dm.h>
 #include <dm/pinctrl.h>
@@ -271,6 +272,9 @@ static int rk3568_set_drive(struct rockchip_pin_bank *bank,
 	if (ret)
 		return ret;
 
+	if (rockchip_get_cpu_version() > 0)
+		return 0;
+
 	if (bank->bank_num == 1 && pin_num == 21)
 		reg = GRF_GPIO1C5_DS;
 	else if (bank->bank_num == 2 && pin_num == 2)
@@ -288,7 +292,7 @@ static int rk3568_set_drive(struct rockchip_pin_bank *bank,
 
 	data = ((1 << RK3568_DRV_BITS_PER_PIN) - 1) << 16;
 	rmask = data | (data >> 16);
-	data |= drv >> 6;
+	data |= drv;
 
 	return regmap_update_bits(regmap, reg, rmask, data);
 }

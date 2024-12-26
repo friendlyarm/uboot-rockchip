@@ -246,11 +246,11 @@ struct rk3576_pmu1_grf_reg {
      uint32_t mem_con[2];                         /* address offset: 0x0080 */
      uint32_t reserved0088[30];                   /* address offset: 0x0088 */
      uint32_t func_rst_status;                    /* address offset: 0x0100 */
-    __o  uint32_t func_rst_clr;                       /* address offset: 0x0104 */
+     uint32_t func_rst_clr;                       /* address offset: 0x0104 */
      uint32_t reserved0108[2];                    /* address offset: 0x0108 */
      uint32_t sd_detect_con;                      /* address offset: 0x0110 */
      uint32_t sd_detect_sts;                      /* address offset: 0x0114 */
-    __o  uint32_t sd_detect_clr;                      /* address offset: 0x0118 */
+     uint32_t sd_detect_clr;                      /* address offset: 0x0118 */
      uint32_t sd_detect_cnt;                      /* address offset: 0x011c */
      uint32_t reserved0120[56];                   /* address offset: 0x0120 */
      uint32_t os_reg[16];                         /* address offset: 0x0200 */

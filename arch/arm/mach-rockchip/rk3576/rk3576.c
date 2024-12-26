@@ -159,8 +159,9 @@ void rockchip_stimer_init(void)
 	reg = readl(CONFIG_ROCKCHIP_STIMER_BASE + 0x4);
 	if (reg & 0x1)
 		return;
-
+#ifdef COUNTER_FREQUENCY
 	asm volatile("msr CNTFRQ_EL0, %0" : : "r" (COUNTER_FREQUENCY));
+#endif
 	writel(0xffffffff, CONFIG_ROCKCHIP_STIMER_BASE + 0x14);
 	writel(0xffffffff, CONFIG_ROCKCHIP_STIMER_BASE + 0x18);
 	writel(0x00010001, CONFIG_ROCKCHIP_STIMER_BASE + 0x04);
@@ -257,7 +258,7 @@ int fit_standalone_release(char *id, uintptr_t entry_point)
 		/* address map: map 0 to entry_point */
 		sip_smc_mcu_config(ROCKCHIP_SIP_CONFIG_BUSMCU_0_ID,
 			ROCKCHIP_SIP_CONFIG_MCU_CODE_START_ADDR,
-			0xffff0000 | (entry_point >> 16));
+			entry_point);
 
 		/*
 		* bus m0 configuration:
@@ -314,9 +315,6 @@ int arch_cpu_init(void)
 	/* Set the decom to access ddr memory */
 	val = readl(FW_SYS_SGRF_BASE + SGRF_DOMAIN_CON1);
 	writel(val | 0x700, FW_SYS_SGRF_BASE + SGRF_DOMAIN_CON1);
-
-	/* Set the sdmmc0 iomux */
-	board_set_iomux(IF_TYPE_MMC, 1, 0);
 
 	/* UFS PHY select 26M from ppll */
 	writel(0x00030002, PMU1_CRU_BASE + PMU1_CRU_CLKSEL_CON03);

@@ -834,7 +834,10 @@ static ulong eqos_get_tick_clk_rate_stm32(struct udevice *dev)
 #ifdef CONFIG_CLK
 	struct eqos_priv *eqos = dev_get_priv(dev);
 
-	return clk_get_rate(&eqos->clk_master_bus);
+	if (eqos->clk_master_bus.id)
+		return clk_get_rate(&eqos->clk_master_bus);
+	else
+		return 0;
 #else
 	return 0;
 #endif
@@ -1849,10 +1852,8 @@ static int eqos_probe_resources_stm32(struct udevice *dev)
 	eqos->max_speed = dev_read_u32_default(dev, "max-speed", 0);
 
 	ret = clk_get_by_name(dev, "stmmaceth", &eqos->clk_master_bus);
-	if (ret) {
-		pr_err("clk_get_by_name(master_bus) failed: %d", ret);
-		return ret;
-	}
+	if (ret)
+		pr_err("clk_get_by_name(master_bus) failed: %d\n", ret);
 
 	ret = clk_get_by_name(dev, "mac-clk-rx", &eqos->clk_rx);
 	if (ret)

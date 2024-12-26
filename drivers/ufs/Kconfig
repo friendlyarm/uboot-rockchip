@@ -33,6 +33,14 @@ config ROCKCHIP_UFS
 	  Select this if you have UFS controller on Rockchip chipset.
 	  If unsure, say N.
 
+config ROCKCHIP_UFS_RPMB
+	bool "Support UFS replay protected memory block (RPMB)"
+	depends on UFS && ROCKCHIP_UFS
+	default y
+	help
+	  Enable support for reading, writing and programming the
+	  key for the Replay Protection Memory Block partition in UFS.
+
 config ROCKCHIP_UFS_DISABLED_LINKUP_TEST
 	bool "Rockchip ufs disabled linkup test"
 	depends on ROCKCHIP_UFS

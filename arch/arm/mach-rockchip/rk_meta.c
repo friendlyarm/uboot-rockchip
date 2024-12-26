@@ -16,7 +16,7 @@
 
 static char *cmdline;
 
-#if (IS_ENABLED(CONFIG_ROCKCHIP_RV1106))
+#if defined(CONFIG_ROCKCHIP_RV1106) || defined(CONFIG_ROCKCHIP_RV1103B)
 #define COMPRESS_LOAD_ADDR 0xa0000
 #else
 #error	"Please Define COMPRESS_LOAD_ADDR !!!"

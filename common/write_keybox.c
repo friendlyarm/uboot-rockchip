@@ -153,9 +153,14 @@ uint32_t rk_send_keybox_to_ta(uint8_t *filename, uint32_t filename_size,
 						    TEEC_NONE,
 						    TEEC_NONE);
 
-	/* 0 nand or emmc "security" partition , 1 rpmb */
-	TeecOperation.params[0].value.a =
-		(dev_desc->if_type == IF_TYPE_MMC) ? 1 : 0;
+	/*0 nand or emmc "security" partition , 1 rpmb*/
+	if (dev_desc->if_type == IF_TYPE_MMC && dev_desc->devnum == 0)//emmc
+		TeecOperation.params[0].value.a = 1;
+	else if (dev_desc->if_type == IF_TYPE_SCSI)//ufs
+		TeecOperation.params[0].value.a = 1;
+	else
+		TeecOperation.params[0].value.a = 0;
+
 #ifdef CONFIG_OPTEE_ALWAYS_USE_SECURITY_PARTITION
 	TeecOperation.params[0].value.a = 0;
 #endif
@@ -240,7 +245,15 @@ uint32_t write_keybox_to_secure_storage(uint8_t *received_data, uint32_t len)
 		printf("%s: dev_desc is NULL!\n", __func__);
 		return -EIO;
 	}
-	is_use_rpmb = (dev_desc->if_type == IF_TYPE_MMC) ? 1 : 0;
+
+	/*0 nand or emmc "security" partition , 1 rpmb*/
+	if (dev_desc->if_type == IF_TYPE_MMC && dev_desc->devnum == 0)//emmc
+		is_use_rpmb = 1;
+	else if (dev_desc->if_type == IF_TYPE_SCSI)//ufs
+		is_use_rpmb = 1;
+	else
+		is_use_rpmb = 0;
+
 #ifdef CONFIG_OPTEE_ALWAYS_USE_SECURITY_PARTITION
 	is_use_rpmb = 0;
 #endif

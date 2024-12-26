@@ -278,6 +278,8 @@ enum {
 	NVME_RW_PRINFO_PRACT		= 1 << 13,
 };
 
+#define NVME_DSM_MAX_RANGES    256
+
 struct nvme_dsm_cmd {
 	__u8			opcode;
 	__u8			flags;

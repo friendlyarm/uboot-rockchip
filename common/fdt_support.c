@@ -306,7 +306,11 @@ int fdt_bootargs_append(void *fdt, char *data)
 			if (!str)
 				return -ENOMEM;
 
+#ifdef CONFIG_ROCKCHIP_META
+			fdt_increase_size(fdt, 1024);
+#else
 			fdt_increase_size(fdt, 512);
+#endif
 			snprintf(str, len, "%s %s", bootargs, data);
 			ret = fdt_setprop(fdt, nodeoffset, arr_bootargs[i],
 					  str, len);

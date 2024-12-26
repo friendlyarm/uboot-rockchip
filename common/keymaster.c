@@ -49,9 +49,13 @@ TEEC_Result read_from_keymaster(uint8_t *filename,
 						    TEEC_NONE);
 
 	/*0 nand or emmc "security" partition , 1 rpmb*/
-	TeecOperation.params[0].value.a =
-					 (dev_desc->if_type == IF_TYPE_MMC)
-					 ? 1 : 0;
+	if (dev_desc->if_type == IF_TYPE_MMC && dev_desc->devnum == 0)//emmc
+		TeecOperation.params[0].value.a = 1;
+	else if (dev_desc->if_type == IF_TYPE_SCSI)//ufs
+		TeecOperation.params[0].value.a = 1;
+	else
+		TeecOperation.params[0].value.a = 0;
+
 #ifdef CONFIG_OPTEE_ALWAYS_USE_SECURITY_PARTITION
 	TeecOperation.params[0].value.a = 0;
 #endif
@@ -145,8 +149,12 @@ TEEC_Result write_to_keymaster(uint8_t *filename,
 						    TEEC_NONE);
 
 	/*0 nand or emmc "security" partition , 1 rpmb*/
-	TeecOperation.params[0].value.a = (dev_desc->if_type == IF_TYPE_MMC)
-					   ? 1 : 0;
+	if (dev_desc->if_type == IF_TYPE_MMC && dev_desc->devnum == 0)//emmc
+		TeecOperation.params[0].value.a = 1;
+	else if (dev_desc->if_type == IF_TYPE_SCSI)//ufs
+		TeecOperation.params[0].value.a = 1;
+	else
+		TeecOperation.params[0].value.a = 0;
 
 #ifdef CONFIG_OPTEE_ALWAYS_USE_SECURITY_PARTITION
 	TeecOperation.params[0].value.a = 0;

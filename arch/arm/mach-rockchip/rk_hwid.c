@@ -7,14 +7,16 @@
 #include <adc.h>
 #include <asm/io.h>
 #include <dm/ofnode.h>
-#include <asm/arch/resource_img.h>
+#include <asm/arch/rk_hwid.h>
 
 #define is_digit(c)		((c) >= '0' && (c) <= '9')
 #define is_abcd(c)		((c) >= 'a' && (c) <= 'd')
+#if defined(CONFIG_SPL_ROCKCHIP_HWID_DTB)
+/* ITB can't have "=" in node_name */
+#define is_equal(c)		((c) == '_')
+#else
 #define is_equal(c)		((c) == '=')
-#define KEY_WORDS_ADC_CTRL	"#_"
-#define KEY_WORDS_ADC_CH	"_ch"
-#define KEY_WORDS_GPIO		"#gpio"
+#endif
 #define MAX_ADC_CH_NR		10
 #define MAX_GPIO_NR		10
 
@@ -91,7 +93,7 @@ static int gpio_parse_base_address(fdt_addr_t *gpio_base_addr)
 	return 0;
 }
 
-static void hwid_init_data(void)
+void hwid_init_data(void)
 {
 	memset(adc_record, 0, sizeof(adc_record));
 	memset(gpio_record, 0, sizeof(gpio_record));
@@ -262,28 +264,23 @@ static int hwid_gpio_find_dtb(const char *file_name)
 	return found;
 }
 
-struct resource_file *resource_read_hwid_dtb(void)
+bool hwid_dtb_is_available(const char *file_name)
 {
-	struct resource_file *file;
-	struct list_head *node;
-
-	hwid_init_data();
-
-	list_for_each(node, &entry_head) {
-		file = list_entry(node, struct resource_file, link);
-		if (!strstr(file->name, DTB_SUFFIX))
-			continue;
-
-		if (strstr(file->name, KEY_WORDS_ADC_CTRL) &&
-		    strstr(file->name, KEY_WORDS_ADC_CH) &&
-		    hwid_adc_find_dtb(file->name)) {
-			return file;
-		} else if (strstr(file->name, KEY_WORDS_GPIO) &&
-			   hwid_gpio_find_dtb(file->name)) {
-			return file;
-		}
+	/*
+	 * adc default form: #_[adc_controller_name]_ch[channel]_[adcval]
+	 * like: #_saradc_ch0_800
+	 *
+	 * gpio default form: #gpio[pin_num]_[level]
+	 * like: #gpio1a7_1
+	 */
+	if (strstr(file_name, KEY_WORDS_ADC_CTRL) &&
+		strstr(file_name, KEY_WORDS_ADC_CH) &&
+		hwid_adc_find_dtb(file_name)) {
+		return 1;
+	} else if (strstr(file_name, KEY_WORDS_GPIO) &&
+		hwid_gpio_find_dtb(file_name)) {
+		return 1;
 	}
 
-	return NULL;
+	return 0;
 }
-

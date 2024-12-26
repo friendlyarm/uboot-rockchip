@@ -477,7 +477,13 @@ int arch_cpu_init(void)
 
 	/* release the wdt */
 	writel(0x2000200, PERI_GRF_BASE + PERI_GRF_PERI_CON1);
-	writel(0x400040, CRU_BASE + CRU_GLB_RST_CON);
+
+	/*
+	 * enable tsadc trigger global reset and select first reset.
+	 * enable wdt trigger global/pmu reset and select first reset.
+	 * select first reset trigger pmu reset.
+	 */
+	writel(0x85f, CRU_BASE + CRU_GLB_RST_CON);
 
 	/*
 	 * When venc/npu use pvtpll, reboot will fail, because

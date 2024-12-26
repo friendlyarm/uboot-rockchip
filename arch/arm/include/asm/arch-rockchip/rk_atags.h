@@ -25,8 +25,12 @@
 #define ATAG_MAX		0x544100ff
 
 /* Tag size and offset */
+#ifndef ATAGS_SIZE
 #define ATAGS_SIZE		(0x2000)	/* 8K */
+#endif
+#ifndef ATAGS_OFFSET
 #define ATAGS_OFFSET		(0x200000 - ATAGS_SIZE)/* [2M-8K, 2M] */
+#endif
 
 /* Tag sdram position!! */
 #define ATAGS_PHYS_BASE		(CONFIG_SYS_SDRAM_BASE + ATAGS_OFFSET)

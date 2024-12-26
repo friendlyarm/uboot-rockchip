@@ -81,8 +81,6 @@ static int rkusb_erase_sector(struct ums *ums_dev,
 			if (cur_cnt > blkcnt)
 				cur_cnt = blkcnt;
 			blk_erase_devnum(IF_TYPE_SCSI, 1, blkstart, cur_cnt);
-			blkcnt -= cur_cnt;
-			blkstart += cur_cnt;
 		}
 	}
 #endif

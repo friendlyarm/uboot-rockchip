@@ -887,10 +887,10 @@ static void dw_mipi_dsi_video_mode_config(struct dw_mipi_dsi *dsi)
 	u32 val = LP_VACT_EN | LP_VFP_EN | LP_VBP_EN | LP_VSA_EN |
 		  LP_HFP_EN | LP_HBP_EN;
 
-	if (dsi->mode_flags & MIPI_DSI_MODE_VIDEO_HFP)
+	if (dsi->mode_flags & MIPI_DSI_MODE_VIDEO_NO_HFP)
 		val &= ~LP_HFP_EN;
 
-	if (dsi->mode_flags & MIPI_DSI_MODE_VIDEO_HBP)
+	if (dsi->mode_flags & MIPI_DSI_MODE_VIDEO_NO_HBP)
 		val &= ~LP_HBP_EN;
 
 	if (dsi->mode_flags & MIPI_DSI_MODE_VIDEO_BURST)
@@ -1012,7 +1012,7 @@ static void dw_mipi_dsi_packet_handler_config(struct dw_mipi_dsi *dsi)
 {
 	u32 val = CRC_RX_EN | ECC_RX_EN | BTA_EN | EOTP_TX_EN;
 
-	if (dsi->mode_flags & MIPI_DSI_MODE_EOT_PACKET)
+	if (dsi->mode_flags & MIPI_DSI_MODE_NO_EOT_PACKET)
 		val &= ~EOTP_TX_EN;
 
 	dsi_write(dsi, DSI_PCKHDL_CFG, val);
@@ -1512,6 +1512,22 @@ static const struct dw_mipi_dsi_plat_data rk3399_mipi_dsi_plat_data = {
 	.max_bit_rate_per_lane = 1500000000UL,
 };
 
+static const u32 rk3506_dsi_grf_reg_fields[MAX_FIELDS] = {
+	[DPIUPDATECFG]          = GRF_REG_FIELD(0x0014,  2,  2),
+	[DPICOLORM]             = GRF_REG_FIELD(0x0014,  1,  1),
+	[DPISHUTDN]             = GRF_REG_FIELD(0x0014,  0,  0),
+	[SKEWCALHS]             = GRF_REG_FIELD(0x0018, 11, 15),
+	[FORCETXSTOPMODE]       = GRF_REG_FIELD(0x0018,  4,  7),
+	[TURNDISABLE]           = GRF_REG_FIELD(0x0018,  2,  2),
+	[FORCERXMODE]           = GRF_REG_FIELD(0x0018,  0,  0),
+	[ENABLE_N]              = GRF_REG_FIELD(0x0018,  8,  9),
+};
+
+static const struct dw_mipi_dsi_plat_data rk3506_mipi_dsi_plat_data = {
+	.dsi0_grf_reg_fields = rk3506_dsi_grf_reg_fields,
+	.max_bit_rate_per_lane = 1500000000UL,
+};
+
 static const u32 rk3562_dsi_grf_reg_fields[MAX_FIELDS] = {
 	[DPIUPDATECFG]		= GRF_REG_FIELD(0x05d0,  2,  2),
 	[DPICOLORM]		= GRF_REG_FIELD(0x05d0,  1,  1),
@@ -1611,6 +1627,10 @@ static const struct udevice_id dw_mipi_dsi_ids[] = {
 		.data = (ulong)&rk3399_mipi_dsi_plat_data,
 	},
 	{
+		.compatible = "rockchip,rk3506-mipi-dsi",
+		.data = (ulong)&rk3506_mipi_dsi_plat_data,
+	},
+	{
 		.compatible = "rockchip,rk3562-mipi-dsi",
 		.data = (ulong)&rk3562_mipi_dsi_plat_data,
 	},
@@ -1685,9 +1705,9 @@ static int dw_mipi_dsi_child_post_bind(struct udevice *dev)
 	device->mode_flags = dev_read_u32_default(dev, "dsi,flags",
 						  MIPI_DSI_MODE_VIDEO |
 						  MIPI_DSI_MODE_VIDEO_BURST |
-						  MIPI_DSI_MODE_VIDEO_HBP |
+						  MIPI_DSI_MODE_VIDEO_NO_HBP |
 						  MIPI_DSI_MODE_LPM |
-						  MIPI_DSI_MODE_EOT_PACKET);
+						  MIPI_DSI_MODE_NO_EOT_PACKET);
 	device->channel = dev_read_u32_default(dev, "reg", 0);
 
 	return 0;

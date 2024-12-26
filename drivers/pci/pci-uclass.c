@@ -799,6 +799,10 @@ static int decode_regions(struct pci_controller *hose, ofnode parent_node,
 		if (space_code & 2) {
 			type = flags & (1U << 30) ? PCI_REGION_PREFETCH :
 					PCI_REGION_MEM;
+#ifndef CONFIG_SYS_PCI_64BIT
+			if (upper_32_bits(pci_addr))
+				continue;
+#endif
 		} else if (space_code & 1) {
 			type = PCI_REGION_IO;
 		} else {
@@ -806,8 +810,18 @@ static int decode_regions(struct pci_controller *hose, ofnode parent_node,
 		}
 		pos = -1;
 		for (i = 0; i < hose->region_count; i++) {
-			if (hose->regions[i].flags == type)
+			if (hose->regions[i].flags == type) {
+#if defined(CONFIG_SYS_PCI_64BIT)
+				if (type == PCI_REGION_MEM) {
+					if ((upper_32_bits(pci_addr) &&
+					    !upper_32_bits(hose->regions[i].bus_start)) ||
+					    (!upper_32_bits(pci_addr) &&
+					    upper_32_bits(hose->regions[i].bus_start)))
+					    continue;
+				}
+#endif
 				pos = i;
+			}
 		}
 		if (pos == -1)
 			pos = hose->region_count++;
@@ -1211,6 +1225,11 @@ void *dm_pci_map_bar(struct udevice *dev, int bar, int flags)
 	dm_pci_read_config32(dev, bar, &bar_response);
 	pci_bus_addr = (pci_addr_t)(bar_response & ~0xf);
 
+#if defined(CONFIG_SYS_PCI_64BIT)
+        if (bar_response & PCI_BASE_ADDRESS_MEM_TYPE_64) {
+		dm_pci_read_config32(dev, bar + 4, &bar_response);
+		pci_bus_addr |= (pci_addr_t)bar_response << 32;				        }
+#endif /* CONFIG_SYS_PCI_64BIT */
 	/*
 	 * Pass "0" as the length argument to pci_bus_to_virt.  The arg
 	 * isn't actualy used on any platform because u-boot assumes a static

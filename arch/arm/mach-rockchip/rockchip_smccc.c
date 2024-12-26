@@ -81,6 +81,22 @@ int sip_smc_remotectl_config(unsigned long func, unsigned long data)
 	return res.a0;
 }
 
+int sip_smc_access_mem_os_reg(unsigned long func, unsigned long id,
+			      unsigned long *val)
+{
+	struct arm_smccc_res res;
+
+	if (val == NULL)
+		return SIP_RET_INVALID_PARAMS;
+
+	res = __invoke_sip_fn_smc(SIP_ACCESS_MEM_OS_REG, func, id, *val);
+
+	if (func == RK_MEM_OS_REG_READ)
+		*val = res.a1;
+
+	return res.a0;
+}
+
 int sip_smc_amp_cfg(unsigned long func, unsigned long arg0, unsigned long arg1,
 		    unsigned long arg2)
 {

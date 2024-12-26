@@ -16,6 +16,7 @@
 #include <part.h>
 #include <spi.h>
 #include <dm/device-internal.h>
+#include <linux/mtd/spinand.h>
 #include <linux/mtd/spi-nor.h>
 #ifdef CONFIG_NAND
 #include <linux/mtd/nand.h>
@@ -511,11 +512,31 @@ ulong mtd_dread(struct udevice *udev, lbaint_t start,
 		if (!ret)
 			ret = blkcnt;
 	} else if (desc->devnum == BLK_MTD_SPI_NAND) {
-		ret = mtd_map_read(mtd, off, &rwsize,
-				   NULL, mtd->size,
-				   (u_char *)(dst));
-		if (!ret)
-			ret = blkcnt;
+#if defined(CONFIG_MTD_SPI_NAND)
+		struct spinand_device *spinand = mtd_to_spinand(mtd);
+		struct spi_slave *spi = spinand->slave;
+		size_t retlen_nand;
+
+		if (desc->op_flag == BLK_PRE_RW) {
+			spi->mode |= SPI_DMA_PREPARE;
+			ret = mtd_read(mtd, off, rwsize,
+				       &retlen_nand, (u_char *)(dst));
+			spi->mode &= ~SPI_DMA_PREPARE;
+			if (retlen_nand == rwsize)
+				ret = blkcnt;
+		} else {
+			if (spinand->support_cont_read)
+				ret = mtd_read(mtd, off, rwsize,
+					       &retlen_nand,
+					       (u_char *)(dst));
+			else
+				ret = mtd_map_read(mtd, off, &rwsize,
+						   NULL, mtd->size,
+						   (u_char *)(dst));
+			if (!ret)
+				ret = blkcnt;
+		}
+#endif
 	} else if (desc->devnum == BLK_MTD_SPI_NOR) {
 #if defined(CONFIG_SPI_FLASH_MTD) || defined(CONFIG_SPL_BUILD)
 		struct spi_nor *nor = (struct spi_nor *)mtd->priv;
@@ -533,7 +554,7 @@ ulong mtd_dread(struct udevice *udev, lbaint_t start,
 #endif
 	}
 #ifdef MTD_BLK_VERBOSE
-	us = (get_ticks() - us) / 24UL;
+	us = (get_ticks() - us) / (gd->arch.timer_rate_hz / 1000000);
 	pr_err("mtd dread %s %lx %lx cost %ldus: %ldMB/s\n\n", mtd->name, start, blkcnt, us, (blkcnt / 2) / ((us + 999) / 1000));
 #else
 	pr_debug("mtd dread %s %lx %lx\n\n", mtd->name, start, blkcnt);
@@ -566,12 +587,11 @@ ulong mtd_dwrite(struct udevice *udev, lbaint_t start,
 	if (blkcnt == 0)
 		return 0;
 
-#if CONFIG_IS_ENABLED(SUPPORT_USBPLUG)
-	if (desc->op_flag & BLK_MTD_CONT_WRITE && ((desc->lba - start) <= 33)) {
-		printf("Write in GPT backup area!\n");
+	if (desc->op_flag & BLK_MTD_CONT_WRITE &&
+	    (start == 1 || ((desc->lba - start) <= 33))) {
+		printf("Write in GPT area, lba=%ld cnt=%ld\n", start, blkcnt);
 		desc->op_flag &= ~BLK_MTD_CONT_WRITE;
 	}
-#endif
 
 	if (desc->devnum == BLK_MTD_NAND ||
 	    desc->devnum == BLK_MTD_SPI_NAND ||
@@ -646,6 +666,7 @@ ulong mtd_derase(struct udevice *udev, lbaint_t start,
 		return 0;
 
 	pr_debug("mtd derase %s %lx %lx\n", mtd->name, start, blkcnt);
+	len = round_up(len, mtd->erasesize);
 
 	if (blkcnt == 0)
 		return 0;

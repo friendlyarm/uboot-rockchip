@@ -580,6 +580,8 @@ struct rockchip_pinctrl_priv {
 	struct rockchip_pin_ctrl	*ctrl;
 	struct regmap			*regmap_base;
 	struct regmap			*regmap_pmu;
+	struct regmap			*regmap_ioc1;
+	struct regmap			*regmap_rmio;
 };
 
 extern const struct pinctrl_ops rockchip_pinctrl_ops;

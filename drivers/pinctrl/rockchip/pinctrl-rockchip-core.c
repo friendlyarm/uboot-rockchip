@@ -706,6 +706,32 @@ int rockchip_pinctrl_probe(struct udevice *dev)
 		priv->regmap_pmu = regmap;
 	}
 
+	/* option: get ioc1-reg base address */
+	ret = uclass_get_device_by_phandle(UCLASS_SYSCON, dev, "rockchip,ioc1",
+					   &syscon);
+	if (!ret) {
+		/* get ioc1-reg base address */
+		regmap = syscon_get_regmap(syscon);
+		if (!regmap) {
+			debug("unable to find rockchip ioc1 regmap\n");
+			return -ENODEV;
+		}
+		priv->regmap_ioc1 = regmap;
+	}
+
+	/* option: get rmio-reg base address */
+	ret = uclass_get_device_by_phandle(UCLASS_SYSCON, dev, "rockchip,rmio",
+					   &syscon);
+	if (!ret) {
+		/* get pmugrf-reg base address */
+		regmap = syscon_get_regmap(syscon);
+		if (!regmap) {
+			debug("unable to find rockchip rmio regmap\n");
+			return -ENODEV;
+		}
+		priv->regmap_rmio = regmap;
+	}
+
 	ctrl = rockchip_pinctrl_get_soc_data(dev);
 	if (!ctrl) {
 		debug("driver data not available\n");

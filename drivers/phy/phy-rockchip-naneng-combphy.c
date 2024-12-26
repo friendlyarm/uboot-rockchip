@@ -9,6 +9,7 @@
 #include <clk.h>
 #include <dm.h>
 #include <dm/lists.h>
+#include <dm/uclass-internal.h>
 #include <dt-bindings/phy/phy.h>
 #include <generic-phy.h>
 #include <syscon.h>
@@ -70,6 +71,7 @@ struct rockchip_combphy_grfcfg {
 
 struct rockchip_combphy_cfg {
 	const struct rockchip_combphy_grfcfg *grfcfg;
+	bool force_det_out; /* Tx detect Rx errata */
 	int (*combphy_cfg)(struct rockchip_combphy_priv *priv);
 };
 
@@ -114,6 +116,7 @@ static u32 rockchip_combphy_is_ready(struct rockchip_combphy_priv *priv)
 static int rockchip_combphy_pcie_init(struct rockchip_combphy_priv *priv)
 {
 	int ret = 0;
+	u32 val;
 
 	if (priv->cfg->combphy_cfg) {
 		ret = priv->cfg->combphy_cfg(priv);
@@ -121,6 +124,12 @@ static int rockchip_combphy_pcie_init(struct rockchip_combphy_priv *priv)
 			dev_err(priv->dev, "failed to init phy for pcie\n");
 			return ret;
 		}
+	}
+
+	if (priv->cfg->force_det_out) {
+		val = readl(priv->mmio + (0x19 << 2));
+		val |= BIT(5);
+		writel(val, priv->mmio + (0x19 << 2));
 	}
 
 	return ret;
@@ -183,18 +192,31 @@ static int rockchip_combphy_sgmii_init(struct rockchip_combphy_priv *priv)
 	return ret;
 }
 
-int rockchip_combphy_usb3_uboot_init(void)
+int rockchip_combphy_usb3_uboot_init(fdt_addr_t phy_addr)
 {
-	struct udevice *udev;
+	struct udevice *udev = NULL;
+	struct udevice *dev;
+	struct uclass *uc;
+	const struct driver *find_drv;
 	struct rockchip_combphy_priv *priv;
 	const struct rockchip_combphy_grfcfg *cfg;
 	u32 val;
-	int ret;
+	int ret = 0;
 
-	ret = uclass_get_device_by_driver(UCLASS_PHY,
-					  DM_GET_DRIVER(rockchip_naneng_combphy),
-					  &udev);
-	if (ret) {
+	ret = uclass_get(UCLASS_PHY, &uc);
+	if (ret)
+		return ret;
+
+	find_drv = DM_GET_DRIVER(rockchip_naneng_combphy);
+	list_for_each_entry(dev, &uc->dev_head, uclass_node) {
+		if (dev->driver == find_drv && dev_read_addr(dev) == phy_addr) {
+			ret = uclass_get_device_tail(dev, 0, &udev);
+			break;
+		}
+	}
+
+	if (!udev || ret) {
+		ret = ret ? ret : -ENODEV;
 		pr_err("%s: get usb3-phy node failed: %d\n", __func__, ret);
 		return ret;
 	}
@@ -597,6 +619,7 @@ static const struct rockchip_combphy_grfcfg rk3562_combphy_grfcfgs = {
 static const struct rockchip_combphy_cfg rk3562_combphy_cfgs = {
 	.grfcfg		= &rk3562_combphy_grfcfgs,
 	.combphy_cfg	= rk3562_combphy_cfg,
+	.force_det_out  = true,
 };
 #endif
 
@@ -739,6 +762,7 @@ static const struct rockchip_combphy_grfcfg rk3568_combphy_grfcfgs = {
 static const struct rockchip_combphy_cfg rk3568_combphy_cfgs = {
 	.grfcfg		= &rk3568_combphy_grfcfgs,
 	.combphy_cfg	= rk3568_combphy_cfg,
+	.force_det_out  = true,
 };
 #endif
 
@@ -875,6 +899,7 @@ static const struct rockchip_combphy_grfcfg rk3588_combphy_grfcfgs = {
 static const struct rockchip_combphy_cfg rk3588_combphy_cfgs = {
 	.grfcfg		= &rk3588_combphy_grfcfgs,
 	.combphy_cfg	= rk3588_combphy_cfg,
+	.force_det_out  = true,
 };
 #endif
 

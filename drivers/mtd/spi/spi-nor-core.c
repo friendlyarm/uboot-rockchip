@@ -207,7 +207,7 @@ static int write_sr(struct spi_nor *nor, u8 val)
 	return nor->write_reg(nor, SPINOR_OP_WRSR, nor->cmd_buf, 1);
 }
 
-#ifdef CONFIG_SPI_FLASH_NORMEM
+#if CONFIG_IS_ENABLED(SPI_FLASH_SFDP_SUPPORT) || defined(CONFIG_SPI_FLASH_NORMEM)
 /*
  * Write confiture register 1 byte
  * Returns negative if error occurred.
@@ -556,7 +556,7 @@ static int spi_nor_erase_sector(struct spi_nor *nor, u32 addr)
 static int spi_nor_erase(struct mtd_info *mtd, struct erase_info *instr)
 {
 	struct spi_nor *nor = mtd_to_spi_nor(mtd);
-	u32 addr, len, rem;
+	u32 addr, len, rem, target;
 	int ret;
 
 	dev_dbg(nor->dev, "at 0x%llx, len %lld\n", (long long)instr->addr,
@@ -570,14 +570,20 @@ static int spi_nor_erase(struct mtd_info *mtd, struct erase_info *instr)
 	len = instr->len;
 
 	while (len) {
+#if defined(CONFIG_SPI_FLASH_AUTO_MERGE)
+		nor->spi->auto_merge_cs_cur = addr < nor->auto_merge_single_chip_size ? 0 : 1;
+		target = addr - nor->spi->auto_merge_cs_cur * nor->auto_merge_single_chip_size;
+#else
+		target = addr;
+#endif
 #ifdef CONFIG_SPI_FLASH_BAR
-		ret = write_bar(nor, addr);
+		ret = write_bar(nor, target);
 		if (ret < 0)
 			return ret;
 #endif
 		write_enable(nor);
 
-		ret = spi_nor_erase_sector(nor, addr);
+		ret = spi_nor_erase_sector(nor, target);
 		if (ret)
 			goto erase_err;
 
@@ -923,6 +929,13 @@ static int spi_nor_read(struct mtd_info *mtd, loff_t from, size_t len,
 		loff_t addr = from;
 		size_t read_len = len;
 
+#if defined(CONFIG_SPI_FLASH_AUTO_MERGE)
+		if (addr < nor->auto_merge_single_chip_size && (addr + len) > nor->auto_merge_single_chip_size)
+			read_len = nor->auto_merge_single_chip_size - addr;
+		nor->spi->auto_merge_cs_cur = addr < nor->auto_merge_single_chip_size ? 0 : 1;
+		addr -= nor->spi->auto_merge_cs_cur * nor->auto_merge_single_chip_size;
+#endif
+
 #ifdef CONFIG_SPI_FLASH_BAR
 		u32 remain_len;
 
@@ -1245,6 +1258,11 @@ static int spi_nor_write(struct mtd_info *mtd, loff_t to, size_t len,
 	for (i = 0; i < len; ) {
 		ssize_t written;
 		loff_t addr = to + i;
+
+#if defined(CONFIG_SPI_FLASH_AUTO_MERGE)
+		nor->spi->auto_merge_cs_cur = addr < nor->auto_merge_single_chip_size ? 0 : 1;
+		addr -= nor->spi->auto_merge_cs_cur * nor->auto_merge_single_chip_size;
+#endif
 
 		/*
 		 * If page_size is a power of two, the offset can be quickly
@@ -1695,7 +1713,7 @@ struct sfdp_header {
 /* 15th DWORD. */
 
 /*
- * (from JESD216 rev B)
+ * (from JESD216 rev F)
  * Quad Enable Requirements (QER):
  * - 000b: Device does not have a QE bit. Device detects 1-1-4 and 1-4-4
  *         reads based on instruction. DQ3/HOLD# functions are hold during
@@ -1724,6 +1742,12 @@ struct sfdp_header {
  *         instruction 35h. QE is set via Writ Status instruction 01h with
  *         two data bytes where bit 1 of the second byte is one.
  *         [...]
+ * - 110b: QE is bit 1 of the status register 2. Status register 1 is read using
+ *         Read Status instruction 05h. Status register 2 is read using instruction
+ *         35h, and status register 3 is read using instruction 15h. QE is set via
+ *         Write Status Register instruction 31h with one data byte where bit 1 is
+ *         one. It is cleared via Write Status Register instruction 31h with one
+ *         data byte where bit 1 is zero.
  */
 #define BFPT_DWORD15_QER_MASK			GENMASK(22, 20)
 #define BFPT_DWORD15_QER_NONE			(0x0UL << 20) /* Micron */
@@ -1732,6 +1756,7 @@ struct sfdp_header {
 #define BFPT_DWORD15_QER_SR2_BIT7		(0x3UL << 20)
 #define BFPT_DWORD15_QER_SR2_BIT1_NO_RD		(0x4UL << 20)
 #define BFPT_DWORD15_QER_SR2_BIT1		(0x5UL << 20) /* Spansion */
+#define BFPT_DWORD15_QER_SR2_BIT1_WR		(0x6UL << 20)
 
 struct sfdp_bfpt {
 	u32	dwords[BFPT_DWORD_MAX];
@@ -1847,6 +1872,46 @@ static const struct sfdp_bfpt_erase sfdp_bfpt_erases[] = {
 };
 
 static int spi_nor_hwcaps_read2cmd(u32 hwcaps);
+
+/**
+ * spi_nor_wr_quad_enable() - set QE bit in Configuration Register with 31H.
+ * @nor:	pointer to a 'struct spi_nor'
+ *
+ * Set the Quad Enable (QE) bit in the Configuration Register.
+ * This function should be used with QSPI memories not supporting the Read
+ * Configuration Register (35h) instruction.
+ *
+ * bit 1 of the Configuration Register is the QE bit for Spansion like QSPI
+ * memories.
+ *
+ * Return: 0 on success, -errno otherwise.
+ */
+static int spi_nor_wr_quad_enable(struct spi_nor *nor)
+{
+	int ret, val;
+
+	val = read_cr(nor);
+	if (val < 0)
+		return val;
+	if (val & CR_QUAD_EN_SPAN)
+		return 0;
+
+	write_enable(nor);
+
+	write_cr(nor, val | CR_QUAD_EN_SPAN);
+
+	ret = spi_nor_wait_till_ready(nor);
+	if (ret)
+		return ret;
+
+	ret = read_cr(nor);
+	if (!(ret > 0 && (ret & CR_QUAD_EN_SPAN))) {
+		dev_err(nor->dev, "Configure register Quad bit not set, ret=%x\n", ret);
+		return -EINVAL;
+	}
+
+	return 0;
+}
 
 /**
  * spi_nor_parse_bfpt() - read and parse the Basic Flash Parameter Table.
@@ -2015,6 +2080,9 @@ static int spi_nor_parse_bfpt(struct spi_nor *nor,
 		params->quad_enable = spansion_read_cr_quad_enable;
 		break;
 #endif
+	case BFPT_DWORD15_QER_SR2_BIT1_WR:
+		params->quad_enable = spi_nor_wr_quad_enable;
+		break;
 	default:
 		return -EINVAL;
 	}
@@ -2639,6 +2707,21 @@ int spi_nor_scan(struct spi_nor *nor)
 	print_size(nor->erase_size, ", total ");
 	print_size(nor->size, "");
 	puts("\n");
+#endif
+
+#if defined(CONFIG_SPI_FLASH_AUTO_MERGE)
+	nor->auto_merge_single_chip_size = nor->size;
+	nor->spi->auto_merge_cs_cur = 1;
+	if (IS_ERR(spi_nor_read_id(nor))) {
+		printf("spinor enable auto_merge, but only cs0 valid\n");
+		return 0;
+	}
+	ret = spi_nor_init(nor);
+	if (!ret) {
+		mtd->size = mtd->size * 2;
+		nor->size = nor->size * 2;
+		printf("spinor enable auto_merge\n");
+	}
 #endif
 
 	return 0;

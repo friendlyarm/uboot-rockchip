@@ -335,6 +335,13 @@ static void *sysmem_alloc_align_base(enum memblk_id id,
 	if (!sysmem_has_init())
 		goto out;
 
+	/* If out of management range, just return */
+	if (base != SYSMEM_ALLOC_ANYWHERE && base < CONFIG_SYS_SDRAM_BASE)
+		return (void *)base;
+	if ((base + size >= CONFIG_SYS_SDRAM_BASE + SDRAM_MAX_SIZE) &&
+	    (base + size <= SZ_4G))
+	   	return (void *)base;
+
 	if (id == MEM_BY_NAME || id == MEM_KMEM_RESERVED) {
 		if (!mem_name) {
 			SYSMEM_E("NULL name for alloc sysmem\n");
@@ -460,12 +467,21 @@ static void *sysmem_alloc_align_base(enum memblk_id id,
 			SYSMEM_E("Failed to double alloc for existence \"%s\"\n", name);
 			goto out;
 		} else if (sysmem_is_overlap(mem->base, mem->size, base, size)) {
-			SYSMEM_E("\"%s\" (0x%08lx - 0x%08lx) alloc is "
-				 "overlap with existence \"%s\" (0x%08lx - "
-				 "0x%08lx)\n",
-				 name, (ulong)base, (ulong)(base + size),
-				 mem->attr.name, (ulong)mem->base,
-				 (ulong)(mem->base + mem->size));
+			if (attr.flags & F_FAIL_WARNING)
+				SYSMEM_W("**Maybe** \"%s\" (0x%08lx - 0x%08lx) alloc is "
+					 "overlap with existence \"%s\" (0x%08lx - "
+					 "0x%08lx)\n",
+					 name, (ulong)base, (ulong)(base + size),
+					 mem->attr.name, (ulong)mem->base,
+					 (ulong)(mem->base + mem->size));
+
+			else
+				SYSMEM_E("\"%s\" (0x%08lx - 0x%08lx) alloc is "
+					 "overlap with existence \"%s\" (0x%08lx - "
+					 "0x%08lx)\n",
+					 name, (ulong)base, (ulong)(base + size),
+					 mem->attr.name, (ulong)mem->base,
+					 (ulong)(mem->base + mem->size));
 			goto out;
 		}
 	}
@@ -757,7 +773,11 @@ int sysmem_init(void)
 
 	/* Reserved for U-boot framework: 'reserve_xxx()' */
 	mem_start = gd->start_addr_sp;
+#ifdef CONFIG_PRAM
+	mem_size = gd->ram_top - (CONFIG_PRAM * 1024) - mem_start;
+#else
 	mem_size = gd->ram_top - mem_start;
+#endif
 	if (!sysmem_alloc_base(MEM_UBOOT, mem_start, mem_size)) {
 		SYSMEM_E("Failed to reserve sysmem for U-Boot framework\n");
 		ret = -ENOMEM;

@@ -178,7 +178,7 @@ static int rockchip_decom_done_poll(struct udevice *dev)
 static int rockchip_decom_capability(u32 *buf)
 {
 	*buf = DECOM_GZIP;
-#ifndef CONFIG_ROCKCHIP_RK3576
+#if defined(CONFIG_ROCKCHIP_RK3576) && defined(CONFIG_ROCKCHIP_RV1103B)
 	*buf |= DECOM_LZ4;
 #endif
 	return 0;

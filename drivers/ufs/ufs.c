@@ -24,7 +24,12 @@
 #if defined(CONFIG_SUPPORT_USBPLUG)
 #include "ufs-rockchip-usbplug.h"
 #endif
+
 #include "ufs.h"
+
+#if defined(CONFIG_ROCKCHIP_UFS_RPMB)
+#include "ufs-rockchip-rpmb.h"
+#endif
 
 #define UFSHCD_ENABLE_INTRS	(UTP_TRANSFER_REQ_COMPL |\
 				 UTP_TASK_REQ_COMPL |\
@@ -42,13 +47,15 @@
 
 /* maximum timeout in ms for a general UIC command */
 #define UFS_UIC_CMD_TIMEOUT	1000
+
+#define UFS_UIC_LINKUP_TIMEOUT	150
 /* NOP OUT retries waiting for NOP IN response */
 /* Polling time to wait for fDeviceInit */
 #define FDEVICEINIT_COMPL_TIMEOUT 1500 /* millisecs */
 
 #define NOP_OUT_RETRIES    10
 /* Timeout after 30 msecs if NOP OUT hangs without response */
-#define NOP_OUT_TIMEOUT    30 /* msecs */
+#define NOP_OUT_TIMEOUT    1500 /* msecs */
 
 /* Only use one Task Tag for all requests */
 #define TASK_TAG	0
@@ -175,12 +182,16 @@ static int ufshcd_send_uic_cmd(struct ufs_hba *hba, struct uic_command *uic_cmd)
 	unsigned long start = 0;
 	u32 intr_status;
 	u32 enabled_intr_status;
+	int timeout = UFS_UIC_CMD_TIMEOUT;
 
 	if (!ufshcd_ready_for_uic_cmd(hba)) {
 		dev_err(hba->dev,
 			"Controller not ready to accept UIC commands\n");
 		return -EIO;
 	}
+
+	if (uic_cmd->command == UIC_CMD_DME_LINK_STARTUP)
+		timeout = UFS_UIC_LINKUP_TIMEOUT;
 
 	debug("sending uic command:%d\n", uic_cmd->command);
 
@@ -199,7 +210,7 @@ static int ufshcd_send_uic_cmd(struct ufs_hba *hba, struct uic_command *uic_cmd)
 		enabled_intr_status = intr_status & hba->intr_mask;
 		ufshcd_writel(hba, intr_status, REG_INTERRUPT_STATUS);
 
-		if (get_timer(start) > UFS_UIC_CMD_TIMEOUT) {
+		if (get_timer(start) > timeout) {
 			dev_err(hba->dev,
 				"Timedout waiting for UIC response\n");
 
@@ -488,6 +499,9 @@ static int ufshcd_link_startup(struct ufs_hba *hba)
 	int retries = DME_LINKSTARTUP_RETRIES;
 	bool link_startup_again = true;
 
+	if (ufshcd_is_device_present(hba))
+		goto  device_present;
+
 link_startup:
 	do {
 		ufshcd_ops_link_startup_notify(hba, PRE_CHANGE);
@@ -520,6 +534,7 @@ link_startup:
 		goto link_startup;
 	}
 
+device_present:
 	/* Mark that link is up in PWM-G1, 1-lane, SLOW-AUTO mode */
 	ufshcd_init_pwr_info(hba);
 
@@ -1531,17 +1546,16 @@ static void prepare_prdt_table(struct ufs_hba *hba, struct scsi_cmd *pccb)
 	ufshcd_cache_flush_and_invalidate(req_desc, sizeof(*req_desc));
 }
 
-static int ufs_scsi_exec(struct udevice *scsi_dev, struct scsi_cmd *pccb)
+int ufs_send_scsi_cmd(struct ufs_hba *hba, struct scsi_cmd *pccb)
 {
-	struct ufs_hba *hba = dev_get_uclass_priv(scsi_dev->parent);
 	struct utp_transfer_req_desc *req_desc = hba->utrdl;
 	u32 upiu_flags;
 	int ocs, result = 0, retry_count = 3;
 	u8 scsi_status;
 
-	/* cmd do not set lun for ufs 2.1 */
-	if (hba->dev_desc->w_spec_version == 0x1002) /* verison 0x210 in big end */
+	if (hba->quirks & UFSDEV_QUIRK_LUN_IN_SCSI_COMMANDS)
 		pccb->cmd[1] &= 0x1F;
+
 retry:
 	ufshcd_prepare_req_desc_hdr(req_desc, &upiu_flags, pccb->dma_dir);
 	ufshcd_prepare_utp_scsi_cmd_upiu(hba, pccb, upiu_flags);
@@ -1591,6 +1605,13 @@ retry:
 	}
 
 	return 0;
+}
+
+static int ufs_scsi_exec(struct udevice *scsi_dev, struct scsi_cmd *pccb)
+{
+	struct ufs_hba *hba = dev_get_uclass_priv(scsi_dev->parent);
+
+	return ufs_send_scsi_cmd(hba, pccb);
 }
 
 static inline int ufshcd_read_desc(struct ufs_hba *hba, enum desc_idn desc_id,
@@ -1884,15 +1905,20 @@ static void ufshcd_def_desc_sizes(struct ufs_hba *hba)
 
 int _ufs_start(struct ufs_hba *hba)
 {
-	int ret;
+	int ret, retry_count = 1;
 
+retry:
 	ret = ufshcd_link_startup(hba);
 	if (ret)
 		return ret;
 
 	ret = ufshcd_verify_dev_init(hba);
-	if (ret)
+	if (ret) {
+		ufshcd_hba_enable(hba);
+		if (retry_count--)
+			goto retry;
 		return ret;
+	}
 
 	ret = ufshcd_complete_dev_init(hba);
 	if (ret)
@@ -1908,6 +1934,14 @@ int _ufs_start(struct ufs_hba *hba)
 
 		return ret;
 	}
+
+	if (hba->dev_desc->w_spec_version == 0x1002)
+		hba->quirks |= UFSDEV_QUIRK_LUN_IN_SCSI_COMMANDS;
+
+	if (hba->dev_desc->w_spec_version == 0x2002)
+		if (hba->dev_desc->w_manufacturer_id == 0x250A ||
+		    hba->dev_desc->w_manufacturer_id == 0x9802)
+			hba->quirks |= UFSDEV_QUIRK_LUN_IN_SCSI_COMMANDS;
 
 	return ret;
 }
@@ -1943,6 +1977,10 @@ int ufs_start(struct ufs_hba *hba)
 		printf("Device at %s up at:", hba->dev->name);
 		ufshcd_print_pwr_info(hba);
 	}
+
+#if defined(CONFIG_ROCKCHIP_UFS_RPMB) 
+	ufs_rpmb_init(hba);
+#endif
 
 	return 0;
 }

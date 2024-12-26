@@ -744,6 +744,7 @@ struct ufs_hba_ops {
 	int (*link_startup_notify)(struct ufs_hba *hba,
 				   enum ufs_notify_change_status);
 	int (*phy_initialization)(struct ufs_hba *hba);
+	int (*phy_parameter_initialization)(struct ufs_hba *hba);
 };
 
 struct ufs_hba {
@@ -775,6 +776,12 @@ struct ufs_hba {
  * auto-hibernate capability but it's FASTAUTO only.
  */
 #define UFSHCD_QUIRK_HIBERN_FASTAUTO			BIT(2)
+
+/*
+ * Some UFS devices do not support SCSI commands containing
+ * the LUN device number.
+ */
+#define UFSDEV_QUIRK_LUN_IN_SCSI_COMMANDS		BIT(16)
 
 	/* Virtual memory reference */
 	struct utp_transfer_cmd_desc *ucdl;
@@ -989,4 +996,5 @@ int ufshcd_query_descriptor_retry(struct ufs_hba *hba, enum query_opcode opcode,
 				  enum desc_idn idn, u8 index, u8 selector,
 				  u8 *desc_buf, int *buf_len);
 int ufshcd_exec_dev_cmd(struct ufs_hba *hba, enum dev_cmd_type cmd_type, int timeout);
+
 #endif

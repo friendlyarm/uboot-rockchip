@@ -316,6 +316,9 @@ struct spi_nor {
 	u8			bank_write_cmd;
 	u8			bank_curr;
 #endif
+#ifdef CONFIG_SPI_FLASH_AUTO_MERGE
+	u32			auto_merge_single_chip_size;
+#endif
 	enum spi_nor_protocol	read_proto;
 	enum spi_nor_protocol	write_proto;
 	enum spi_nor_protocol	reg_proto;

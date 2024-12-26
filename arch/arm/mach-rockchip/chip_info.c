@@ -73,6 +73,8 @@ static int rockchip_get_chip_info(unsigned int chip_info[])
 	chip_info[0] = 0x33353838;
 #elif defined(CONFIG_ROCKCHIP_RK3576)
 	chip_info[0] = 0x33353736;
+#elif defined(CONFIG_ROCKCHIP_RK3506)
+	chip_info[0] = 0x33353046;
 #endif
 
 	return 0;

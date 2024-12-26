@@ -310,12 +310,29 @@ static void nand_print_and_set_info(int idx)
 	env_set_hex("nand_erasesize", mtd->erasesize);
 }
 
+static bool mtd_is_aligned_with_block_size(struct mtd_info *mtd, u64 size)
+{
+	return !do_div(size, mtd->erasesize);
+}
+
 static int raw_access(struct mtd_info *mtd, ulong addr, loff_t off,
 		      ulong count, int read, int no_verify)
 {
 	int ret = 0;
 
-	while (count--) {
+	while (count && (off + mtd->writesize) <= mtd->size) {
+		/*
+		 * Skipping bad block interfaces meets practical usage
+		 * requirements
+		 */
+		if (mtd_is_aligned_with_block_size(mtd, off) &&
+			mtd_block_isbad(mtd, off)) {
+			printf("raw_access skip bad block 0x%08llx\n",
+			       off & ~(mtd->erasesize - 1));
+			off += mtd->erasesize;
+			continue;
+		}
+
 		/* Raw access */
 		mtd_oob_ops_t ops = {
 			.datbuf = (u8 *)addr,
@@ -341,6 +358,7 @@ static int raw_access(struct mtd_info *mtd, ulong addr, loff_t off,
 
 		addr += mtd->writesize + mtd->oobsize;
 		off += mtd->writesize;
+		count--;
 	}
 
 	return ret;
@@ -804,7 +822,8 @@ static char nand_help_text[] =
 	"    to/from memory address 'addr', skipping bad blocks.\n"
 	"nand read.raw - addr off|partition [count]\n"
 	"nand write.raw[.noverify] - addr off|partition [count]\n"
-	"    Use read.raw/write.raw to avoid ECC and access the flash as-is.\n"
+	"    Use read.raw/write.raw to avoid ECC and access the flash as-is,\n"
+	"    and skip bad\n"
 #ifdef CONFIG_CMD_NAND_TRIMFFS
 	"nand write.trimffs - addr off|partition size\n"
 	"    write 'size' bytes starting at offset 'off' from memory address\n"

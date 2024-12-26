@@ -45,6 +45,12 @@ config FPGA_ZYNQMPPL
 	  Enable FPGA driver for loading bitstream in BIT and BIN format
 	  on Xilinx Zynq UltraScale+ (ZynqMP) device.
 
+config SPL_FPGA_ROCKCHIP
+	bool "Enable Rockchip FPGA drivers in SPL"
+	depends on ARCH_ROCKCHIP && SPL
+	help
+	  Enale Rockchip FPGA specific functions in SPL.
+
 config FPGA_ROCKCHIP
 	bool "Enable Rockchip FPGA drivers"
 	depends on ARCH_ROCKCHIP
@@ -53,11 +59,11 @@ config FPGA_ROCKCHIP
 
 config FPGA_MMC
 	bool "FPGA board with MMC"
-	depends on FPGA_ROCKCHIP
+	depends on FPGA_ROCKCHIP || SPL_FPGA_ROCKCHIP
 
 config FPGA_RAM
 	bool "FPGA board with RAM"
-	depends on FPGA_ROCKCHIP
+	depends on FPGA_ROCKCHIP || SPL_FPGA_ROCKCHIP
 	select SPL_RAM_SUPPORT
 	select DM_RAMDISK
 	select RAMDISK_RO

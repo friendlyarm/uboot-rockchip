@@ -324,7 +324,7 @@ function select_chip_info()
 	#  - PX30, PX3SE
 	#  - RK????, RK????X
 	#  - RV????
-	CHIP_PATTERN='^CONFIG_ROCKCHIP_[R,P][X,V,K][0-9ESX]{1,5}'
+	CHIP_PATTERN='^CONFIG_ROCKCHIP_[R,P][X,V,K][0-9ESXB]{1,5}'
 	RKCHIP=`egrep -o ${CHIP_PATTERN} .config`
 
 	# default

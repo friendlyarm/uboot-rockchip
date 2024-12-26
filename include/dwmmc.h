@@ -91,6 +91,7 @@
 #define DWMCI_CMD_SEND_STOP	(1 << 12)
 #define DWMCI_CMD_ABORT_STOP	(1 << 14)
 #define DWMCI_CMD_PRV_DAT_WAIT	(1 << 13)
+#define SDMMC_CMD_INIT		(1 << 15)
 #define DWMCI_CMD_UPD_CLK	(1 << 21)
 #define DWMCI_CMD_USE_HOLD_REG	(1 << 29)
 #define DWMCI_CMD_START		(1 << 31)

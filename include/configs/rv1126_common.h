@@ -73,7 +73,8 @@
 	"scriptaddr1=0x00000000\0"	\
 	"pxefile_addr1_r=0x00100000\0"	\
 	"fdt_addr1_r=0x02f00000\0"	\
-	"kernel_addr1_r=0x02008000\0"	\
+	"kernel_addr1_r=0x00008000\0"	\
+	"kernel_addr1_c=0x02008000\0"	\
 	"ramdisk_addr1_r=0x03200000\0"
 
 /* memory size > 128MB */
@@ -81,7 +82,8 @@
 	"scriptaddr=0x00000000\0"	\
 	"pxefile_addr_r=0x00100000\0"	\
 	"fdt_addr_r=0x08300000\0"	\
-	"kernel_addr_r=0x02008000\0"	\
+	"kernel_addr_r=0x00008000\0"	\
+	"kernel_addr_c=0x02008000\0"	\
 	"ramdisk_addr_r=0x0a200000\0"
 
 #include <config_distro_bootcmd.h>

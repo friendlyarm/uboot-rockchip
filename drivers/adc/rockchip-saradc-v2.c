@@ -9,6 +9,7 @@
 #include <adc.h>
 #include <clk.h>
 #include <dm.h>
+#include <linux/iopoll.h>
 #include <errno.h>
 #include <asm/io.h>
 #include <reset.h>
@@ -106,13 +107,21 @@ static int rockchip_saradc_channel_data(struct udevice *dev, int channel,
 {
 	struct rockchip_saradc_priv *priv = dev_get_priv(dev);
 	struct adc_uclass_platdata *uc_pdata = dev_get_uclass_platdata(dev);
+	u32 status;
 
 	if (channel != priv->active_channel) {
 		pr_err("Requested channel is not active!");
 		return -EINVAL;
 	}
 
-	/* Clear irq */
+	/* Wait for end conversion interrupt status. */
+	if (readl_poll_timeout(&priv->regs->end_int_st, status,
+			       status & SARADC2_EN_END_INT, SARADC_TIMEOUT)) {
+		pr_err("Wait for end conversion interrupt status timeout!\n");
+		return -ETIMEDOUT;
+	}
+
+	/* Clear irq. */
 	writel(0x1, &priv->regs->end_int_st);
 
 	*data = readl(&priv->regs->data0 + priv->active_channel);
@@ -229,9 +238,15 @@ static const struct rockchip_saradc_data rk3562_saradc_data = {
 	.clk_rate = 1000000,
 };
 
-static const struct rockchip_saradc_data rk1106_saradc_data = {
+static const struct rockchip_saradc_data rv1106_saradc_data = {
 	.num_bits = 10,
 	.num_channels = 2,
+	.clk_rate = 1000000,
+};
+
+static const struct rockchip_saradc_data rv1103b_saradc_data = {
+	.num_bits = 10,
+	.num_channels = 1,
 	.clk_rate = 1000000,
 };
 
@@ -250,7 +265,11 @@ static const struct udevice_id rockchip_saradc_ids[] = {
 	},
 	{
 		.compatible = "rockchip,rv1106-saradc",
-		.data = (ulong)&rk1106_saradc_data
+		.data = (ulong)&rv1106_saradc_data
+	},
+	{
+		.compatible = "rockchip,rv1103b-saradc",
+		.data = (ulong)&rv1103b_saradc_data
 	},
 	{ }
 };

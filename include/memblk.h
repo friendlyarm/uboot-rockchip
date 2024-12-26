@@ -93,4 +93,7 @@ extern const struct memblk_attr *mem_attr;
 /* No sysmem layout dump if failed */
 #define F_NO_FAIL_DUMP		(1 << 8)
 
+/* Warning but not Error */
+#define F_FAIL_WARNING		(1 << 9)
+
 #endif /* _MEMBLK_H */

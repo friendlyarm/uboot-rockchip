@@ -1920,6 +1920,116 @@ static ulong rk3576_uart_set_rate(struct rk3576_clk_priv *priv,
 
 	return rk3576_uart_get_rate(priv, clk_id);
 }
+
+static ulong rk3576_ref_clkout_get_clk(struct rk3576_clk_priv *priv,
+				       ulong clk_id)
+{
+	struct rk3576_cru *cru = priv->cru;
+	u32 reg, con, div, src, p_rate;
+
+	switch (clk_id) {
+	case REF_CLK0_OUT_PLL:
+		reg = 33;
+		break;
+	case REF_CLK1_OUT_PLL:
+		reg = 34;
+		break;
+	case REF_CLK2_OUT_PLL:
+		reg = 35;
+		break;
+	default:
+		return -ENOENT;
+	}
+	con = readl(&cru->clksel_con[reg]);
+	div = (con & REF_CLK0_OUT_PLL_DIV_MASK) >> REF_CLK0_OUT_PLL_DIV_SHIFT;
+	src = (con & REF_CLK0_OUT_PLL_SEL_MASK) >> REF_CLK0_OUT_PLL_SEL_SHIFT;
+	if (src == REF_CLK0_OUT_PLL_SEL_GPLL)
+		p_rate = priv->gpll_hz;
+	else if (src == REF_CLK0_OUT_PLL_SEL_CPLL)
+		p_rate = priv->cpll_hz;
+	else if (src == REF_CLK0_OUT_PLL_SEL_SPLL)
+		p_rate = priv->spll_hz;
+	else if (src == REF_CLK0_OUT_PLL_SEL_AUPLL)
+		p_rate = priv->aupll_hz;
+	else if (src == REF_CLK0_OUT_PLL_SEL_LPLL)
+		p_rate = priv->lpll_hz / 2;
+	else
+		p_rate = OSC_HZ;
+	return DIV_TO_RATE(p_rate, div);
+}
+
+static ulong rk3576_ref_clkout_set_clk(struct rk3576_clk_priv *priv,
+				       ulong clk_id, ulong rate)
+{
+	struct rk3576_cru *cru = priv->cru;
+	ulong p_rate, now, best_rate = 0;
+	u32 i, con, div, best_div = 0, best_sel = 0;
+
+	switch (clk_id) {
+	case REF_CLK0_OUT_PLL:
+		con = 33;
+		break;
+	case REF_CLK1_OUT_PLL:
+		con = 34;
+		break;
+	case REF_CLK2_OUT_PLL:
+		con = 35;
+		break;
+	default:
+		return -ENOENT;
+	}
+
+	for (i = 0; i <= REF_CLK0_OUT_PLL_SEL_OSC; i++) {
+		switch (i) {
+		case REF_CLK0_OUT_PLL_SEL_GPLL:
+			p_rate = priv->gpll_hz;
+			break;
+		case REF_CLK0_OUT_PLL_SEL_CPLL:
+			p_rate = priv->cpll_hz;
+			break;
+		case REF_CLK0_OUT_PLL_SEL_SPLL:
+			p_rate = priv->spll_hz;
+			break;
+		case REF_CLK0_OUT_PLL_SEL_AUPLL:
+			p_rate = priv->aupll_hz;
+			break;
+		case REF_CLK0_OUT_PLL_SEL_LPLL:
+			p_rate = 0;
+			break;
+		case REF_CLK0_OUT_PLL_SEL_OSC:
+			p_rate = OSC_HZ;
+			break;
+		default:
+			printf("do not support this vop pll sel\n");
+			return -EINVAL;
+		}
+
+		div = DIV_ROUND_UP(p_rate, rate);
+		if (div > 255)
+			continue;
+		now = p_rate / div;
+		if (abs(rate - now) < abs(rate - best_rate)) {
+			best_rate = now;
+			best_div = div;
+			best_sel = i;
+		}
+		debug("p_rate=%lu, best_rate=%lu, div=%u, sel=%u\n",
+		      p_rate, best_rate, best_div, best_sel);
+	}
+	if (best_rate) {
+		rk_clrsetreg(&cru->clksel_con[con],
+			     REF_CLK0_OUT_PLL_DIV_MASK |
+			     REF_CLK0_OUT_PLL_SEL_MASK,
+			     best_sel << REF_CLK0_OUT_PLL_SEL_SHIFT |
+			     (best_div - 1) << REF_CLK0_OUT_PLL_DIV_SHIFT);
+	} else {
+		printf("do not support this vop freq %lu\n", rate);
+		return -EINVAL;
+	}
+
+	return rk3576_ref_clkout_get_clk(priv, clk_id);
+}
+
 #endif
 
 static ulong rk3576_ufs_ref_get_rate(struct rk3576_clk_priv *priv, ulong clk_id)
@@ -2089,6 +2199,11 @@ static ulong rk3576_clk_get_rate(struct clk *clk)
 	case DCLK_EBC_FRAC_SRC:
 		rate = rk3576_dclk_ebc_get_clk(priv, clk->id);
 		break;
+	case REF_CLK0_OUT_PLL:
+	case REF_CLK1_OUT_PLL:
+	case REF_CLK2_OUT_PLL:
+		rate = rk3576_ref_clkout_get_clk(priv, clk->id);
+		break;
 #endif
 	case CLK_REF_UFS_CLKOUT:
 	case CLK_REF_OSC_MPHY:
@@ -2251,6 +2366,11 @@ static ulong rk3576_clk_set_rate(struct clk *clk, ulong rate)
 	case DCLK_EBC:
 	case DCLK_EBC_FRAC_SRC:
 		ret = rk3576_dclk_ebc_set_clk(priv, clk->id, rate);
+		break;
+	case REF_CLK0_OUT_PLL:
+	case REF_CLK1_OUT_PLL:
+	case REF_CLK2_OUT_PLL:
+		ret = rk3576_ref_clkout_set_clk(priv, clk->id, rate);
 		break;
 #endif
 	default:

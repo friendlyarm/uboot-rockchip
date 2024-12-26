@@ -43,6 +43,13 @@ config REGULATOR_AS3722
 	  but does not yet support change voltages. Currently this must be
 	  done using direct register writes to the PMIC.
 
+config REGULATOR_FP9931
+	bool "Enable driver for FP9931 PMIC regulators"
+	depends on PMIC_FP9931
+	---help---
+	This enables the regulator features of the FP9931, allowing VCOM
+	VPOS/VNEG voltages to be set, etc.
+
 config DM_REGULATOR_PFUZE100
 	bool "Enable Driver Model for REGULATOR PFUZE100"
 	depends on DM_REGULATOR && DM_PMIC_PFUZE100
