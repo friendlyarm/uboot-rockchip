@@ -61,7 +61,7 @@ void scsi_setup_read16(struct scsi_cmd *pccb, lbaint_t start,
 		       unsigned long blocks)
 {
 	pccb->cmd[0] = SCSI_READ16;
-	pccb->cmd[1] = pccb->lun << 5;
+	pccb->cmd[1] = 0;
 	pccb->cmd[2] = (unsigned char)(start >> 56) & 0xff;
 	pccb->cmd[3] = (unsigned char)(start >> 48) & 0xff;
 	pccb->cmd[4] = (unsigned char)(start >> 40) & 0xff;
@@ -90,7 +90,7 @@ static void scsi_setup_read_ext(struct scsi_cmd *pccb, lbaint_t start,
 				unsigned short blocks)
 {
 	pccb->cmd[0] = SCSI_READ10;
-	pccb->cmd[1] = pccb->lun << 5;
+	pccb->cmd[1] = 0;
 	pccb->cmd[2] = (unsigned char)(start >> 24) & 0xff;
 	pccb->cmd[3] = (unsigned char)(start >> 16) & 0xff;
 	pccb->cmd[4] = (unsigned char)(start >> 8) & 0xff;
@@ -111,7 +111,7 @@ static void scsi_setup_write_ext(struct scsi_cmd *pccb, lbaint_t start,
 				 unsigned short blocks)
 {
 	pccb->cmd[0] = SCSI_WRITE10;
-	pccb->cmd[1] = pccb->lun << 5 | 0x8;
+	pccb->cmd[1] = 0;
 	pccb->cmd[2] = (unsigned char)(start >> 24) & 0xff;
 	pccb->cmd[3] = (unsigned char)(start >> 16) & 0xff;
 	pccb->cmd[4] = (unsigned char)(start >> 8) & 0xff;
@@ -132,7 +132,7 @@ static void scsi_setup_write_ext(struct scsi_cmd *pccb, lbaint_t start,
 static void scsi_setup_inquiry(struct scsi_cmd *pccb)
 {
 	pccb->cmd[0] = SCSI_INQUIRY;
-	pccb->cmd[1] = pccb->lun << 5;
+	pccb->cmd[1] = 0;
 	pccb->cmd[2] = 0;
 	pccb->cmd[3] = 0;
 	if (pccb->datalen > SCSI_MAX_INQUIRY_BYTES)
@@ -150,7 +150,7 @@ static void scsi_setup_inquiry(struct scsi_cmd *pccb)
 static void scsi_setup_test_unit_ready(struct scsi_cmd *pccb)
 {
 	pccb->cmd[0] = SCSI_TST_U_RDY;
-	pccb->cmd[1] = pccb->lun << 5;
+	pccb->cmd[1] = 0;
 	pccb->cmd[2] = 0;
 	pccb->cmd[3] = 0;
 	pccb->cmd[4] = 0;
@@ -547,7 +547,7 @@ static int scsi_read_capacity(struct udevice *dev, struct scsi_cmd *pccb,
 
 	memset(pccb->cmd, '\0', sizeof(pccb->cmd));
 	pccb->cmd[0] = SCSI_RD_CAPAC10;
-	pccb->cmd[1] = pccb->lun << 5;
+	pccb->cmd[1] = 0;
 	pccb->cmdlen = 10;
 	pccb->dma_dir = DMA_FROM_DEVICE;
 	pccb->msgout[0] = SCSI_IDENTIFY; /* NOT USED */
