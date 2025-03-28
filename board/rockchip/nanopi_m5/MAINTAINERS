@@ -1,0 +1,6 @@
+NanoPi M5 Series
+M:      FriendlyELEC <support@friendlyarm.com>
+S:      Maintained
+F:      board/rockchip/nanopi_m5/
+F:      include/configs/nanopi_m5.h
+F:      configs/nanopi_m5_defconfig

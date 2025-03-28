@@ -30,6 +30,14 @@ static const struct bootdev_list dev_list[] = {
 	{IF_TYPE_MTD, 2, 1}, /* BLK_MTD_SPI_NOR FSPI M1 */
 	{IF_TYPE_MTD, 2, 2}, /* BLK_MTD_SPI_NOR FSPI M2 */
 };
+#elif CONFIG_IS_ENABLED(TARGET_NANOPI_M5)
+static const struct bootdev_list dev_list[] = {
+	{IF_TYPE_SCSI, 0, 0},
+	{IF_TYPE_MMC, 0, 0},
+	{IF_TYPE_MTD, 2, 2}, /* BLK_MTD_SPI_NOR FSPI1 M1 */
+	{IF_TYPE_MTD, 2, 0}, /* BLK_MTD_SPI_NOR FSPI0 M0 */
+	{IF_TYPE_MTD, 1, 0}, /* BLK_MTD_SPI_NAND FSPI0 M0 */
+};
 #elif CONFIG_IS_ENABLED(ROCKCHIP_RK3576)
 static const struct bootdev_list dev_list[] = {
 	{IF_TYPE_SCSI, 0, 0},

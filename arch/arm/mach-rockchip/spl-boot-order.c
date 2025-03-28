@@ -40,8 +40,10 @@ static int spl_node_to_boot_device(int node)
 {
 	struct udevice *parent;
 
+#if defined(CONFIG_UFS)
 	if (!uclass_get_device_by_of_offset(UCLASS_UFS, node, &parent))
 		return BOOT_DEVICE_UFS;
+#endif
 
 	/*
 	 * This should eventually move into the SPL code, once SPL becomes
@@ -113,6 +115,7 @@ static int spl_node_to_boot_device(int node)
 	}
 #endif
 
+#if defined(CONFIG_RKNAND)
 	/*
 	 * This should eventually move into the SPL code, once SPL becomes
 	 * aware of the block-device layer.  Until then (and to avoid unneeded
@@ -120,6 +123,7 @@ static int spl_node_to_boot_device(int node)
 	 */
 	if (!uclass_get_device_by_of_offset(UCLASS_RKNAND, node, &parent))
 		return BOOT_DEVICE_RKNAND;
+#endif
 
 	return -1;
 }
@@ -151,6 +155,9 @@ void board_boot_order(u32 *spl_boot_list)
 	int boot_device;
 	int node;
 	const char *conf;
+#if defined(CONFIG_VENDOR_FRIENDLYELEC)
+	bool same_as_spl = false;
+#endif
 
 	if (chosen_node < 0) {
 		debug("%s: /chosen not found, using spl_boot_device()\n",
@@ -170,6 +177,9 @@ void board_boot_order(u32 *spl_boot_list)
 			conf = board_spl_was_booted_from();
 			if (!conf)
 				continue;
+#if defined(CONFIG_VENDOR_FRIENDLYELEC)
+			same_as_spl = true;
+#endif
 		}
 
 		/* First check if the list element is an alias */
@@ -193,6 +203,12 @@ void board_boot_order(u32 *spl_boot_list)
 		}
 
 		spl_boot_list[idx++] = boot_device;
+#if defined(CONFIG_VENDOR_FRIENDLYELEC)
+		if (same_as_spl) {
+			debug("%s: ignore remaining device\n", __func__);
+			break;
+		}
+#endif
 	}
 
 	/* If we had no matches, fall back to spl_boot_device */

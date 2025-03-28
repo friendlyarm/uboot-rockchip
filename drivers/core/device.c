@@ -55,7 +55,7 @@ static int device_bind_common(struct udevice *parent, const struct driver *drv,
 	if (gd->flags & GD_FLG_RELOC) {
 #if defined(CONFIG_USING_KERNEL_DTB_V2)
 		if ((gd->flags & GD_FLG_KDTB_READY) &&
-			 (drv->id == UCLASS_MMC)) {
+			(drv->id == UCLASS_MMC || drv->id == UCLASS_UFS)) {
 			if (!uclass_find_device_by_name(drv->id, name, &dev)) {
 				debug("Ignore %s from kernel\n", name);
 				return 0;

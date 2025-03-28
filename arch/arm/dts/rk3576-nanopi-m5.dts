@@ -1,0 +1,71 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * (C) Copyright 2025 FriendlyElec Computer Tech. Co., Ltd.
+ * (http://www.friendlyelec.com)
+ *
+ * Copyright (c) 2023 Rockchip Electronics Co., Ltd.
+ */
+
+/dts-v1/;
+#include "rk3576.dtsi"
+#include "rk3576-u-boot.dtsi"
+#include <dt-bindings/input/input.h>
+
+/ {
+	model = "FriendlyElec boards based on Rockchip RK3576";
+	compatible = "friendlyelec,nanopi-m5",
+		     "rockchip,rk3576";
+
+	chosen {
+		u-boot,spl-boot-order = &sdmmc, "same-as-spl", &ufs, &fspi_nor;
+	};
+
+	adc-keys {
+		compatible = "adc-keys";
+		io-channels = <&saradc 1>;
+		io-channel-names = "buttons";
+		keyup-threshold-microvolt = <1800000>;
+		u-boot,dm-pre-reloc;
+		status = "okay";
+
+		volumeup-key {
+			u-boot,dm-pre-reloc;
+			linux,code = <KEY_VOLUMEUP>;
+			label = "volume up";
+			press-threshold-microvolt = <1750>;
+		};
+	};
+};
+
+&fspi1m1_pins {
+	rockchip,pins =
+		/* clk, d0~4 */
+		<1 RK_PD5 3 &pcfg_pull_none>,
+		<1 RK_PC4 3 &pcfg_pull_none>,
+		<1 RK_PC5 3 &pcfg_pull_none>,
+		<1 RK_PC6 3 &pcfg_pull_none>,
+		<1 RK_PC7 3 &pcfg_pull_none>;
+};
+
+&sfc0 {
+	status = "disabled";
+};
+
+&sfc1 {
+	u-boot,dm-spl;
+	pinctrl-names = "default";
+	pinctrl-0 = <&fspi1m1_csn0 &fspi1m1_pins>;
+	#address-cells = <1>;
+	#size-cells = <0>;
+	status = "okay";
+
+	fspi_nor: flash@0 {
+		u-boot,dm-spl;
+		compatible = "jedec,spi-nor";
+		label = "sfc_nor";
+		reg = <0>;
+		spi-rx-bus-width = <4>;
+		spi-tx-bus-width = <1>;
+		spi-max-frequency = <80000000>;
+	};
+};

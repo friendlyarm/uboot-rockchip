@@ -6,6 +6,13 @@ config TARGET_EVB_RK3576
 	help
 	  RK3576 EVB is a evaluation board for Rockchp RK3576.
 
+config TARGET_NANOPI_M5
+	bool "FriendlyElec NanoPi M5 Series"
+	select BOARD_LATE_INIT
+	select VENDOR_FRIENDLYELEC
+	help
+	  Support for FriendlyElec boards based on RK3576.
+
 config SYS_SOC
 	default "rockchip"
 
@@ -13,5 +20,6 @@ config SYS_MALLOC_F_LEN
 	default 0x400
 
 source board/rockchip/evb_rk3576/Kconfig
+source board/rockchip/nanopi_m5/Kconfig
 
 endif
