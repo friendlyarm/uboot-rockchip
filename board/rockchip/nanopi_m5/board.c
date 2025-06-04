@@ -17,6 +17,11 @@
 #include <mapmem.h>
 #include <rockusb.h>
 
+#include <dm/device.h>
+#include <dm/ofnode.h>
+#include <dm/read.h>
+#include <fdt_support.h>
+
 #include "hwrev.h"
 
 DECLARE_GLOBAL_DATA_PTR;
@@ -275,3 +280,55 @@ int rk_board_late_init(void)
 	return 0;
 }
 #endif
+
+int rk_board_panel_detect(struct udevice *dev)
+{
+	struct udevice *i2c_bus, *nvm_dev;
+	struct ofnode_phandle_args args;
+	const struct device_node *np;
+	const char *panel_name;
+	u8 chip, addr, nlen;
+	u8 buf[128] = { 0 };
+	u32 status = 1;
+	int ret;
+
+	panel_name = dev_read_string(dev, "panel-name");
+	if (!panel_name)
+		return 0;
+
+	ret = dev_read_phandle_with_args(dev, "nvmems", NULL, 3, 0, &args);
+	if (ret)
+		return 0;
+
+	chip = args.args[0];
+	addr = args.args[1];
+	nlen = args.args[2];
+	if (!chip || !addr)
+		return 0;
+
+	if (uclass_get_device_by_ofnode(UCLASS_I2C, args.node, &i2c_bus))
+		return 0;
+
+	if (i2c_get_chip(i2c_bus, chip, 1, &nvm_dev))
+		return 0;
+
+	if (nlen >= sizeof(buf))
+		nlen = sizeof(buf) - 1;
+
+	ret = dm_i2c_read(nvm_dev, addr, buf, nlen);
+	if (!ret) {
+		debug("panel: nvmem name %s\n", buf);
+		nlen = strchrnul(panel_name, ',') - panel_name;
+		if (!strncmp((char *)buf, panel_name, nlen))
+			return 1;
+	}
+
+	np = ofnode_to_np(dev->node);
+	if (!ofnode_read_u32(dev->node, "nvmem-status", &status)) {
+		do_fixup_by_path_u32((void *)gd->fdt_blob, np->full_name,
+				     "nvmem-status", 0, 1);
+	}
+
+	/* read fail or name mismatch */
+	return -ENODEV;
+}
