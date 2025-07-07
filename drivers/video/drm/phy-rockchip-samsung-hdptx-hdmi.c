@@ -693,6 +693,16 @@ struct ropll_config {
 	u8 cd_tx_ser_rate_sel;
 };
 
+struct phy_config {
+	unsigned long pixelclk;
+	u8 tx_ctrl_ln0;
+	u8 tx_ctrl_ln1;
+	u8 tx_ctrl_ln2;
+	u8 tx_ctrl_ln3;
+};
+
+#define PHY_TAB_LEN		5
+
 struct rockchip_hdptx_phy {
 	struct udevice *dev;
 	void __iomem *base;
@@ -709,6 +719,8 @@ struct rockchip_hdptx_phy {
 	struct reset_ctl cmn_reset;
 	struct reset_ctl init_reset;
 	struct reset_ctl lane_reset;
+
+	struct phy_config *phy_cfg;
 };
 
 struct clk_hdptx {
@@ -815,6 +827,68 @@ struct ropll_config ropll_tmds_cfg[] = {
 		0, 0, 0, 0,
 	},
 };
+
+static int rockchip_hdptx_parse_phy_table(struct rockchip_hdptx_phy *hdptx)
+{
+	struct udevice *dev = hdptx->dev;
+	struct phy_config *phy_cfg;
+	u32 *phy_table;
+	int i, num_cfg;
+
+	dev_read_prop(dev, "rockchip,phy-table", &i);
+
+	if (i >= PHY_TAB_LEN) {
+		phy_table = malloc(i);
+		if (!phy_table)
+			return -ENOMEM;
+
+		num_cfg = i / (sizeof(u32) * PHY_TAB_LEN);
+		phy_cfg = malloc(sizeof(*phy_cfg) * (num_cfg + 1));
+		if (!phy_cfg) {
+			free(phy_table);
+			return -ENOMEM;
+		}
+
+		dev_read_u32_array(dev, "rockchip,phy-table",
+				   phy_table, i / sizeof(u32));
+
+		for (i = 0; i < num_cfg; i++) {
+			if (phy_table[i * PHY_TAB_LEN] != 0)
+				phy_cfg[i].pixelclk = phy_table[i * PHY_TAB_LEN];
+			else
+				phy_cfg[i].pixelclk = ~0UL;
+			phy_cfg[i].tx_ctrl_ln0 = (u8)phy_table[i * PHY_TAB_LEN + 1];
+			phy_cfg[i].tx_ctrl_ln1 = (u8)phy_table[i * PHY_TAB_LEN + 2];
+			phy_cfg[i].tx_ctrl_ln2 = (u8)phy_table[i * PHY_TAB_LEN + 3];
+			phy_cfg[i].tx_ctrl_ln3 = (u8)phy_table[i * PHY_TAB_LEN + 4];
+		}
+
+		phy_cfg[i].pixelclk = ~0UL;
+		hdptx->phy_cfg = phy_cfg;
+
+		free(phy_table);
+	}
+
+	return 0;
+}
+
+static void rockchip_hdptx_get_tx_ctrl(struct rockchip_hdptx_phy *hdptx, u8 *tx_ctrl)
+{
+	struct phy_config *pcfg = hdptx->phy_cfg;
+
+	if (!pcfg || !tx_ctrl)
+		return;
+
+	for (; pcfg->pixelclk != ~0UL; pcfg++) {
+		if (hdptx->rate <= pcfg->pixelclk) {
+			tx_ctrl[0] = pcfg->tx_ctrl_ln0;
+			tx_ctrl[1] = pcfg->tx_ctrl_ln1;
+			tx_ctrl[2] = pcfg->tx_ctrl_ln2;
+			tx_ctrl[3] = pcfg->tx_ctrl_ln3;
+			return;
+		}
+	}
+}
 
 static inline void hdptx_write(struct rockchip_hdptx_phy *hdptx, uint reg,
 			       uint val)
@@ -1361,6 +1435,9 @@ static int hdptx_ropll_tmds_mode_config(struct rockchip_hdptx_phy *hdptx, u32 ra
 {
 	u32 bit_rate = rate & DATA_RATE_MASK;
 	u8 color_depth = (rate & COLOR_DEPTH_MASK) ? 1 : 0;
+	u8 tx_ctrl[4] = { 0x2f, 0x2f, 0x2f, 0x2f };
+
+	rockchip_hdptx_get_tx_ctrl(hdptx, tx_ctrl);
 
 	if (color_depth)
 		bit_rate = bit_rate * 5 / 4;
@@ -1456,10 +1533,11 @@ static int hdptx_ropll_tmds_mode_config(struct rockchip_hdptx_phy *hdptx, u32 ra
 	hdptx_write(hdptx, LANE_REG061F, 0x15);
 	hdptx_write(hdptx, LANE_REG0620, 0xa0);
 
-	hdptx_write(hdptx, LANE_REG0303, 0x2f);
-	hdptx_write(hdptx, LANE_REG0403, 0x2f);
-	hdptx_write(hdptx, LANE_REG0503, 0x2f);
-	hdptx_write(hdptx, LANE_REG0603, 0x2f);
+	hdptx_write(hdptx, LANE_REG0303, tx_ctrl[0]);
+	hdptx_write(hdptx, LANE_REG0403, tx_ctrl[1]);
+	hdptx_write(hdptx, LANE_REG0503, tx_ctrl[2]);
+	hdptx_write(hdptx, LANE_REG0603, tx_ctrl[3]);
+
 	hdptx_write(hdptx, LANE_REG0305, 0x03);
 	hdptx_write(hdptx, LANE_REG0405, 0x03);
 	hdptx_write(hdptx, LANE_REG0505, 0x03);
@@ -1961,6 +2039,8 @@ static int rockchip_hdptx_phy_hdmi_probe(struct udevice *dev)
 		dev_err(dev, "failed to get lane reset: %d\n", ret);
 		return ret;
 	}
+
+	rockchip_hdptx_parse_phy_table(hdptx);
 
 	return 0;
 }
