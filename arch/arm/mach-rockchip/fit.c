@@ -236,6 +236,20 @@ static int fit_image_fixup_alloc(const void *fit, const char *prop_name,
 	if (ret)
 		return ret;
 
+/*
+ * 1. When need load HWID dtb, gd->fdt_blob points to HWID dtb
+ *    and U-Boot will re-alloc MEM_FDT based on fdt node in
+ *    ITB instead of resource. So alloc the larger size to
+ *    avoid fail in sysmem. It will already skip load DTB in fdt node.
+ *
+ * 2. Additionally increase size with CONFIG_SYS_FDT_PAD to reserve
+ *    some space for adding more props to dtb afterwards.
+ */
+	if (!strcmp(prop_name, FIT_FDT_PROP) && !fdt_check_header(gd->fdt_blob))
+		size = ((size > fdt_totalsize(gd->fdt_blob)) ?
+			 size : fdt_totalsize(gd->fdt_blob)) +
+			 CONFIG_SYS_FDT_PAD;
+
 	if (!sysmem_alloc_base(mem, (phys_addr_t)addr,
 			       ALIGN(size, RK_BLK_SIZE)))
 		return -ENOMEM;
@@ -257,7 +271,7 @@ int fit_image_pre_process(const void *fit)
 		return ret;
 	}
 
-#if !defined(CONFIG_ARM64) && defined(CONFIG_CMD_BOOTZ)
+#if defined(CONFIG_CMD_BOOTZ)
 	int cfg_noffset, noffset;
 	const void *buf;
 	ulong start, end;
@@ -271,10 +285,23 @@ int fit_image_pre_process(const void *fit)
 
 	noffset = fit_conf_get_prop_node_index(fit, cfg_noffset, FIT_KERNEL_PROP, 0);
 	if (noffset < 0) {
-		printf("Could not find subimage node\n");
+		printf("Could not find kernel node\n");
 		return -ENOENT;
 	}
 
+	/*
+	 * "kernel_addr_r" is for 64-bit kernel Image by default.
+	 * Here in case of 64-bit U-Boot load 32-bit kenrel Image.
+	 */
+#ifdef CONFIG_ARM64
+	char *kernel_addr_r;
+
+	if (fit_image_check_arch(fit, noffset, IH_ARCH_ARM)) {
+		kernel_addr_r = env_get("kernel_addr_aarch32_r");
+		if (kernel_addr_r)
+			env_set("kernel_addr_r", kernel_addr_r);
+	}
+#endif
 	/* get image data address and length */
 	if (fit_image_get_data(fit, noffset, &buf, &size)) {
 		printf("Could not find %s subimage data!\n", FIT_KERNEL_PROP);

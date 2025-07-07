@@ -981,6 +981,7 @@ static ulong rk3506_mac_get_rate(struct rk3506_clk_priv *priv, ulong clk_id)
 	case CLK_MAC_OUT:
 		con = readl(&cru->pmuclksel_con[0]);
 		div = (con & CLK_MAC_OUT_DIV_MASK) >> CLK_MAC_OUT_DIV_SHIFT;
+		break;
 	default:
 		return -ENOENT;
 	}
@@ -1005,6 +1006,7 @@ static ulong rk3506_mac_set_rate(struct rk3506_clk_priv *priv, ulong clk_id,
 		div = DIV_ROUND_UP(priv->gpll_hz, rate);
 		rk_clrsetreg(&cru->pmuclksel_con[0], CLK_MAC_OUT_DIV_MASK,
 			     ((div - 1) << CLK_MAC_OUT_DIV_SHIFT));
+		break;
 	default:
 		return -ENOENT;
 	}
