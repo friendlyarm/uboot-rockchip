@@ -2798,7 +2798,8 @@ static bool vop2_plane_mask_check(struct display_state *state)
 	if (assigned_plane_mask != vop2->data->plane_mask_base) {
 		printf("all windows should be assigned, full plane mask: [0x%08x], current plane mask: [0x%08x]\n",
 		       vop2->data->plane_mask_base, assigned_plane_mask);
-		return false;
+		if ((plane_mask & vop2->data->plane_mask_base) != plane_mask)
+			return false;
 	}
 
 	/*
