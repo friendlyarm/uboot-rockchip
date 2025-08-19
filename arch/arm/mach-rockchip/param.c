@@ -375,14 +375,15 @@ struct memblock *param_parse_ddr_mem(int *out_count)
 	return mem;
 }
 
-#ifndef CONFIG_BIDRAM
+#if !CONFIG_IS_ENABLED(BIDRAM)
 /*
- * init_bank=0: called from dram_init_banksize()
  * init_bank=0: called from dram_init()
+ * init_bank=1: called from dram_init_banksize()
  */
 phys_size_t param_simple_parse_ddr_mem(int init_bank)
 {
 	struct memblock *list;
+	phys_size_t mem_size;
 	int i, count;
 
 	list = param_parse_ddr_mem(&count);
@@ -397,8 +398,16 @@ phys_size_t param_simple_parse_ddr_mem(int init_bank)
 	}
 
 	if (!init_bank) {
-		i = count - 1;
-		return ddr_mem_get_usable_size(list[i].base, list[i].size);
+		/*
+		 * If base + size > SZ_4G, param_parse_ddr_mem() will use 'base_u64'
+		 * and 'size_u64' to record mem above 4G, and base and size will be
+		 * zero for this bank. So keep detect until mem_size is not zero.
+		 */
+		for (i = count - 1; i >= 0; i--) {
+			mem_size = ddr_mem_get_usable_size(list[i].base, list[i].size);
+			if (mem_size)
+				return mem_size;
+		}
 	}
 
 	for (i = 0; i < count; i++) {

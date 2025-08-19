@@ -64,7 +64,7 @@ function fit_repack()
 	ITB_KB=`expr ${IMG_BS} / ${COPIES} / 1024`
 
 	rm -rf ${OUT} && mkdir -p ${OUT}
-	UNPACK=$(find . -type f -name "fit-unpack.sh")
+	UNPACK=$(find . -type f -name "fit-unpack.sh" | head -n 1)
 	if [ -z ${UNPACK} ]; then
 		echo "ERROR: No fit-unpack.sh script"
 		exit 1
@@ -72,7 +72,7 @@ function fit_repack()
 	${UNPACK} -f ${IMAGE} -o ${OUT}/
 	find ${DATA}/ -maxdepth 1 -type f | xargs cp -t ${OUT}/
 
-	MKIMAGE=$(find . -type f -name "mkimage")
+	MKIMAGE=$(find . -type f -name "mkimage" | head -n 1)
 	if [ -z ${MKIMAGE} ]; then
 		echo "ERROR: No mkimage tool"
 		exit 1

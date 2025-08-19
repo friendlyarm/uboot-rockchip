@@ -33,6 +33,7 @@ DECLARE_GLOBAL_DATA_PTR;
 
 /* GRF */
 #define SYS_GRF_BASE			0x20100000
+#define HPMCU_CACHE_MISC		0x18
 #define TSADC_GRF_CON0			0x50
 #define TSADC_GRF_CON1			0x54
 #define TSADC_GRF_CON6			0x68
@@ -130,6 +131,12 @@ DECLARE_GLOBAL_DATA_PTR;
 #define PVTPLL_GCK_CFG			0x20
 #define PVTPLL_GCK_LEN			0x24
 
+/*
+ * If need less wait time, please measure required
+ * power down time on actual hardware.
+ */
+#define SDMMC_PWR_DOWN_MS		50
+
 #ifdef CONFIG_ARM64
 #include <asm/armv8/mmu.h>
 
@@ -190,10 +197,10 @@ void board_set_iomux(enum if_type if_type, int devnum, int routing)
 			writel(0x00f00000, PMUIO0_IOC_BASE + GPIO0A_IOMUX_SEL_H);
 			writel(0x0fff0aaa, VCCIO2_IOC_BASE + GPIO2A_PULL);
 
-			/* SDMMC PWREN GPIO0A4 power down and power up */
+			/* SDMMC PWREN GPIO0B0 power down and power up */
 			writel(0x01000100, GPIO0_BASE + GPIO_SWPORT_DR_L);
 			writel(0x01000100, GPIO0_BASE + GPIO_SWPORT_DDR_L);
-			mdelay(50);
+			mdelay(SDMMC_PWR_DOWN_MS);
 			writel(0x01000000, GPIO0_BASE + GPIO_SWPORT_DR_L);
 #endif
 			/* set SDMMC D0-3/CMD/CLK and pull up */
@@ -350,6 +357,13 @@ int spl_fit_standalone_release(char *id, uintptr_t entry_point)
 
 	return 0;
 }
+
+#ifdef CONFIG_ROCKCHIP_META
+void rk_meta_process(void)
+{
+	writel(0x00080008, SYS_GRF_BASE + HPMCU_CACHE_MISC);
+}
+#endif
 #endif
 
 #ifndef CONFIG_TPL_BUILD
@@ -430,9 +444,7 @@ int arch_cpu_init(void)
 	 * (IF_TYPE_MTD, 2, 0) FSPI1 M1
 	 */
 	board_set_iomux(IF_TYPE_MTD, 0, 0);
-#endif /* CONFIG_ROCKCHIP_EMMC_IOMUX */
-
-#if defined(CONFIG_MMC_DW_ROCKCHIP)
+#elif defined(CONFIG_ROCKCHIP_SDMMC_IOMUX)
 	/* Set the sdmmc iomux and power cycle */
 	board_set_iomux(IF_TYPE_MMC, 1, 0);
 #endif
@@ -544,7 +556,7 @@ void board_bidram_fixup(void)
 
 	/* Remap DSMC_MEM to DDR. */
 	noffset = fdt_path_offset(gd->fdt_blob, "/dsmc@21ca0000");
-	if ((noffset >= 0) && fdtdec_get_is_enabled(gd->fdt_blob, noffset)) {
+	if ((noffset < 0) || !fdtdec_get_is_enabled(gd->fdt_blob, noffset)) {
 #ifdef CONFIG_SPL_BUILD
 		writel(0x08000800, SGRF_PMU_BASE + SGRF_PMU_SOC_CON1);
 #elif CONFIG_ROCKCHIP_SMCCC

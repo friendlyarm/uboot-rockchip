@@ -306,6 +306,11 @@ static u16 dqs_dq_skew_adr[16] = {
 	0x200 + 0x21,	/* SKEW_UPDATE_TX_CS1_DQS3 */
 };
 
+void *get_loader_params_base_addr(void)
+{
+	return (void *)common_info;
+}
+
 static void rkclk_ddr_reset(struct dram_info *dram,
 			    u32 ctl_srstn, u32 ctl_psrstn,
 			    u32 phy_srstn, u32 phy_psrstn)
@@ -324,8 +329,8 @@ static void rkclk_set_dpll(struct dram_info *dram, unsigned int hz)
 	int delay = 1000;
 	u32 mhz = hz / MHz;
 	struct global_info *gbl_info;
-	struct sdram_head_info_index_v2 *index =
-		(struct sdram_head_info_index_v2 *)common_info;
+	struct sdram_head_info_index_v6 *index =
+		(struct sdram_head_info_index_v6 *)common_info;
 	u32 ssmod_info;
 	u32 dsmpd = 1;
 
@@ -790,8 +795,8 @@ static u32 lp4_odt_calc(u32 odt_ohm)
 
 static void *get_ddr_drv_odt_info(u32 dramtype)
 {
-	struct sdram_head_info_index_v2 *index =
-		(struct sdram_head_info_index_v2 *)common_info;
+	struct sdram_head_info_index_v6 *index =
+		(struct sdram_head_info_index_v6 *)common_info;
 	void *ddr_info = 0;
 
 	if (dramtype == DDR4)
@@ -1226,8 +1231,8 @@ static int sdram_cmd_dq_path_remap(struct dram_info *dram,
 {
 	void __iomem *phy_base = dram->phy;
 	u32 dramtype = sdram_params->base.dramtype;
-	struct sdram_head_info_index_v2 *index =
-		(struct sdram_head_info_index_v2 *)common_info;
+	struct sdram_head_info_index_v6 *index =
+		(struct sdram_head_info_index_v6 *)common_info;
 	struct dq_map_info *map_info;
 
 	map_info = (struct dq_map_info *)((void *)common_info +
@@ -1317,7 +1322,7 @@ u32 read_mr(struct dram_info *dram, u32 rank, u32 byte, u32 mr_num, u32 dramtype
 	u32 ret;
 	u32 i, temp;
 	void __iomem *pctl_base = dram->pctl;
-	struct sdram_head_info_index_v2 *index;
+	struct sdram_head_info_index_v6 *index;
 	struct dq_map_info *map_info;
 
 	pctl_read_mr(pctl_base, rank, mr_num);
@@ -1326,7 +1331,7 @@ u32 read_mr(struct dram_info *dram, u32 rank, u32 byte, u32 mr_num, u32 dramtype
 		temp = (readl(&dram->ddrgrf->ddr_grf_status[0]) >> (byte * 8)) & 0xff;
 
 		if (byte == 0) {
-			index = (struct sdram_head_info_index_v2 *)common_info;
+			index = (struct sdram_head_info_index_v6 *)common_info;
 			map_info = (struct dq_map_info *)((void *)common_info +
 							  index->dq_map_index.offset * 4);
 			ret = 0;
@@ -1718,8 +1723,8 @@ static int data_training_rd(struct dram_info *dram, u32 cs, u32 dramtype,
 	u32 cur_fsp;
 	u32 vref_inner;
 	u32 i;
-	struct sdram_head_info_index_v2 *index =
-		(struct sdram_head_info_index_v2 *)common_info;
+	struct sdram_head_info_index_v6 *index =
+		(struct sdram_head_info_index_v6 *)common_info;
 	struct dq_map_info *map_info;
 
 	vref_inner = readl(PHY_REG(phy_base, 0x128)) & 0xff;
@@ -2517,7 +2522,7 @@ static int check_lp4_rzqi(struct dram_info *dram, struct rv1126_sdram_params *sd
 
 int modify_ddr34_bw_byte_map(u8 rg_result, struct rv1126_sdram_params *sdram_params)
 {
-	struct sdram_head_info_index_v2 *index = (struct sdram_head_info_index_v2 *)common_info;
+	struct sdram_head_info_index_v6 *index = (struct sdram_head_info_index_v6 *)common_info;
 	struct dq_map_info *map_info = (struct dq_map_info *)
 				       ((void *)common_info + index->dq_map_index.offset * 4);
 	struct sdram_cap_info *cap_info = &sdram_params->ch.cap_info;
@@ -3633,8 +3638,8 @@ static void ddr_set_rate_for_fsp(struct dram_info *dram,
 
 int get_uart_config(void)
 {
-	struct sdram_head_info_index_v2 *index =
-		(struct sdram_head_info_index_v2 *)common_info;
+	struct sdram_head_info_index_v6 *index =
+		(struct sdram_head_info_index_v6 *)common_info;
 	struct global_info *gbl_info;
 
 	gbl_info = (struct global_info *)((void *)common_info +
@@ -3648,8 +3653,8 @@ int sdram_init(void)
 {
 	struct rv1126_sdram_params *sdram_params;
 	int ret = 0;
-	struct sdram_head_info_index_v2 *index =
-		(struct sdram_head_info_index_v2 *)common_info;
+	struct sdram_head_info_index_v6 *index =
+		(struct sdram_head_info_index_v6 *)common_info;
 	struct global_info *gbl_info;
 
 	dram_info.phy = (void *)DDR_PHY_BASE_ADDR;
@@ -3663,7 +3668,7 @@ int sdram_init(void)
 #ifdef CONFIG_ROCKCHIP_DRAM_EXTENDED_TEMP_SUPPORT
 	printascii("extended temp support\n");
 #endif
-	if (index->version_info != 3 ||
+	if (index->version_info != 6 ||
 	    (index->global_index.size != sizeof(struct global_info) / 4) ||
 	    (index->ddr3_index.size !=
 		sizeof(struct ddr2_3_4_lp2_3_info) / 4) ||

@@ -1,12 +1,20 @@
 0x12345678,
-3,/* version */
-(0 << 0) | (1 << 8) | (9 << 16) | (8 << 24),/* cpu_gen,global index */
-(0 << 0) | (9 << 8) | (17 << 16) | (9 << 24),/* d2,d3 index */
-(26 << 0) | (9 << 8) | (0 << 16) | (0 << 24),/* d4,d5 index */
-(0 << 0) | (9 << 8) | (35 << 16) | (9 << 24),/* lp2,lp3 index */
-(44 << 0) | (13 << 8) | (0 << 16) | (0 << 24),/* lp4,lp5 index */
-(0 << 0) | (0 << 8) | (57 << 16) | (8 << 24),/* skew index, dq_map index */
-(65 << 0) | (13 << 8) | (0 << 16) | (0 << 24), /*lp4x index*/
+6,/* version */
+(0 << 0) | (1 << 8) | (16 << 16) | (8 << 24),/* cpu_gen,global index */
+(0 << 0) | (9 << 8) | (24 << 16) | (9 << 24),/* d2,d3 index */
+(33 << 0) | (9 << 8) | (0 << 16) | (0 << 24),/* d4,d5 index */
+(0 << 0) | (9 << 8) | (42 << 16) | (9 << 24),/* lp2,lp3 index */
+(51 << 0) | (13 << 8) | (0 << 16) | (0 << 24),/* lp4,lp5 index */
+(0 << 0) | (0 << 8) | (64 << 16) | (8 << 24),/* skew index, dq_map index */
+(72 << 0) | (13 << 8) | (0 << 16) | (0 << 24), /* lp4x info, lp4_4x_hash index */
+(0 << 0) | (0 << 8) | (0 << 16) | (0 << 24),/* lp5_hash,ddr4_hash index */
+(0 << 0) | (0 << 8) | (0 << 16) | (0 << 24),/* lp3_hash,ddr3_hash index */
+(0 << 0) | (0 << 8) | (0 << 16) | (0 << 24),/* lp2_hash,ddr2_hash index */
+(0 << 0) | (0 << 8) | (0 << 16) | (0 << 24),/* ddr5_hash, reserved index */
+(0 << 0) | (0 << 16),/* ch_perf_info index */
+(0 << 0) | (0 << 16),/* com_perf_info index */
+(85 << 0) | (7 << 16),/* uart iomux info index */
+
 /* global info */
 0,
 (93 << 16) | 13,/* sr_idle << 16 | pd_idle */
@@ -196,3 +204,7 @@
 (153 << PHY_LP4_DQ_VREF_SHIFT) | (629 << LP4_DQ_VREF_SHIFT) |
 	(629 << LP4_CA_VREF_SHIFT),
 
+/* UART IOMUX info */
+0xff570000,/* uart2 base address */
+0xfe010268, 0, 0x1000100, /* iomux_addr0, iomux_mask0, iomux_val0 */
+0xfe010050, 0, 0x77001100, /* iomux_addr1, iomux_mask1, iomux_val1 */

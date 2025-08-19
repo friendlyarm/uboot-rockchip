@@ -152,6 +152,8 @@ int regulator_set_enable(struct udevice *dev, bool enable)
 {
 	const struct dm_regulator_ops *ops = dev_get_driver_ops(dev);
 	struct dm_regulator_uclass_platdata *uc_pdata;
+	int old_enable = 0;
+	int ret;
 
 	if (!ops || !ops->set_enable)
 		return -ENOSYS;
@@ -162,7 +164,14 @@ int regulator_set_enable(struct udevice *dev, bool enable)
 		return -EACCES;
 	}
 
-	return ops->set_enable(dev, enable);
+	if (uc_pdata->enable_ramp_delay)
+		old_enable = regulator_get_enable(dev);
+
+	ret = ops->set_enable(dev, enable);
+	if (!ret && uc_pdata->enable_ramp_delay && !old_enable && enable)
+		udelay(uc_pdata->enable_ramp_delay);
+
+	return ret;
 }
 
 int regulator_set_suspend_enable(struct udevice *dev, bool enable)
@@ -462,6 +471,8 @@ static int regulator_pre_probe(struct udevice *dev)
 	uc_pdata->ignore = dev_read_bool(dev, "regulator-loader-ignore");
 	uc_pdata->ramp_delay = dev_read_u32_default(dev, "regulator-ramp-delay",
 						    -ENODATA);
+	uc_pdata->enable_ramp_delay =
+	     dev_read_u32_default(dev, "regulator-enable-ramp-delay", 0);
 	node = dev_read_subnode(dev, "regulator-state-mem");
 	if (ofnode_valid(node)) {
 		uc_pdata->suspend_on = !ofnode_read_bool(node, "regulator-off-in-suspend");

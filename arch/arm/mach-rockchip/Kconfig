@@ -1175,6 +1175,12 @@ config ROCKCHIP_SFC_IOMUX
 	help
 	  This enable U-Boot to config SFC iomux.
 
+config ROCKCHIP_SDMMC_IOMUX
+	bool "ROCKCHIP SDMMC IOMUX"
+	default n
+	help
+	  This enable U-Boot to config SDMMC iomux.
+
 config ROCKCHIP_SET_SN
 	bool "Rockchip set serial number"
 	default y

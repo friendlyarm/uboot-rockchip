@@ -57,7 +57,7 @@ endif
 
 obj-y += cpu.o
 obj-$(CONFIG_$(SPL_)FPGA_ROCKCHIP) += fpga.o
-obj-$(CONFIG_RAM) += param.o
+obj-$(CONFIG_$(SPL_TPL_)RAM) += param.o
 obj-$(CONFIG_$(SPL_TPL_)RAM) += sdram.o
 obj-$(CONFIG_SPL_KERNEL_BOOT) += spl_resource_img.o
 obj-$(CONFIG_SPL_PCIE_EP_SUPPORT) += spl_pcie_ep_boot.o

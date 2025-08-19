@@ -584,7 +584,6 @@ int ubifs_set_blk_dev(struct blk_desc *rbdd, disk_partition_t *info)
 
 int ubifs_ls(const char *filename)
 {
-	struct ubifs_info *c = ubifs_sb->s_fs_info;
 	struct file *file;
 	struct dentry *dentry;
 	struct inode *dir;
@@ -592,7 +591,6 @@ int ubifs_ls(const char *filename)
 	unsigned long inum;
 	int ret = 0;
 
-	c->ubi = ubi_open_volume(c->vi.ubi_num, c->vi.vol_id, UBI_READONLY);
 	inum = ubifs_findfile(ubifs_sb, (char *)filename);
 	if (!inum) {
 		ret = -1;
@@ -626,30 +624,23 @@ out_mem:
 		free(dir);
 
 out:
-	ubi_close_volume(c->ubi);
 	return ret;
 }
 
 int ubifs_exists(const char *filename)
 {
-	struct ubifs_info *c = ubifs_sb->s_fs_info;
 	unsigned long inum;
 
-	c->ubi = ubi_open_volume(c->vi.ubi_num, c->vi.vol_id, UBI_READONLY);
 	inum = ubifs_findfile(ubifs_sb, (char *)filename);
-	ubi_close_volume(c->ubi);
 
 	return inum != 0;
 }
 
 int ubifs_size(const char *filename, loff_t *size)
 {
-	struct ubifs_info *c = ubifs_sb->s_fs_info;
 	unsigned long inum;
 	struct inode *inode;
 	int err = 0;
-
-	c->ubi = ubi_open_volume(c->vi.ubi_num, c->vi.vol_id, UBI_READONLY);
 
 	inum = ubifs_findfile(ubifs_sb, (char *)filename);
 	if (!inum) {
@@ -668,7 +659,6 @@ int ubifs_size(const char *filename, loff_t *size)
 
 	ubifs_iput(inode);
 out:
-	ubi_close_volume(c->ubi);
 	return err;
 }
 
@@ -863,7 +853,6 @@ int ubifs_read(const char *filename, void *buf, loff_t offset,
 		return -1;
 	}
 
-	c->ubi = ubi_open_volume(c->vi.ubi_num, c->vi.vol_id, UBI_READONLY);
 	/* ubifs_findfile will resolve symlinks, so we know that we get
 	 * the real file here */
 	inum = ubifs_findfile(ubifs_sb, (char *)filename);
@@ -927,7 +916,6 @@ put_inode:
 	ubifs_iput(inode);
 
 out:
-	ubi_close_volume(c->ubi);
 	return err;
 }
 

@@ -92,6 +92,7 @@ struct rockchip_rgb {
 	const struct rockchip_rgb_funcs *funcs;
 	u32 max_dclk_rate;
 	u32 dclk_delayline;
+	int data_map_mode;
 };
 
 struct mcu_cmd_header {
@@ -202,6 +203,7 @@ static int rockchip_rgb_connector_init(struct rockchip_connector *conn, struct d
 	conn_state->color_range = DRM_COLOR_YCBCR_FULL_RANGE;
 	conn_state->color_encoding = DRM_COLOR_YCBCR_BT709;
 	conn_state->disp_info  = rockchip_get_disp_info(conn_state->type, rgb->id);
+	conn_state->data_map_mode = rgb->data_map_mode;
 
 	switch (conn_state->bus_format) {
 	case MEDIA_BUS_FMT_RGB666_1X18:
@@ -542,6 +544,7 @@ static int rockchip_rgb_probe(struct udevice *dev)
 	int phandle;
 	int ret;
 
+	rgb->data_map_mode = dev_read_s32_default(dev, "rockchip,data-map-mode", -1);
 	rgb->data_sync_bypass = dev_read_bool(dev, "rockchip,data-sync-bypass");
 	rgb_data = (const struct rockchip_rgb_data *)dev_get_driver_data(dev);
 	if (rgb_data) {

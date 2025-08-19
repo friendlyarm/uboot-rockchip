@@ -263,6 +263,9 @@ void board_unset_iomux(enum if_type if_type, int devnum, int routing)
 int fit_standalone_release(char *id, uintptr_t entry_point)
 {
 	if (!strcmp(id, "bus_mcu")) {
+		/* relative bus m0 jtag / core / biu */
+		writel(0x38003800, TOP_CRU_BASE + TOP_CRU_SOFTRST_CON19);
+
 		/* address map: map 0 to entry_point */
 		sip_smc_mcu_config(ROCKCHIP_SIP_CONFIG_BUSMCU_0_ID,
 			ROCKCHIP_SIP_CONFIG_MCU_CODE_START_ADDR,

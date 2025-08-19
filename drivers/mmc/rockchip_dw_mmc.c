@@ -84,7 +84,11 @@ static uint rockchip_dwmmc_get_mmc_clk(struct dwmci_host *host, uint freq)
 	if (mmc_card_ddr52(host->mmc) && host->mmc->bus_width == 8)
 		freq *= 2;
 
+#if defined(CONFIG_ROCKCHIP_RV1126B)
+	ret = clk_set_rate(&priv->clk, freq * 2);
+#else
 	ret = clk_set_rate(&priv->clk, freq);
+#endif
 	if (ret < 0) {
 		debug("%s: err=%d\n", __func__, ret);
 		return 0;

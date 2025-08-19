@@ -230,7 +230,7 @@ else
 FINAL_DTB_CONTAINER = $(obj)/$(SPL_BIN).multidtb.fit
 endif
 
-ifeq ($(CONFIG_SPL_CHECK_SIZE),y)
+ifdef CONFIG_SPL_MAX_SIZE
 BOARD_SIZE_CHECK = \
 	@actual=`wc -c $@ | awk '{print $$1}'`; \
 	limit=`printf "%d" $(CONFIG_SPL_MAX_SIZE)`; \

@@ -34,7 +34,12 @@
 #define PAT_NUM			26
 #define PATTERN_LIST_SIZE	(PAT_NUM * 2 * 4)
 
+#if !defined(CONFIG_ROCKCHIP_SMCCC)
+/* Stress is not enough */
+#define CPU_NUM_MAX		1
+#else
 #define CPU_NUM_MAX		16
+#endif
 
 static u32 walking_1_data[] = {
 	0x00000001, 0x00000002, 0x00000004, 0x00000008,

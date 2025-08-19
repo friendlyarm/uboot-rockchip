@@ -2372,7 +2372,7 @@ int fit_image_load_index(bootm_headers_t *images, ulong addr,
 			printf(" Error: %d\n", ret);
 			return -EACCES;
 		}
-		buf = (void *)load;
+		memcpy((void *)buf, (void *)load, size);
 		printf(" OK\n");
 	}
 #endif

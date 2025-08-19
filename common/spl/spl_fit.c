@@ -19,6 +19,8 @@
 #include <spl_ab.h>
 #include <linux/libfdt.h>
 
+DECLARE_GLOBAL_DATA_PTR;
+
 #ifndef CONFIG_SYS_BOOTM_LEN
 #define CONFIG_SYS_BOOTM_LEN	(64 << 20)
 #endif
@@ -282,8 +284,17 @@ static int spl_load_fit_image(struct spl_load_info *info, ulong sector,
 
 	if (image_comp != IH_COMP_NONE && image_comp != IH_COMP_ZIMAGE) {
 		/* Empirically, 2MB is enough for U-Boot, tee and atf */
-		if (fit_image_get_comp_addr(fit, node, &comp_addr))
-			comp_addr = load_addr + FIT_MAX_SPL_IMAGE_SZ;
+		if (fit_image_get_comp_addr(fit, node, &comp_addr)) {
+			/*
+			 * Why is 2 * FIT_MAX_SPL_IMAGE_SZ?
+			 * one is for uncompressed firmware, another is for compressed firmware.
+			 */
+			if (load_addr + 2 * FIT_MAX_SPL_IMAGE_SZ <= gd->ram_top)
+				comp_addr = load_addr + FIT_MAX_SPL_IMAGE_SZ;
+			else
+				/* Mainly for tiny mem device, such as 64M DRAM. */
+				comp_addr = load_addr - FIT_MAX_SPL_IMAGE_SZ;
+		}
 	} else {
 		comp_addr = load_addr;
 	}

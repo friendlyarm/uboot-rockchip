@@ -181,6 +181,7 @@ struct dm_regulator_uclass_platdata {
 	bool ignore;
 	u32 suspend_uV;
 	u32 ramp_delay;
+	u32 enable_ramp_delay;
 };
 
 /* Regulator device operations */

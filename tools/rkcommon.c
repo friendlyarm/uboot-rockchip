@@ -119,33 +119,43 @@ struct spl_info {
 	const uint32_t spl_size;
 	const bool spl_rc4;
 	const uint32_t header_ver;
+	const uint32_t align_size;
+};
+
+struct loader_address_info {
+	const char *imagename;
+	const uint32_t loader_addr[4];
+};
+
+static struct loader_address_info loader_address_infos[] = {
+	{ "rk3576", {0x3FFC0000, 0x3FF81000, 0xFFFFFFFF, 0xFFFFFFFF}},
 };
 
 static struct spl_info spl_infos[] = {
-	{ "rk3036", "RK30", 0x1000, false, RK_HEADER_V1 },
-	{ "rk3066", "RK30", 0x8000, true, RK_HEADER_V1 },
-	{ "rk3128", "RK31", 0x2000 - 0x800, false, RK_HEADER_V1 },
-	{ "px3se", "RK31", 0x2000 - 0x800, false, RK_HEADER_V1 },
-	{ "rk3188", "RK31", 0x8000 - 0x800, true, RK_HEADER_V1 },
-	{ "rk322x", "RK32", 0x8000 - 0x1000, false, RK_HEADER_V1 },
-	{ "rk3288", "RK32", 0x8000, false, RK_HEADER_V1 },
-	{ "rk3308", "RK33", 0x40000 - 0x1000, false, RK_HEADER_V1 },
-	{ "rk3328", "RK32", 0x8000 - 0x800, false, RK_HEADER_V1 },
-	{ "rk3368", "RK33", 0x8000 - 0x1000, false, RK_HEADER_V1 },
-	{ "rk3399", "RK33", 0x30000 - 0x2000, false, RK_HEADER_V1 },
-	{ "rk3326", "RK33", 0x4000 - 0x1000, false, RK_HEADER_V1 },
-	{ "px30", "RK33", 0x4000 - 0x1000, false, RK_HEADER_V1 },
-	{ "rv1108", "RK11", 0x1800, false, RK_HEADER_V1 },
-	{ "rv1126", "110B", 0x10000 - 0x1000, false, RK_HEADER_V1 },
-	{ "rk1808", "RK18", 0x200000 - 0x2000, false, RK_HEADER_V1 },
-	{ "rk3528", "RK35", 0x10000 - 0x1000, false, RK_HEADER_V2 },
-	{ "rk3562", "RK35", 0x10000 - 0x1000, false, RK_HEADER_V2 },
-	{ "rk3568", "RK35", 0x10000 - 0x1000, false, RK_HEADER_V2 },
-	{ "rk3576", "RK35", 0x80000 - 0x1000, false, RK_HEADER_V2 },
-	{ "rk3588", "RK35", 0x100000 - 0x1000, false, RK_HEADER_V2 },
-	{ "rk3506", "RK35", 0x40000 - 0x1000, false, RK_HEADER_V2 },
-	{ "rv1103b", "110E", 0x40000 - 0x1000, false, RK_HEADER_V2 },
-	{ "rv1106", "110C", 0x28000 - 0x1000, false, RK_HEADER_V2 },
+	{ "rk3036", "RK30", 0x1000, false, RK_HEADER_V1 , 2048 },
+	{ "rk3066", "RK30", 0x8000, true, RK_HEADER_V1 , 2048 },
+	{ "rk3128", "RK31", 0x2000 - 0x800, false, RK_HEADER_V1 , 2048 },
+	{ "px3se", "RK31", 0x2000 - 0x800, false, RK_HEADER_V1 , 2048 },
+	{ "rk3188", "RK31", 0x8000 - 0x800, true, RK_HEADER_V1 , 2048 },
+	{ "rk322x", "RK32", 0x8000 - 0x1000, false, RK_HEADER_V1 , 2048 },
+	{ "rk3288", "RK32", 0x8000, false, RK_HEADER_V1 , 2048 },
+	{ "rk3308", "RK33", 0x40000 - 0x1000, false, RK_HEADER_V1 , 2048 },
+	{ "rk3328", "RK32", 0x8000 - 0x800, false, RK_HEADER_V1 , 2048 },
+	{ "rk3368", "RK33", 0x8000 - 0x1000, false, RK_HEADER_V1 , 2048 },
+	{ "rk3399", "RK33", 0x30000 - 0x2000, false, RK_HEADER_V1 , 2048 },
+	{ "rk3326", "RK33", 0x4000 - 0x1000, false, RK_HEADER_V1 , 2048 },
+	{ "px30", "RK33", 0x4000 - 0x1000, false, RK_HEADER_V1 , 2048 },
+	{ "rv1108", "RK11", 0x1800, false, RK_HEADER_V1 , 2048 },
+	{ "rv1126", "110B", 0x10000 - 0x1000, false, RK_HEADER_V1 , 2048 },
+	{ "rk1808", "RK18", 0x200000 - 0x2000, false, RK_HEADER_V1 , 2048 },
+	{ "rk3528", "RK35", 0x10000 - 0x1000, false, RK_HEADER_V2 , 2048 },
+	{ "rk3562", "RK35", 0x10000 - 0x1000, false, RK_HEADER_V2 , 2048 },
+	{ "rk3568", "RK35", 0x10000 - 0x1000, false, RK_HEADER_V2 , 2048 },
+	{ "rk3576", "RK35", 0x80000 - 0x1000, false, RK_HEADER_V2 , 4096 },
+	{ "rk3588", "RK35", 0x100000 - 0x1000, false, RK_HEADER_V2 , 2048 },
+	{ "rk3506", "RK35", 0x40000 - 0x1000, false, RK_HEADER_V2 , 2048 },
+	{ "rv1103b", "110E", 0x40000 - 0x1000, false, RK_HEADER_V2 , 2048 },
+	{ "rv1106", "110C", 0x28000 - 0x1000, false, RK_HEADER_V2 , 2048 },
 };
 
 /**
@@ -158,6 +168,8 @@ static struct spl_info spl_infos[] = {
  */
 
 struct spl_params {
+	char *pre_init_file;
+	uint32_t pre_init_size;
 	char *init_file;
 	uint32_t init_size;
 	char *boot_file;
@@ -185,9 +197,24 @@ static struct spl_info *rkcommon_get_spl_info(char *imagename)
 	return NULL;
 }
 
+static struct loader_address_info *rkcommon_get_loader_address_info(char *imagename)
+{
+	int i;
+
+	if (!imagename)
+		return NULL;
+
+	for (i = 0; i < ARRAY_SIZE(loader_address_infos); i++)
+		if (!strncmp(imagename, loader_address_infos[i].imagename, 6))
+			return loader_address_infos + i;
+
+	return NULL;
+}
+
 static int rkcommon_get_aligned_size(struct image_tool_params *params,
 				     const char *fname)
 {
+	struct spl_info *info = rkcommon_get_spl_info(params->imagename);
 	int size;
 
 	size = imagetool_get_filesize(params, fname);
@@ -198,7 +225,7 @@ static int rkcommon_get_aligned_size(struct image_tool_params *params,
 	 * Pad to a 2KB alignment, as required for init/boot size by the ROM
 	 * (see https://lists.denx.de/pipermail/u-boot/2017-May/293268.html)
 	 */
-	return ROUND(size, RK_SIZE_ALIGN);
+	return ROUND(size, info->align_size);
 }
 
 int rkcommon_check_params(struct image_tool_params *params)
@@ -221,6 +248,11 @@ int rkcommon_check_params(struct image_tool_params *params)
 	if (spl_params.boot_file) {
 		*spl_params.boot_file = '\0';
 		spl_params.boot_file += 1;
+		spl_params.pre_init_file = strchr(spl_params.boot_file, ':');
+		if (spl_params.pre_init_file) {
+			*spl_params.pre_init_file = '\0';
+			spl_params.pre_init_file += 1;
+		}
 	}
 
 	spl_params.init_size =
@@ -234,6 +266,17 @@ int rkcommon_check_params(struct image_tool_params *params)
 			rkcommon_get_aligned_size(params, spl_params.boot_file);
 		if (spl_params.boot_size < 0)
 			return EXIT_FAILURE;
+	}
+
+	if (spl_params.pre_init_file) {
+		spl_params.pre_init_size =
+			rkcommon_get_aligned_size(params, spl_params.pre_init_file);
+		if (spl_params.pre_init_size < 0)
+			return EXIT_FAILURE;
+		if (!rkcommon_get_loader_address_info(params->imagename)) {
+			fprintf(stderr, "Error: Runtime address needed if images > 2.\n");
+			return EXIT_FAILURE;
+		}
 	}
 
 	if (spl_params.init_size > rkcommon_get_spl_size(params)) {
@@ -336,25 +379,39 @@ static void rkcommon_set_header0(void *buf, struct image_tool_params *params)
 
 static void rkcommon_set_header0_v2(void *buf, struct image_tool_params *params)
 {
+	struct spl_info *info = rkcommon_get_spl_info(params->imagename);
 	struct header0_info_v2 *hdr = buf;
 	uint32_t sector_offset, image_sector_count;
-	uint32_t image_size_array[2];
+	uint32_t image_size_array[3];
 	uint8_t *image_ptr = NULL;
-	int i;
+	struct loader_address_info *address_info = NULL;
+	int i, nimage;
 
 	printf("Image Type:   Rockchip %s boot image\n", rkcommon_get_spl_hdr(params));
 	memset(buf, '\0', RK_INIT_OFFSET * RK_BLK_SIZE);
 	hdr->magic   = cpu_to_le32(RK_MAGIC_V2);
-	hdr->size_and_nimage = cpu_to_le32((2 << 16) + 384);
 	hdr->boot_flag = cpu_to_le32(HASH_SHA256);
-	sector_offset = 4;
-	image_size_array[0] = spl_params.init_size;
-	image_size_array[1] = spl_params.boot_size;
+	sector_offset = info->align_size / RK_BLK_SIZE;
 
-	for (i = 0; i < 2; i++) {
+	i = 0;
+	if (spl_params.pre_init_size)
+		image_size_array[i++] = spl_params.pre_init_size;
+	image_size_array[i++] = spl_params.init_size;
+	image_size_array[i++] = spl_params.boot_size;
+	nimage = i;
+
+	hdr->size_and_nimage = cpu_to_le32((nimage << 16) + 384);
+
+	if (nimage > 2)
+		address_info = rkcommon_get_loader_address_info(params->imagename);
+
+	for (i = 0; i < nimage; i++) {
 		image_sector_count = image_size_array[i] / RK_BLK_SIZE;
 		hdr->images[i].size_and_off = cpu_to_le32((image_sector_count << 16) + sector_offset);
-		hdr->images[i].address = 0xFFFFFFFF;
+		if (address_info)
+			hdr->images[i].address = address_info->loader_addr[i];
+		else
+			hdr->images[i].address = 0xFFFFFFFF;
 		hdr->images[i].counter = cpu_to_le32(i + 1);
 		image_ptr = buf + sector_offset * RK_BLK_SIZE;
 		do_sha256_hash(image_ptr, image_size_array[i], hdr->images[i].hash);
@@ -495,7 +552,7 @@ void rkcommon_print_header(const void *buf)
 	struct header0_info_v2 header0_v2;
 	struct spl_info *spl_info;
 	uint8_t image_type;
-	int ret, boot_size, init_size;
+	int ret, boot_size, init_size, nimage;
 
 	if ((*(uint32_t *)buf) == RK_MAGIC_V2) {
 		ret = rkcommon_parse_header_v2(buf, &header0_v2);
@@ -507,8 +564,17 @@ void rkcommon_print_header(const void *buf)
 
 		init_size = header0_v2.images[0].size_and_off >> 16;
 		init_size = init_size * RK_BLK_SIZE;
+
 		boot_size = header0_v2.images[1].size_and_off >> 16;
 		boot_size = boot_size * RK_BLK_SIZE;
+
+		nimage = header0_v2.size_and_nimage >> 16;
+		if (nimage == 3) {
+			printf("Pre Init Size: %d bytes\n", init_size);
+			init_size = boot_size;
+			boot_size = header0_v2.images[2].size_and_off >> 16;
+			boot_size = boot_size * RK_BLK_SIZE;
+		}
 	} else {
 		ret = rkcommon_parse_header(buf, &header0, &spl_info);
 
@@ -551,6 +617,10 @@ void rkcommon_rc4_encode_spl(void *buf, unsigned int offset, unsigned int size)
 int rkcommon_vrec_header(struct image_tool_params *params,
 			 struct image_type_params *tparams)
 {
+	struct spl_info *info = rkcommon_get_spl_info(params->imagename);
+
+	if (!info)
+		exit(EXIT_FAILURE);
 	/*
 	 * The SPL image looks as follows:
 	 *
@@ -572,7 +642,7 @@ int rkcommon_vrec_header(struct image_tool_params *params,
 	 * 4 bytes of these images can safely be overwritten using the
 	 * boot magic.
 	 */
-	tparams->header_size = RK_SPL_HDR_START;
+	tparams->header_size = info->align_size;
 
 	/* Allocate, clear and install the header */
 	tparams->hdr = malloc(tparams->header_size);
@@ -675,6 +745,13 @@ err_close:
 int rockchip_copy_image(int ifd, struct image_tool_params *params)
 {
 	int ret;
+
+	if (spl_params.pre_init_file) {
+		ret = copy_file(params, ifd, spl_params.pre_init_file,
+				spl_params.pre_init_size);
+		if (ret)
+			return ret;
+	}
 
 	ret = copy_file(params, ifd, spl_params.init_file,
 			spl_params.init_size);

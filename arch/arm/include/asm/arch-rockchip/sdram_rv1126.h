@@ -13,6 +13,8 @@
 #include <asm/arch/sdram_pctl_px30.h>
 #include <asm/arch/sdram_phy_rv1126.h>
 
+#define EN_UART_IOMUX_IN_PARAM		(1)
+
 #define AGINGX0_VAL			(4)
 #define AGING_CPU_VAL			(0xff)
 #define AGING_NPU_VAL			(0xff)
@@ -416,5 +418,7 @@ struct rv1126_fsp_param {
 #define DDR3_WIDTH_REF_MHZ_L	924
 #define DDR3_RD_WIDTH_REF_L	17
 #define DDR3_WR_WIDTH_REF_L	17
+
+void *get_loader_params_base_addr(void);
 
 #endif /* _ASM_ARCH_SDRAM_RK1126_H */

@@ -541,6 +541,8 @@ int spl_find_hwid_dtb(const char *fdt_name)
 int spl_fdt_chosen_bootargs(struct spl_load_info *info, void *fdt)
 {
 	__maybe_unused struct blk_desc *desc = info->dev;
+	__maybe_unused char *env = NULL;
+	__maybe_unused int ret = 0;
 
 #ifdef CONFIG_SPL_AB
 	char slot_suffix[3] = {0};
@@ -551,9 +553,8 @@ int spl_fdt_chosen_bootargs(struct spl_load_info *info, void *fdt)
 
 #ifdef CONFIG_SPL_ENVF
 	char *part_type[] = { "mtdparts", "blkdevparts" };
-	char *env = NULL;
 	char *part_list;
-	int id = 0, ret = 0;
+	int id = 0;
 
 	env = envf_get(desc, part_type[id]);
 	if (!env)

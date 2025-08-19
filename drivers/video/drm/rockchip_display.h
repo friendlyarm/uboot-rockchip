@@ -69,8 +69,8 @@
 
 #define ROCKCHIP_DSC_PPS_SIZE_BYTE			88
 
-#define ROCKCHIP_VOP2_SHARE_MODE_PRIMARY		1
-#define ROCKCHIP_VOP2_SHARE_MODE_SECONDARY		2
+#define ROCKCHIP_VOP2_SHARED_MODE_PRIMARY		1
+#define ROCKCHIP_VOP2_SHARED_MODE_SECONDARY		2
 
 enum data_format {
 	ROCKCHIP_FMT_ARGB8888 = 0,
@@ -134,6 +134,10 @@ enum rockchip_mcu_cmd {
 #define VOP_OUTPUT_IF_HDMI0	BIT(11)
 #define VOP_OUTPUT_IF_HDMI1	BIT(12)
 #define VOP_OUTPUT_IF_DP2	BIT(13)
+
+#define DRM_MODE_BLEND_PREMULTI		0
+#define DRM_MODE_BLEND_COVERAGE		1
+#define DRM_MODE_BLEND_PIXEL_NONE	2
 
 struct rockchip_mcu_timing {
 	int mcu_pix_total;
@@ -225,6 +229,7 @@ struct crtc_state {
 	u8 dsc_enable;
 	u8 dsc_slice_num;
 	u8 dsc_pixel_num;
+	bool reserved_plane_en;
 	struct rockchip_mcu_timing mcu_timing;
 	u32 dual_channel_swap;
 	u32 feature;
@@ -265,6 +270,7 @@ struct connector_state {
 	int type;
 	int output_if;
 	int output_flags;
+	int data_map_mode;
 	enum drm_color_encoding color_encoding;
 	enum drm_color_range color_range;
 	unsigned int bpc;

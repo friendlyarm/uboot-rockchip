@@ -187,6 +187,9 @@ int arch_cpu_init(void)
 
 int fit_standalone_release(char *id, uintptr_t entry_point)
 {
+	/* m0 reset disable: PMU->PMU_INT_MASK_CON mcu_rst_dis_cfg=0,glb_int_mask_mcu=0 */
+	writel(0x00060000, 0xff90000c);
+
 	/* address map: map 0 to sram, enable TCM mode for sram
 	 * 0xfff84000 for sram
 	 * 0x03e00000 for ddr */

@@ -130,6 +130,16 @@
 #define LP4_CA_ODT_EN_FREQ(n)		\
 	(((n) >> LP4_CA_ODT_EN_FREQ_SHIFT) & 0xfff)
 
+struct ca_skew_info {
+	u32 skew_freq;
+	u32 skew[8];
+};
+
+struct skew_info {
+	u32 version;
+	struct ca_skew_info ca;
+};
+
 struct sdram_head_info_v0 {
 	u32 start_tag;
 	u32 version_info;
@@ -149,6 +159,11 @@ struct sdram_head_info_v0 {
 struct index_info {
 	u8 offset;
 	u8 size;
+};
+
+struct perf_index_info {
+	u16 offset;
+	u16 size;
 };
 
 struct sdram_head_info_index_v2 {
@@ -176,12 +191,96 @@ struct sdram_head_info_index_v2 {
 	struct index_info reserved;
 };
 
+struct sdram_head_info_index_v4 {
+	u32 start_tag;
+	u32 version_info;
+	struct index_info cpu_gen_index;
+	struct index_info global_index;
+
+	struct index_info ddr2_index;
+	struct index_info ddr3_index;
+
+	struct index_info ddr4_index;
+	struct index_info ddr5_index;
+
+	struct index_info lp2_index;
+	struct index_info lp3_index;
+
+	struct index_info lp4_index;
+	struct index_info lp5_index;
+
+	struct index_info skew_index;
+	struct index_info dq_map_index;
+
+	struct index_info lp4x_index;
+	struct index_info lp4_lp4x_hash_index;
+
+	struct index_info lp5_hash_index;
+	struct index_info ddr4_hash_index;
+
+	struct index_info lp3_hash_index;
+	struct index_info ddr3_hash_index;
+
+	struct index_info lp2_hash_index;
+	struct index_info ddr2_hash_index;
+
+	struct index_info ddr5_hash_index;
+	struct index_info reserved;
+
+	struct perf_index_info ch_perf_index;
+	struct perf_index_info com_perf_index;
+};
+
+struct sdram_head_info_index_v6 {
+	u32 start_tag;
+	u32 version_info;
+	struct index_info cpu_gen_index;
+	struct index_info global_index;
+
+	struct index_info ddr2_index;
+	struct index_info ddr3_index;
+
+	struct index_info ddr4_index;
+	struct index_info ddr5_index;
+
+	struct index_info lp2_index;
+	struct index_info lp3_index;
+
+	struct index_info lp4_index;
+	struct index_info lp5_index;
+
+	struct index_info skew_index;
+	struct index_info dq_map_index;
+
+	struct index_info lp4x_index;
+	struct index_info lp4_lp4x_hash_index;
+
+	struct index_info lp5_hash_index;
+	struct index_info ddr4_hash_index;
+
+	struct index_info lp3_hash_index;
+	struct index_info ddr3_hash_index;
+
+	struct index_info lp2_hash_index;
+	struct index_info ddr2_hash_index;
+
+	struct index_info ddr5_hash_index;
+	struct index_info reserved;
+
+	struct perf_index_info ch_perf_index;
+	struct perf_index_info com_perf_index;
+
+	struct perf_index_info uart_info;
+};
+
 struct global_info {
 	u32 uart_info;
 	u32 sr_pd_info;
 	u32 ch_info;
 	u32 info_2t;
-	u32 reserved[4];
+	u32 pstore_info;
+	u32 other_info;
+	u32 reserved[2];
 };
 
 struct ddr2_3_4_lp2_3_info {
@@ -194,6 +293,20 @@ struct ddr2_3_4_lp2_3_info {
 	u32 odten_freq;
 	u32 sr_when_odten;
 	u32 sr_when_odtoff;
+};
+
+struct ddr2_3_4_lp2_3_info_v5 {
+	u32 ddr_freq0_1;
+	u32 ddr_freq2_3;
+	u32 ddr_freq4_5;
+	u32 drv_when_odten;
+	u32 drv_when_odtoff;
+	u32 odt_info;
+	u32 odten_freq;
+	u32 sr_when_odten;
+	u32 sr_when_odtoff;
+	u32 vref_when_odten;
+	u32 vref_when_odtoff;
 };
 
 struct lp4_info {
@@ -217,6 +330,44 @@ struct dq_map_info {
 	u32 lp3_dq0_7_map;
 	u32 lp2_dq0_7_map;
 	u32 ddr4_dq_map[4];
+};
+
+struct hash_info {
+	u32 ch_mask[2];
+	u32 bank_mask[4];
+	u32 rank_mask;
+	u32 reserved;
+};
+
+struct com_perf_info {
+	u32 addr;
+	u32 mask;
+	u32 val;
+};
+
+struct ch_perf_info {
+	u32 offset;
+	u32 mask;
+	u32 val;
+};
+
+struct uart_iomux_entry {
+	u32 addr;
+	u32 mask;
+	u32 val;
+};
+
+struct com_uart_info {
+	u32 uart_addr;
+	struct uart_iomux_entry *iomux;
+	u32 iomux_count;
+};
+
+struct platform_uart_iomux_config {
+	u32 *platform_uart_addr;
+	u32 platform_uart_addr_size;
+	u32 *platform_iomux_addr;
+	u32 platform_iomux_addr_size;
 };
 
 struct sdram_cap_info {
@@ -281,6 +432,7 @@ struct rw_trn_result {
 };
 
 /* for modify tRFC and related timing */
+#define DIE_CAP_256MBIT	32
 #define DIE_CAP_512MBIT	64
 #define DIE_CAP_1GBIT	128
 #define DIE_CAP_2GBIT	256

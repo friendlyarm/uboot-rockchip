@@ -258,6 +258,10 @@ static int spl_dcache_enable(void)
 			debug("spl: no bd_t memory\n");
 			return -ENOMEM;
 		}
+		/*
+		 * If you want mmu init based on real dram configs from atags,
+		 * call dram_init_banksize() here.
+		 */
 		gd->bd->bi_dram[0].start = CONFIG_SYS_SDRAM_BASE;
 		gd->bd->bi_dram[0].size  = SZ_256M;
 		free_bd = true;
@@ -348,6 +352,9 @@ static void spl_setup_relocate(void)
 	gd->fdt_blob = gd->new_fdt;
 
 	gd->reloc_off = gd->relocaddr - (unsigned long)__image_copy_start;
+
+	printf("\nRelocate from %08lx to %08lx.\n", (unsigned long)__image_copy_start,
+		gd->relocaddr);
 }
 #else
 static void spl_setup_relocate(void)
@@ -521,6 +528,11 @@ void board_init_r(gd_t *dummy1, ulong dummy2)
 
 	spl_set_bd();
 
+#ifdef CONFIG_SPL_RAM
+	dram_init();
+	printf("Ram size: %lx\n", (ulong)gd->ram_size);
+	gd->ram_top = CONFIG_SYS_SDRAM_BASE + gd->ram_size;
+#endif
 #ifdef CONFIG_SPL_OS_BOOT
 	dram_init_banksize();
 #endif

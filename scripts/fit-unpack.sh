@@ -138,7 +138,7 @@ function gen_its()
 		fi
 	done
 
-	DTC=$(find . -type f -name "dtc")
+	DTC=$(find . -type f -name "dtc" | head -n 1)
 	if [ -z ${DTC} ]; then
 		echo "ERROR: No DTC tool"
 		exit 1

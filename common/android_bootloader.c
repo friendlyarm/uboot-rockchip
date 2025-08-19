@@ -1365,7 +1365,7 @@ int android_bootloader_boot_flow(struct blk_desc *dev_desc,
 
 	/* Set Android root variables. */
 	env_set_ulong("android_root_devnum", dev_desc->devnum);
-	env_set("android_slotsuffix", slot_suffix);
+	env_set("android_slotsufix", slot_suffix);
 
 #ifdef CONFIG_FASTBOOT_OEM_UNLOCK
 	/* read oem unlock status and attach to bootargs */
