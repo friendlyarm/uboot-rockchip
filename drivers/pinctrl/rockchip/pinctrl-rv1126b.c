@@ -100,8 +100,7 @@ static int rv1126b_set_drive(struct rockchip_pin_bank *bank,
 
 	/* enable the write to the equivalent lower bits */
 	data = ((1 << rmask_bits) - 1) << (bit + 16);
-	ret = (1 << (strength + 1)) - 1;
-	data |= (ret << bit);
+	data |= (strength << bit);
 	ret = regmap_write(regmap, reg, data);
 
 	return ret;

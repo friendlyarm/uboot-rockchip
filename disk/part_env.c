@@ -77,8 +77,10 @@ static int env_init_parts(struct blk_desc *dev_desc, struct list_head *parts_hea
 	char *parts_list = NULL;
 
 #if CONFIG_IS_ENABLED(ENVF)
+#ifdef CONFIG_MTD_BLK
 	parts_list = envf_get(dev_desc, "mtdparts");
 	if (!parts_list)
+#endif
 		parts_list = envf_get(dev_desc, "blkdevparts");
 #else
 	parts_list = ENV_PARTITIONS;

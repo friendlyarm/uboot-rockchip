@@ -1856,7 +1856,7 @@ static int rv1126b_clk_probe(struct udevice *dev)
 	struct rv1126b_clk_priv *priv = dev_get_priv(dev);
 	int ret;
 
-#ifdef CONFIG_SPL_BUILD
+#if defined(CONFIG_SPL_BUILD) || defined(CONFIG_SUPPORT_USBPLUG)
 	/* fix gpll and some clks modify by maskrom */
 	writel(BITS_WITH_WMASK(11, 0x1fU, 5),
 	       RV1126B_CRU_BASE + RV1126B_CLKSEL_CON(1));

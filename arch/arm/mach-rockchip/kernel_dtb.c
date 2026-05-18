@@ -273,26 +273,40 @@ static int mmc_dm_reinit(void)
 	return 0;
 }
 
-/* Check by property: "/compatible" */
-static int dtb_check_ok(void *kfdt, void *ufdt)
+#ifdef CONFIG_EMBED_KERNEL_DTB
+static void *embedded_kdtb(void)
 {
-	const char *compat;
-	int index;
+	const void *fdt_blob_kern = gd->fdt_blob_kern;
+	void *fdt_addr;
 
-	/* TODO */
-	return 1;
+	printf("Embed: %s\n", CONFIG_EMBED_KERNEL_DTB_PATH);
 
-	for (index = 0;
-	     compat = fdt_stringlist_get(ufdt, 0, "compatible",
-					 index, NULL), compat;
-	     index++) {
-		debug("u-compat: %s\n", compat);
-		if (!fdt_node_check_compatible(kfdt, 0, compat))
-			return 1;
+	/*
+	 * Alloc another space for this embed kernel dtb.
+	 * Because "fdt_addr_r" *MUST* be the fdt passed to kernel.
+	 */
+	fdt_addr = memalign(ARCH_DMA_MINALIGN, SZ_512K);
+	if (!fdt_addr)
+		return NULL;
+
+	/* dtb file ? */
+	if (!fdt_check_header(fdt_blob_kern)) {
+		memcpy(fdt_addr, fdt_blob_kern, fdt_totalsize(fdt_blob_kern));
+	} else {
+		/* resource file ? */
+		rockchip_read_ram_resource_dtb((void *)fdt_blob_kern, fdt_addr);
 	}
 
-	return 0;
+	if (!fdt_check_header(fdt_addr)) {
+		printf("Embed kfdt: 0x%08lx\n", (ulong)fdt_addr);
+		return fdt_addr;
+	}
+
+	free(fdt_addr);
+
+	return NULL;
 }
+#endif
 
 int init_kernel_dtb(void)
 {
@@ -322,40 +336,18 @@ int init_kernel_dtb(void)
 	goto dtb_embed;
 #endif
 	ret = rockchip_read_dtb_file((void *)fdt_addr);
-	if (!ret) {
-		if (!dtb_check_ok((void *)fdt_addr, (void *)gd->fdt_blob)) {
-			ret = -EINVAL;
-			printf("Kernel dtb mismatch this platform!\n");
-		} else {
-			goto dtb_okay;
-		}
-	}
+	if (!ret)
+		goto dtb_okay;
 
 #ifdef CONFIG_EMBED_KERNEL_DTB
 #ifdef CONFIG_EMBED_KERNEL_DTB_ALWAYS
 dtb_embed:
 #endif
-	if (gd->fdt_blob_kern) {
-		if (!dtb_check_ok((void *)gd->fdt_blob_kern, (void *)gd->fdt_blob)) {
-			printf("Embedded kernel dtb mismatch this platform!\n");
-			return -EINVAL;
-		}
-
-		fdt_addr = (ulong)memalign(ARCH_DMA_MINALIGN,
-				fdt_totalsize(gd->fdt_blob_kern));
-		if (!fdt_addr)
-			return -ENOMEM;
-
-		/*
-		 * Alloc another space for this embed kernel dtb.
-		 * Because "fdt_addr_r" *MUST* be the fdt passed to kernel.
-		 */
-		memcpy((void *)fdt_addr, gd->fdt_blob_kern,
-		       fdt_totalsize(gd->fdt_blob_kern));
-		printf("DTB: %s\n", CONFIG_EMBED_KERNEL_DTB_PATH);
-	} else
+	fdt_addr = (ulong)embedded_kdtb();
+	if (fdt_check_header((void *)fdt_addr))
 #endif
 	{
+		gd->fdt_blob_kern = NULL;
 		printf("Failed to get kernel dtb, ret=%d\n", ret);
 		return -ENOENT;
 	}

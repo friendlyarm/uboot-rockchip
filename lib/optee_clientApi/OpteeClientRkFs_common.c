@@ -51,6 +51,13 @@ static int get_rkss_version(void)
 
 	ret = blk_dread(dev_desc, part_info.start, 1, read_buff);
 	if (ret != 1) {
+#ifdef CONFIG_MTD_BLK
+		if (dev_desc->if_type == IF_TYPE_MTD) {
+			free(read_buff);
+			rkss_version = RKSS_VERSION_V2;
+			return rkss_version;
+		}
+#endif
 		printf("TEEC: blk_dread fail\n");
 		free(read_buff);
 		return -1;

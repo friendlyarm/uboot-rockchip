@@ -69,13 +69,16 @@ static int fit_decomp_image(void *fit, int node, ulong *load_addr,
 	int ret = -ENOSYS;
 	u8 comp;
 #if CONFIG_IS_ENABLED(MISC_DECOMPRESS)
+	const void *prop = NULL;
 	u32 flags = 0;
+
+	prop = fdt_getprop(fit, node, "decomp-async", NULL);
 #endif
 
 	if (fit_image_get_comp(fit, node, &comp))
 		return 0;
 
-	if (comp != IH_COMP_GZIP && comp != IH_COMP_LZMA)
+	if (comp != IH_COMP_GZIP && comp != IH_COMP_LZMA && comp != IH_COMP_LZ4)
 		return 0;
 
 #ifndef CONFIG_SPL_BUILD
@@ -85,24 +88,14 @@ static int fit_decomp_image(void *fit, int node, ulong *load_addr,
 	 */
 	if (fit_image_check_type(fit, node, IH_TYPE_KERNEL))
 		return 0;
-#elif defined(CONFIG_SPL_MTD_SUPPORT) && defined(CONFIG_SPL_MISC_DECOMPRESS) && \
-      defined(CONFIG_SPL_KERNEL_BOOT)
+#elif defined(CONFIG_SPL_MISC_DECOMPRESS) && defined(CONFIG_SPL_KERNEL_BOOT)
 	/*
-	 * SPL Thunder-boot policty on spi-nand:
+	 * SPL Thunder-boot policty:
 	 *	enable and use interrupt status as a sync signal for
 	 *	kernel to poll that whether ramdisk decompress is done.
 	 */
-	struct spl_load_info *info = spec;
-	struct blk_desc *desc;
-
-	if (info && info->dev) {
-		desc = info->dev;
-		if ((desc->if_type == IF_TYPE_MTD) &&
-		    (desc->devnum == BLK_MTD_SPI_NAND) &&
-		    fit_image_check_type(fit, node, IH_TYPE_RAMDISK)) {
-			flags |= DCOMP_FLG_IRQ_ONESHOT;
-		}
-	}
+	if (prop && fit_image_check_type(fit, node, IH_TYPE_RAMDISK))
+		flags |= DCOMP_FLG_IRQ_ONESHOT;
 #endif
 	if (comp == IH_COMP_LZMA) {
 #if CONFIG_IS_ENABLED(LZMA)
@@ -111,13 +104,12 @@ static int fit_decomp_image(void *fit, int node, ulong *load_addr,
 					       (uchar *)(*src_addr), *src_len);
 		len = lzma_len;
 #endif
-	} else if (comp == IH_COMP_GZIP) {
+#if CONFIG_IS_ENABLED(MISC_DECOMPRESS)
+	} else {
 		/*
 		 * For smaller spl size, we don't use misc_decompress_process()
 		 * inside the gunzip().
 		 */
-#if CONFIG_IS_ENABLED(MISC_DECOMPRESS)
-		const void *prop;
 		bool sync = true;
 
 		if (fit_image_get_uncomp_digest(fit, node) < 0)
@@ -127,13 +119,13 @@ static int fit_decomp_image(void *fit, int node, ulong *load_addr,
 					      (ulong)(*src_addr), (ulong)(*src_len),
 					      DECOM_GZIP, sync, &len, flags);
 		/* mark for misc_decompress_cleanup() */
-		prop = fdt_getprop(fit, node, "decomp-async", NULL);
 		if (prop)
 			misc_decompress_async(comp);
 		else
 			misc_decompress_sync(comp);
 #else
 #if CONFIG_IS_ENABLED(GZIP)
+	} else if (comp == IH_COMP_GZIP) {
 		ret = gunzip((void *)(*load_addr), ALIGN(len, FIT_MAX_SPL_IMAGE_SZ),
 			     (void *)(*src_addr), (void *)(&len));
 #endif

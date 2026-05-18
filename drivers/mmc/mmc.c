@@ -222,19 +222,6 @@ int mmc_set_blocklen(struct mmc *mmc, int len)
 	return mmc_send_cmd(mmc, &cmd, NULL);
 }
 
-int mmc_set_blockcount(struct mmc *mmc, unsigned int blkcnt, bool is_rel_write)
-{
-	struct mmc_cmd cmd = {0};
-
-	cmd.cmdidx = MMC_CMD_SET_BLOCK_COUNT;
-	cmd.cmdarg = blkcnt & 0x0000FFFF;
-	if (is_rel_write)
-		cmd.cmdarg |= 1 << 31;
-	cmd.resp_type = MMC_RSP_R1;
-
-	return mmc_send_cmd(mmc, &cmd, NULL);
-}
-
 static int mmc_read_blocks(struct mmc *mmc, void *dst, lbaint_t start,
 			   lbaint_t blkcnt)
 {
@@ -283,12 +270,10 @@ static int mmc_read_blocks_prepare(struct mmc *mmc, void *dst, lbaint_t start,
 	struct mmc_cmd cmd;
 	struct mmc_data data;
 
-	if (blkcnt > 1) {
-		mmc_set_blockcount(mmc, blkcnt, false);
+	if (blkcnt > 1)
 		cmd.cmdidx = MMC_CMD_READ_MULTIPLE_BLOCK;
-	} else {
+	else
 		cmd.cmdidx = MMC_CMD_READ_SINGLE_BLOCK;
-	}
 
 	if (mmc->high_capacity)
 		cmd.cmdarg = start;

@@ -100,6 +100,7 @@ static int param_write(struct regmap *base,
 	return regmap_write(base, reg->offset, val);
 }
 
+#if !CONFIG_IS_ENABLED(ROCKUSB_MAX_SPEED_HS)
 static u32 rockchip_combphy_is_ready(struct rockchip_combphy_priv *priv)
 {
 	const struct rockchip_combphy_grfcfg *cfg = priv->cfg->grfcfg;
@@ -113,6 +114,7 @@ static u32 rockchip_combphy_is_ready(struct rockchip_combphy_priv *priv)
 
 	return val;
 }
+#endif
 
 static int rockchip_combphy_pcie_init(struct rockchip_combphy_priv *priv)
 {
@@ -196,6 +198,7 @@ static int rockchip_combphy_sgmii_init(struct rockchip_combphy_priv *priv)
 	return ret;
 }
 
+#if !CONFIG_IS_ENABLED(ROCKUSB_MAX_SPEED_HS)
 int rockchip_combphy_usb3_uboot_init(fdt_addr_t phy_addr)
 {
 	struct udevice *udev = NULL;
@@ -255,6 +258,7 @@ int rockchip_combphy_usb3_uboot_init(fdt_addr_t phy_addr)
 
 	return ret;
 }
+#endif
 
 static int rockchip_combphy_set_mode(struct rockchip_combphy_priv *priv)
 {

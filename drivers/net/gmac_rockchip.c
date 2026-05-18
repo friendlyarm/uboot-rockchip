@@ -2471,11 +2471,8 @@ static int gmac_rockchip_probe(struct udevice *dev)
 	case PHY_INTERFACE_MODE_RMII:
 		/* The commet is the same as RGMII mode */
 		if (!pdata->clock_input) {
-			if (clk.id) {
-				rate = clk_set_rate(&clk, 50000000);
-				if (rate != 50000000)
-					return -EINVAL;
-			}
+			if (clk.id)
+				clk_set_rate(&clk, 50000000);
 		}
 
 		/* Set to RMII mode */

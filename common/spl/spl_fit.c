@@ -289,7 +289,8 @@ static int spl_load_fit_image(struct spl_load_info *info, ulong sector,
 			 * Why is 2 * FIT_MAX_SPL_IMAGE_SZ?
 			 * one is for uncompressed firmware, another is for compressed firmware.
 			 */
-			if (load_addr + 2 * FIT_MAX_SPL_IMAGE_SZ <= gd->ram_top)
+			if (!gd->ram_top ||
+			    load_addr + 2 * FIT_MAX_SPL_IMAGE_SZ <= gd->ram_top)
 				comp_addr = load_addr + FIT_MAX_SPL_IMAGE_SZ;
 			else
 				/* Mainly for tiny mem device, such as 64M DRAM. */

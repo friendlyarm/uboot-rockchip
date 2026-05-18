@@ -353,16 +353,15 @@ int sprintf(char *buf, const char *fmt, ...)
 {
 	struct printf_info info;
 	va_list va;
-	int ret;
 
 	va_start(va, fmt);
 	info.outstr = buf;
 	info.putc = putc_outstr;
-	ret = _vprintf(&info, fmt, va);
+	_vprintf(&info, fmt, va);
 	va_end(va);
 	*info.outstr = '\0';
 
-	return ret;
+	return info.outstr - buf;
 }
 
 /* Note that size is ignored */
@@ -370,16 +369,15 @@ int snprintf(char *buf, size_t size, const char *fmt, ...)
 {
 	struct printf_info info;
 	va_list va;
-	int ret;
 
 	va_start(va, fmt);
 	info.outstr = buf;
 	info.putc = putc_outstr;
-	ret = _vprintf(&info, fmt, va);
+	_vprintf(&info, fmt, va);
 	va_end(va);
 	*info.outstr = '\0';
 
-	return ret;
+	return info.outstr - buf;
 }
 
 void __assert_fail(const char *assertion, const char *file, unsigned line,

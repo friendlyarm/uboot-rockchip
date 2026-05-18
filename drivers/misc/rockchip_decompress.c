@@ -101,7 +101,8 @@ static int rockchip_decom_start(struct udevice *dev, void *buf)
 	u32 irq_status;
 
 	/* Increase limit_size by 16 to avoid premature decompression termination by decom */
-	limit_lo += 16;
+	if (!(param->flags & DCOMP_FLG_UNLIMIT))
+		limit_lo += 16;
 
 #if CONFIG_IS_ENABLED(DM_RESET)
 	reset_assert(&priv->rst);
@@ -146,8 +147,10 @@ static int rockchip_decom_start(struct udevice *dev, void *buf)
 	writel(limit_lo, priv->base + DECOM_LMTSL);
 	writel(limit_hi, priv->base + DECOM_LMTSH);
 
-	if (param->flags && DCOMP_FLG_IRQ_ONESHOT)
+	if (param->flags & DCOMP_FLG_IRQ_ONESHOT) {
 		writel(DECOM_INT_MASK, priv->base + DECOM_IEN);
+		param->flags &= ~DCOMP_FLG_IRQ_ONESHOT;
+	}
 	writel(DECOM_ENABLE, priv->base + DECOM_ENR);
 
 	priv->idle_check_once = true;

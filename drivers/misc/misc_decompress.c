@@ -131,7 +131,8 @@ static int misc_decompress_start(struct udevice *dev, unsigned long dst,
 	}
 
 	param.size_src = src_len;
-	param.size_dst = misc_get_data_size(src, src_len, param.mode);
+	param.size_dst = (flags & DCOMP_FLG_UNLIMIT) ?
+			 0xffffffff : misc_get_data_size(src, src_len, param.mode);
 
 	if (!param.size_src || !param.size_dst)
 		return -EINVAL;

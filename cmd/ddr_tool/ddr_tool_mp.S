@@ -120,13 +120,15 @@ secondary_init:
 	bl	irq_disable
 
 	/* set sp */
-	ldr	x2, =__sp
+	adrp	x2, __sp
+	add	x2, x2, :lo12:__sp
 	ldr	x1, [x2]
 	bic	x1, x1, #0xf
 	mov	sp, x1
 	bl	icache_invalid
 
-	ldr	w0, =el2_vectors
+	adrp	x0, el2_vectors
+	add	x0, x0, :lo12:el2_vectors
 	msr	vbar_el2, x0
 	bl	icache_invalid
 

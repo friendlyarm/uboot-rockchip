@@ -1460,19 +1460,6 @@ static int dw_dp_connector_init(struct rockchip_connector *conn, struct display_
 	return ret;
 }
 
-static int dw_dp_connector_get_edid(struct rockchip_connector *conn, struct display_state *state)
-{
-	int ret;
-	struct connector_state *conn_state = &state->conn_state;
-	struct dw_dp *dp = connector_to_dw_dp(conn);
-
-	conn_state->edid = drm_do_get_edid(&dp->aux.ddc);
-	if (!conn_state->edid)
-		ret = -EINVAL;
-
-	return ret;
-}
-
 static int dw_dp_get_output_fmts_index(u32 bus_format)
 {
 	int i;
@@ -1565,8 +1552,10 @@ static int dw_dp_connector_detect(struct rockchip_connector *conn, struct displa
 
 	if (status && !dp->force_output) {
 		ret = dw_dp_link_probe(dp);
-		if (ret)
+		if (ret) {
 			printf("failed to probe DP link: %d\n", ret);
+			return 0;
+		}
 	}
 
 	return status;
@@ -1717,7 +1706,6 @@ err:
 
 static const struct rockchip_connector_funcs dw_dp_connector_funcs = {
 	.init = dw_dp_connector_init,
-	.get_edid = dw_dp_connector_get_edid,
 	.prepare = dw_dp_connector_prepare,
 	.enable = dw_dp_connector_enable,
 	.disable = dw_dp_connector_disable,

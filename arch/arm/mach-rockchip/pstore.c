@@ -24,7 +24,6 @@
 DECLARE_GLOBAL_DATA_PTR;
 
 #define PERSISTENT_RAM_SIG		(0x43474244)
-#define LOG_TYPE_MASK			(0x00000fff)
 
 struct persistent_ram_buffer {
 	u32    sig;
@@ -39,8 +38,10 @@ enum log_type {
 	LOG_OPTEE,
 	LOG_ATF,
 	LOG_UBOOT,
-	LOG_MAX = 12,
+	LOG_MAX = 8,
 };
+
+#define LOG_TYPE_MASK			(BIT(LOG_MAX) - 1)
 
 #if 0
 /*
@@ -49,7 +50,9 @@ enum log_type {
  * u32 'conf' definition:
  *   [31:16] is pstore buffer base address (0x_[31:16]_0000), 64KB align.
  *   [15:12] is pstore buffer size [15:12]*4KB.
- *   [11:0] see 'enum log_type' per bit is for one stage, 1: enable, 0: disable.
+ *   [11:8] is pstore buf size shift
+ *   final pstore_buf_size = (pstore_buf_size * 4KB) << pstore_buf_size_shift
+ *   [7:0] see 'enum log_type' per bit is for one stage, 1: enable, 0: disable.
  *      [0] tpl(ddr)
  *      [1] spl(miniloader)
  *      [2] optee(bl32)
@@ -62,11 +65,13 @@ void pstore_atags_set_tag(u32 conf)
 	struct tag_pstore t;
 	u32 addr = conf & 0xffff0000;
 	u32 size = conf & 0x0000f000;
+	u32 shift = (conf >> 8) & 0xf;
 	int i = 0;
 
 	/* handle special: 0 is 64KB but not 0KB */
 	if (size == 0)
 		size = 0x10000;
+	size <<= shift;
 
 	/* is enabled log type ? */
 	conf &= LOG_TYPE_MASK;
@@ -101,17 +106,17 @@ int param_parse_pstore(void)
 	t = atags_get_tag(ATAG_PSTORE);
 	if (t) {
 		gd->pstore_addr = t->u.pstore.buf[LOG_UBOOT].addr;
-		gd->pstore_size = t->u.pstore.buf[LOG_UBOOT].size - sizeof(struct persistent_ram_buffer);
+		gd->pstore_size = t->u.pstore.buf[LOG_UBOOT].size;
 	}
 #elif (CONFIG_PERSISTENT_RAM_ADDR == 0 || CONFIG_PERSISTENT_RAM_SIZE == 0)
 	#error: CONFIG_PERSISTENT_RAM_SIZE and CONFIG_PERSISTENT_RAM_ADDR value should not be 0.
 #else
 	gd->pstore_addr = CONFIG_PERSISTENT_RAM_ADDR;
-	gd->pstore_size = CONFIG_PERSISTENT_RAM_SIZE - sizeof(struct persistent_ram_buffer);
+	gd->pstore_size = CONFIG_PERSISTENT_RAM_SIZE;
 #endif
 	if (gd->pstore_addr) {
 		rb = (struct persistent_ram_buffer *)gd->pstore_addr;
-		pstore_size = gd->pstore_size;
+		pstore_size = gd->pstore_size - sizeof(struct persistent_ram_buffer);
 
 		if (rb->sig != PERSISTENT_RAM_SIG) {
 			rb->sig = PERSISTENT_RAM_SIG;
@@ -132,7 +137,7 @@ int param_parse_pstore(void)
 void putc_to_ram(const char c)
 {
 	struct persistent_ram_buffer *rb = (struct persistent_ram_buffer *)gd->pstore_addr;
-	u32 pstore_size = gd->pstore_size;
+	u32 pstore_size = gd->pstore_size - sizeof(struct persistent_ram_buffer);
 	u8 *dst;
 
 	if (!rb || pstore_size == 0)

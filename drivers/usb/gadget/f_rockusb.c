@@ -306,7 +306,7 @@ static int rkusb_do_read_flash_info(struct fsg_common *common,
 		if (mtd) {
 			finfo.block_size = mtd->erasesize >> 9;
 			finfo.page_size = mtd->writesize >> 9;
-#ifdef CONFIG_SUPPORT_USBPLUG
+#if defined(CONFIG_SUPPORT_USBPLUG) || (CONFIG_ROCKCHIP_NEW_IDB)
 			/* Using 4KB pagesize as 2KB for idblock */
 			if (finfo.page_size == 8 && desc->devnum == BLK_MTD_SPI_NAND)
 				finfo.page_size |= (4 << 4);

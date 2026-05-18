@@ -1043,7 +1043,7 @@
 #define RK3576_SHARP_CTRL			0x0000
 #define SW_SHARP_ENABLE_SHIFT			0
 
-#define RK3568_MAX_REG				0x1ED0
+#define RK3588_REGS_BACKUP_SIZE			0x2000
 
 #define RK3562_GRF_IOC_VO_IO_CON		0x10500
 #define RK3568_GRF_VO_CON1			0x0364
@@ -1565,7 +1565,7 @@ struct vop2 {
 	void *sys_pmu;
 	void *ioc_grf;
 	void *sharp_res;
-	u32 reg_len;
+	fdt_size_t reg_len;
 	u32 version;
 	u32 esmart_lb_mode;
 	bool global_init;
@@ -2739,7 +2739,7 @@ static void rk3588_vop2_regsbak(struct vop2 *vop2)
 	/*
 	 * No need to backup HDR/DSC/GAMMA_LUT/BPP_LUT/MMU
 	 */
-	for (i = 0; i < (vop2->reg_len >> 2); i++)
+	for (i = 0; i < (RK3588_REGS_BACKUP_SIZE >> 2); i++)
 		vop2->regsbak[i] = base[i];
 }
 
@@ -3504,12 +3504,12 @@ static int rockchip_vop2_preinit(struct display_state *state)
 		if (!rockchip_vop2)
 			return -ENOMEM;
 		memset(rockchip_vop2, 0, sizeof(struct vop2));
-		rockchip_vop2->regsbak = malloc(RK3568_MAX_REG);
-		rockchip_vop2->reg_len = RK3568_MAX_REG;
 #ifdef CONFIG_SPL_BUILD
 		rockchip_vop2->regs = (void *)RK3528_VOP_BASE;
 #else
 		rockchip_vop2->regs = dev_read_addr_ptr(cstate->dev);
+		dev_read_addr_size(cstate->dev, "reg", &rockchip_vop2->reg_len);
+		rockchip_vop2->regsbak = malloc(rockchip_vop2->reg_len);
 		map = syscon_regmap_lookup_by_phandle(cstate->dev, "rockchip,grf");
 		rockchip_vop2->grf = regmap_get_range(map, 0);
 		if (rockchip_vop2->grf <= 0)
@@ -5720,13 +5720,15 @@ static int vop2_set_cluster_win(struct display_state *state, struct vop2_win_dat
 	vop2_writel(vop2, RK3568_CLUSTER0_WIN0_DSP_INFO + win_offset, dsp_info);
 	vop2_writel(vop2, RK3568_CLUSTER0_WIN0_DSP_ST + win_offset, dsp_st);
 
-	csc_mode = vop2_convert_csc_mode(conn_state->color_encoding, conn_state->color_range,
-					 CSC_10BIT_DEPTH);
-	vop2_mask_write(vop2, RK3568_CLUSTER0_WIN0_CTRL0 + win_offset, EN_MASK,
-			CLUSTER_RGB2YUV_EN_SHIFT,
-			is_yuv_output(conn_state->bus_format), false);
-	vop2_mask_write(vop2, RK3568_CLUSTER0_WIN0_CTRL0 + win_offset, CSC_MODE_MASK,
-			CLUSTER_CSC_MODE_SHIFT, csc_mode, false);
+	if (is_yuv_output(conn_state->bus_format)) {
+		csc_mode = vop2_convert_csc_mode(conn_state->color_encoding,
+						 conn_state->color_range,
+						 CSC_10BIT_DEPTH);
+		vop2_mask_write(vop2, RK3568_CLUSTER0_WIN0_CTRL0 + win_offset, EN_MASK,
+				CLUSTER_RGB2YUV_EN_SHIFT, true, false);
+		vop2_mask_write(vop2, RK3568_CLUSTER0_WIN0_CTRL0 + win_offset, CSC_MODE_MASK,
+				CLUSTER_CSC_MODE_SHIFT, csc_mode, false);
+	}
 
 	dither_up = vop2_win_dither_up(cstate->format);
 	vop2_mask_write(vop2, RK3568_CLUSTER0_WIN0_CTRL0 + win_offset, EN_MASK,
@@ -5872,13 +5874,15 @@ static int vop2_set_smart_win(struct display_state *state, struct vop2_win_data 
 		    dsp_info);
 	vop2_writel(vop2, RK3568_ESMART0_REGION0_DSP_ST + win_offset, dsp_st);
 
-	csc_mode = vop2_convert_csc_mode(conn_state->color_encoding, conn_state->color_range,
-					 CSC_10BIT_DEPTH);
-	vop2_mask_write(vop2, RK3568_ESMART0_CTRL0 + win_offset, EN_MASK,
-			RGB2YUV_EN_SHIFT,
-			is_yuv_output(conn_state->bus_format), false);
-	vop2_mask_write(vop2, RK3568_ESMART0_CTRL0 + win_offset, CSC_MODE_MASK,
-			CSC_MODE_SHIFT, csc_mode, false);
+	if (is_yuv_output(conn_state->bus_format)) {
+		csc_mode = vop2_convert_csc_mode(conn_state->color_encoding,
+						 conn_state->color_range,
+						 CSC_10BIT_DEPTH);
+		vop2_mask_write(vop2, RK3568_ESMART0_CTRL0 + win_offset, EN_MASK,
+				RGB2YUV_EN_SHIFT, true, false);
+		vop2_mask_write(vop2, RK3568_ESMART0_CTRL0 + win_offset, CSC_MODE_MASK,
+				CSC_MODE_SHIFT, csc_mode, false);
+	}
 
 	dither_up = vop2_win_dither_up(cstate->format);
 	vop2_mask_write(vop2, RK3568_ESMART0_REGION0_CTRL + win_offset, EN_MASK,

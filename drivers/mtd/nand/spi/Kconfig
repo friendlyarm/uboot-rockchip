@@ -39,16 +39,6 @@ config SPI_NAND_WINBOND
 	help
 	  Add support for various WINBOND SPI Nand flash chips
 
-if SPI_NAND_WINBOND
-
-config SPI_NAND_WINBOND_CONT_READ
-	bool "WINBOND SPI flash continuous read support"
-	default n
-	help
-	 Add support for WINBOND SPI Nand flash chips cont read.
-
-endif
-
 config SPI_NAND_DOSILICON
 	bool "DOSILICON SPI flash support"
 	default y
@@ -152,5 +142,11 @@ config SPI_NAND_KINGSTON
 	bool "KINGSTON SPI flash support"
 	help
 	  Add support for various KINGSTON SPI Nand flash chips
+
+config SPI_NAND_CONT_READ
+	bool "Enable SPI flash continuous read support"
+	default n
+	help
+	 Add support for SPI Nand flash chips cont read.
 
 endif

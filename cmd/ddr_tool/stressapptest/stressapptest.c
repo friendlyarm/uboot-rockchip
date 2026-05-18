@@ -24,7 +24,7 @@
 #include "stressapptest.h"
 #include "../ddr_tool_common.h"
 
-#define __version__ "v1.3.0 20230713"
+#define __version__ "v1.4.0 20250820"
 
 #if defined(CONFIG_ARM64)
 /* Float operation in TOOLCHAIN_ARM32 will cause the compile error */

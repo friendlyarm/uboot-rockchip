@@ -28,6 +28,7 @@
 #include <asm/gpio.h>
 #include <dm/device.h>
 #include <dm/read.h>
+#include <dm/of_access.h>
 #include <dm/pinctrl.h>
 #include <dm/uclass-id.h>
 #include <dm/lists.h>
@@ -39,12 +40,12 @@
 #include <asm/gpio.h>
 #include <asm/system.h>
 #include <asm/io.h>
-
 #include "gpio.h"
 
 #include "../drivers/video/drm/rockchip_bridge.h"
 #include "../drivers/video/drm/rockchip_display.h"
 #include "../drivers/video/drm/rockchip_panel.h"
+#include "../drivers/video/drm/rockchip_connector.h"
 
 #ifndef __SERDES_DISPLAY_CORE_H__
 #define __SERDES_DISPLAY_CORE_H__
@@ -121,7 +122,7 @@ struct group_desc {
  */
 struct function_desc {
 	const char *name;
-	const char **group_names;
+	const char *const *group_names;
 	int num_group_names;
 	void *data;
 };
@@ -281,10 +282,13 @@ struct serdes_panel_split {
 
 struct serdes_bridge {
 	bool sel_mipi;
+	bool split_mode;
 	struct mipi_dsi_device *dsi;
 	struct serdes *parent;
 	struct drm_display_mode mode;
 	struct rockchip_bridge *bridge;
+	struct rockchip_bridge *bridge_split;
+	struct rockchip_panel *panel_split;
 	struct rockchip_bridge_funcs *bridge_ops;
 };
 
@@ -316,10 +320,10 @@ struct serdes {
 	int err_irq_trig;
 
 	bool sel_mipi;
+	bool dual_link;
 	bool mcu_enable;
 	struct mipi_dsi_device *dsi;
 
-	bool split_mode_enable;
 	unsigned int reg_hw;
 	unsigned int reg_use;
 	unsigned int link_use;
@@ -355,10 +359,12 @@ int serdes_power_init(void);
 int serdes_video_bridge_init(void);
 int serdes_video_bridge_split_init(void);
 int serdes_display_init(void);
+void serdes_get_split_bridge_or_panel(struct serdes_bridge *serdes_bridge);
 
 extern struct serdes_chip_data serdes_bu18tl82_data;
 extern struct serdes_chip_data serdes_bu18rl82_data;
 extern struct serdes_chip_data serdes_max96745_data;
+extern struct serdes_chip_data serdes_max96749_data;
 extern struct serdes_chip_data serdes_max96752_data;
 extern struct serdes_chip_data serdes_max96755_data;
 extern struct serdes_chip_data serdes_max96772_data;

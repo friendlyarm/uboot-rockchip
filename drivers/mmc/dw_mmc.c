@@ -675,8 +675,12 @@ static int dwmci_setup_bus(struct dwmci_host *host, u32 freq)
 		}
 	} while (status & DWMCI_CMD_START);
 
+#ifdef CONFIG_SPL_BLK_READ_PREPARE
+	dwmci_writel(host, DWMCI_CLKENA, DWMCI_CLKEN_ENABLE);
+#else
 	dwmci_writel(host, DWMCI_CLKENA, DWMCI_CLKEN_ENABLE |
 			DWMCI_CLKEN_LOW_PWR);
+#endif
 
 	dwmci_writel(host, DWMCI_CMD, DWMCI_CMD_PRV_DAT_WAIT |
 			DWMCI_CMD_UPD_CLK | DWMCI_CMD_START);

@@ -736,6 +736,9 @@ static int display_init(struct display_state *state)
 	}
 #endif
 
+	/* Ensure the panel is powered on before checking the HPD status */
+	if (conn->panel && conn->funcs->detect)
+		rockchip_panel_prepare(conn->panel);
 	ret = rockchip_connector_detect(state);
 #if defined(CONFIG_DRM_ROCKCHIP_TVE) || defined(CONFIG_DRM_ROCKCHIP_RK1000)
 	if (conn_state->type == DRM_MODE_CONNECTOR_HDMIA)
@@ -762,15 +765,13 @@ static int display_init(struct display_state *state)
 		if (!ret)
 			conn_state->bpc = conn->panel->bpc;
 #if defined(CONFIG_I2C_EDID)
-		if (ret < 0 && conn->funcs->get_edid) {
+		if (ret < 0 && conn->funcs->get_timing) {
 			rockchip_panel_prepare(conn->panel);
-			ret = conn->funcs->get_edid(conn, state);
+			ret = conn->funcs->get_timing(conn, state);
 			if (!ret) {
-				if (!display_get_edid_mode(state)) {
-					char *monitor = edid_get_monitor_name((void *)&conn_state->edid);
-					if (monitor)
-						env_set("panel", monitor);
-				}
+				char *monitor = edid_get_monitor_name((void *)conn_state->edid);
+				if (monitor)
+					env_set("panel", monitor);
 			}
 		}
 #endif
@@ -786,12 +787,6 @@ static int display_init(struct display_state *state)
 		}
 	} else if (conn->funcs->get_timing) {
 		ret = conn->funcs->get_timing(conn, state);
-	} else if (conn->funcs->get_edid) {
-		ret = conn->funcs->get_edid(conn, state);
-#if defined(CONFIG_I2C_EDID)
-		if (!ret)
-			display_get_edid_mode(state);
-#endif
 	}
 
 	if (!ret && conn_state->secondary) {

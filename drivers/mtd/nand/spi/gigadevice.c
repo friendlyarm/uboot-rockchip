@@ -59,6 +59,11 @@ static SPINAND_OP_VARIANTS(read_cache_variants_2gq5,
 		SPINAND_PAGE_READ_FROM_CACHE_OP(true, 0, 1, NULL, 0),
 		SPINAND_PAGE_READ_FROM_CACHE_OP(false, 0, 1, NULL, 0));
 
+#if defined(CONFIG_SPL_BUILD) && defined(CONFIG_SPI_NAND_CONT_READ)
+static SPINAND_OP_VARIANTS(read_cache_variants_cont,
+		SPINAND_PAGE_READ_FROM_CACHE_X4_OP_3A(0, 1, NULL, 0));
+#endif
+
 static SPINAND_OP_VARIANTS(write_cache_variants,
 		SPINAND_PROG_LOAD_X4(true, 0, NULL, 0),
 		SPINAND_PROG_LOAD(true, 0, NULL, 0));
@@ -565,6 +570,19 @@ static int gigadevice_spinand_init(struct spinand_device *spinand)
 	if (spinand->id.data[1] == 0x51)
 		gigadevice_spinand_set_ds(spinand, 3);
 
+	/* Enable continuous read */
+#ifdef CONFIG_SPI_NAND_CONT_READ
+	if (spinand->id.data[1] == 0x91 || spinand->id.data[1] == 0x81) {
+#ifdef CONFIG_SPL_BUILD
+		spinand->support_cont_read = true;
+		spinand_upd_cfg(spinand, CFG_BUF_ENABLE, 0);
+		spinand->op_templates.read_cache = &read_cache_variants_cont.ops[0];
+		printf("Support cont_read\n");
+#else
+		spinand_upd_cfg(spinand, CFG_BUF_ENABLE, CFG_BUF_ENABLE);
+#endif
+	}
+#endif
 	return 0;
 }
 

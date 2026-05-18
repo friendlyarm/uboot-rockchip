@@ -25,7 +25,7 @@ static SPINAND_OP_VARIANTS(read_cache_variants,
 		SPINAND_PAGE_READ_FROM_CACHE_OP(true, 0, 1, NULL, 0),
 		SPINAND_PAGE_READ_FROM_CACHE_OP(false, 0, 1, NULL, 0));
 
-#if defined(CONFIG_SPL_BUILD) && defined(CONFIG_SPI_NAND_WINBOND_CONT_READ)
+#if defined(CONFIG_SPL_BUILD) && defined(CONFIG_SPI_NAND_CONT_READ)
 static SPINAND_OP_VARIANTS(read_cache_variants_cont,
 		SPINAND_PAGE_READ_FROM_CACHE_X4_OP_3A(0, 1, NULL, 0));
 #endif
@@ -269,8 +269,17 @@ static const struct spinand_info winbond_spinand_table[] = {
 		     SPINAND_INFO_OP_VARIANTS(&read_cache_variants,
 					      &write_cache_variants,
 					      &update_cache_variants),
-		     SPINAND_HAS_QE_BIT,
+		     0,
 		     SPINAND_ECCINFO(&w25n04lw_ooblayout, w25n02kv_ecc_get_status)),
+	SPINAND_INFO("W25N08LW2EIG",
+		     SPINAND_ID(SPINAND_READID_METHOD_OPCODE_DUMMY, 0xB3, 0x24),
+		     NAND_MEMORG(1, 4096, 128, 64, 4096, 1, 1, 1),
+		     NAND_ECCREQ(8, 512),
+		     SPINAND_INFO_OP_VARIANTS(&read_cache_variants,
+					      &write_cache_variants,
+					      &update_cache_variants),
+		     0,
+		     SPINAND_ECCINFO(&w25n02kv_ooblayout, w25n02kv_ecc_get_status)),
 };
 
 static int winbond_spinand_init(struct spinand_device *spinand)
@@ -289,7 +298,7 @@ static int winbond_spinand_init(struct spinand_device *spinand)
 	}
 
 	/* W25N01JWZEIG enable continuous read */
-#ifdef CONFIG_SPI_NAND_WINBOND_CONT_READ
+#ifdef CONFIG_SPI_NAND_CONT_READ
 	if ((spinand->id.data[1] == 0xaa || spinand->id.data[1] == 0xba ||
 	     spinand->id.data[1] == 0xbc || spinand->id.data[1] == 0xbe) &&
 	     spinand->id.data[2] == 0x21) {

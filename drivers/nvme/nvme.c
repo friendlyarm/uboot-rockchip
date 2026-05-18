@@ -318,6 +318,32 @@ static int nvme_disable_ctrl(struct nvme_dev *dev)
 	return nvme_wait_ready(dev, false);
 }
 
+static int nvme_wait_csts(struct nvme_dev *dev, u32 mask, u32 val)
+{
+	int timeout;
+	ulong start;
+
+	/* Timeout field in the CAP register is in 500 millisecond units */
+	timeout = NVME_CAP_TIMEOUT(dev->cap) * 500;
+
+	start = get_timer(0);
+	while (get_timer(start) < timeout) {
+		if ((readl(&dev->bar->csts) & mask) == val)
+			return 0;
+	}
+
+	return -ETIME;
+}
+
+static int nvme_shutdown_ctrl(struct nvme_dev *dev)
+{
+        dev->ctrl_config &= ~NVME_CC_SHN_MASK;
+        dev->ctrl_config |= NVME_CC_SHN_NORMAL;
+        writel(dev->ctrl_config, &dev->bar->cc);
+
+	return nvme_wait_csts(dev, NVME_CSTS_SHST_MASK, NVME_CSTS_SHST_CMPLT);
+}
+
 static void nvme_free_queue(struct nvme_queue *nvmeq)
 {
 	free((void *)nvmeq->cqes);
@@ -1043,11 +1069,26 @@ free_nvme:
 	return ret;
 }
 
+int nvme_shutdown(struct udevice *udev)
+{
+	struct nvme_dev *ndev = dev_get_priv(udev);
+	int ret;
+
+	ret = nvme_shutdown_ctrl(ndev);
+	if (ret < 0) {
+		printf("Error: %s: Shutdown timed out!\n", udev->name);
+		return ret;
+	}
+
+	return nvme_disable_ctrl(ndev);
+}
+
 U_BOOT_DRIVER(nvme) = {
 	.name	= "nvme",
 	.id	= UCLASS_NVME,
 	.bind	= nvme_bind,
 	.probe	= nvme_probe,
+	.remove = nvme_shutdown,
 	.priv_auto_alloc_size = sizeof(struct nvme_dev),
 };
 

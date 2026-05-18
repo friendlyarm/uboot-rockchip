@@ -508,8 +508,10 @@ __weak void spl_fdt_fixup_memory(struct spl_image_info *spl_image)
 			size[i] = t->u.ddr_mem.bank[i + count];
 #ifdef SPL_RESV_MEM_SIZE
 			if ((start[i] == CONFIG_SYS_SDRAM_BASE) &&
-			    (start[i] + size[i] > CONFIG_SYS_SDRAM_BASE + SPL_RESV_MEM_SIZE))
+			    (start[i] + size[i] > CONFIG_SYS_SDRAM_BASE + SPL_RESV_MEM_SIZE)) {
 				start[i] += SPL_RESV_MEM_SIZE;
+				size[i] -= SPL_RESV_MEM_SIZE;
+			}
 #endif
 			if (size[i] == 0)
 				continue;
@@ -556,8 +558,10 @@ int spl_fdt_chosen_bootargs(struct spl_load_info *info, void *fdt)
 	char *part_list;
 	int id = 0;
 
+#ifdef CONFIG_MTD_BLK
 	env = envf_get(desc, part_type[id]);
 	if (!env)
+#endif
 		env = envf_get(desc, part_type[++id]);
 	if (env) {
 		if (!strstr(env, part_type[id])) {
@@ -578,11 +582,11 @@ int spl_fdt_chosen_bootargs(struct spl_load_info *info, void *fdt)
 		debug("## parts: %s\n\n", part_list);
 
 		env = envf_get(desc, "sys_bootargs");
-		env = env + strlen("sys_bootargs=");
 		if (env) {
+			env = env + strlen("sys_bootargs=");
 			ret = fdt_bootargs_append(fdt, env);
 			if (ret) {
-				printf("Append sys_bootargs to bootargs fail");
+				printf("Append sys_bootargs to bootargs fail, ret=%d\n", ret);
 				return ret;
 			}
 			debug("## sys_bootargs: %s\n\n", env);

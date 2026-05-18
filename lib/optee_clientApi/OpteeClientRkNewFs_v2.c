@@ -146,6 +146,16 @@ static int check_security_exist(int print_flag)
 	return 0;
 }
 
+static bool check_is_mtd_device(void)
+{
+#ifdef CONFIG_MTD_BLK
+	if (dev_desc && dev_desc->if_type == IF_TYPE_MTD) {
+		return true;
+	}
+#endif
+	return false;
+}
+
 static int rkss_verify_usedflags(unsigned int area_index)
 {
 	uint8_t *flags;
@@ -854,8 +864,19 @@ static int rkss_storage_init(uint32_t area_index)
 				i * RKSS_SECTION_COUNT,
 				RKSS_SECTION_COUNT, rkss_buffer[area_index]);
 			if (ret != RKSS_SECTION_COUNT) {
-				printf("TEEC: blk_dread fail\n");
-				return -1;
+				if (check_is_mtd_device()) {
+					printf("TEEC: MTD device, ignore blk_dread fail\n");
+					memset(rkss_buffer[area_index], 0, size);
+					//blk_dwrite: read erase write, read before erase, so erase here before call blk_dwrite.
+					blk_derase(dev_desc,
+						   part_info.start +
+						   area_index * RKSS_SECTION_COUNT * RKSS_BACKUP_NUM +
+						   i * RKSS_SECTION_COUNT,
+						   RKSS_SECTION_COUNT);
+				} else {
+					printf("TEEC: blk_dread fail\n");
+					return -1;
+				}
 			}
 
 			if ((rkss_info[area_index].header->tag == RKSS_TAG) &&

@@ -162,6 +162,7 @@ struct decom_param {
 
 /* function flags for decompress */
 #define DCOMP_FLG_IRQ_ONESHOT	BIT(0)
+#define DCOMP_FLG_UNLIMIT	BIT(1)
 
 void misc_decompress_async(u8 comp);
 void misc_decompress_sync(u8 comp);

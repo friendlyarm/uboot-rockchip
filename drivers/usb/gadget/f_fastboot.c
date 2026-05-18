@@ -786,12 +786,30 @@ static int fb_read_var(char *cmd, char *response,
 	}
 	case FB_UNLOCKED: {
 #ifdef CONFIG_RK_AVB_LIBAVB_USER
+		uint8_t lock_state = 0;
+
+		if (!rk_avb_read_lock_state(&lock_state))
+			fb_add_string(response, chars_left, "read lock_state failed", NULL);
+		if (lock_state)
+			fb_add_string(response, chars_left, "avb unlock", NULL);
+		else
+			fb_add_string(response, chars_left, "avb lock", NULL);
+#else
+		fb_add_string(response, chars_left, "not implemented", NULL);
+		ret = -1;
+#endif
+		break;
+	}
+	case FB_FLASH_UNLOCKED: {
+#ifdef CONFIG_RK_AVB_LIBAVB_USER
 		uint8_t flash_lock_state = 0;
 
-		if (rk_avb_read_flash_lock_state(&flash_lock_state))
-			fb_add_string(response, chars_left, "yes", NULL);
+		if (!rk_avb_read_flash_lock_state(&flash_lock_state))
+			fb_add_string(response, chars_left, "read flash_lock_state failed", NULL);
+		if (flash_lock_state)
+			fb_add_string(response, chars_left, "flash unlock", NULL);
 		else
-			fb_add_string(response, chars_left, "no", NULL);
+			fb_add_string(response, chars_left, "flash lock", NULL);
 #else
 		fb_add_string(response, chars_left, "not implemented", NULL);
 		ret = -1;
@@ -1113,6 +1131,7 @@ static const struct {
 	{ NAME_ARGS("partition-type", ':'), FB_PART_TYPE},
 	{ NAME_ARGS("partition-size", ':'), FB_PART_SIZE},
 	{ NAME_NO_ARGS("unlocked"), FB_UNLOCKED},
+	{ NAME_NO_ARGS("flash-unlocked"), FB_FLASH_UNLOCKED},
 	{ NAME_NO_ARGS("off-mode-charge"), FB_OFF_MODE_CHARGE},
 	{ NAME_NO_ARGS("battery-voltage"), FB_BATT_VOLTAGE},
 	{ NAME_NO_ARGS("variant"), FB_VARIANT},

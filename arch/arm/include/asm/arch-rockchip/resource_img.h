@@ -62,4 +62,12 @@ int rockchip_read_resource_file(void *buf, const char *name, int blk_offset, int
  */
 int rockchip_read_resource_dtb(void *fdt_addr, char **hash, int *hash_size);
 
+/*
+ * rockchip_read_ram_resource_dtb() - read dtb file from a ram resource file.
+ *
+ * @resc_hdr: resource buffer.
+ * @fdt_addr: destination buf to store dtb file
+ */
+int rockchip_read_ram_resource_dtb(void *resc_addr, void *fdt_addr);
+
 #endif

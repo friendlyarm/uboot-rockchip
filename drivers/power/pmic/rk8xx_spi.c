@@ -53,7 +53,8 @@ static const struct pmic_child_info power_key_info[] = {
 static int _spi_read(struct udevice *dev, u32 reg, u8 *buffer, int len)
 {
 	struct rk8xx_priv *priv = dev_get_priv(dev);
-	u8 txbuf[3];
+	u8 txbuf[2];
+	u8 rxbuf[2];
 	int ret;
 
 	if (spi_claim_bus(priv->slave))
@@ -61,11 +62,11 @@ static int _spi_read(struct udevice *dev, u32 reg, u8 *buffer, int len)
 
 	txbuf[0] = RK806_CMD_READ;
 	txbuf[1] = reg;
-	txbuf[2] = RK806_REG_H;
 
-	ret = spi_write_then_read(priv->slave, txbuf, 3, NULL, buffer, 1);
+	ret = spi_write_then_read(priv->slave, txbuf, 2, NULL, rxbuf, 2);
 	spi_release_bus(priv->slave);
 
+	*buffer = rxbuf[1];
 	return ret;
 }
 

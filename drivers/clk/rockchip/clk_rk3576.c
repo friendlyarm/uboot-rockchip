@@ -1255,7 +1255,7 @@ static ulong rk3576_dclk_vop_set_clk(struct rk3576_clk_priv *priv,
 			}
 
 			div = DIV_ROUND_UP(pll_rate, rate);
-			if (div > 255)
+			if (div > 255 || div < 1)
 				continue;
 			now = pll_rate / div;
 			if (abs(rate - now) < abs(rate - best_rate)) {

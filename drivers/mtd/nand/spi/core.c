@@ -547,7 +547,7 @@ static int spinand_read_page(struct spinand_device *spinand,
 	if (ret)
 		return ret;
 
-#ifdef CONFIG_SPI_NAND_WINBOND_CONT_READ
+#ifdef CONFIG_SPI_NAND_CONT_READ
 	if (!(spinand->slave->mode & SPI_DMA_PREPARE))
 		spinand_wait(spinand, &status);
 #endif
@@ -886,9 +886,11 @@ static const struct spinand_manufacturer *spinand_manufacturers[] = {
 #endif
 #ifdef CONFIG_SPI_NAND_ESMT
 	&esmt_spinand_manufacturer,
+	&esmt_elite_spinand_manufacturer,
 #endif
 #ifdef CONFIG_SPI_NAND_XINCUN
 	&xincun_spinand_manufacturer,
+	&xincun_6c_spinand_manufacturer,
 #endif
 #ifdef CONFIG_SPI_NAND_XTX
 	&xtx_spinand_manufacturer,

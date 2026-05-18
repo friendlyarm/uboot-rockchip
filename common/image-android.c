@@ -59,7 +59,12 @@ static int android_version_init(void)
 		return -1;
 
 	os_version = hdr->os_version;
-	if (os_version)
+	/* use max version 0x7f stands for GKI */
+	if ((os_version >> 25 & 0x7f) == 0x7f)
+		printf("Android GKI, Build %u.%u, v%d\n",
+		       ((os_version >> 4) & 0x7f) + 2000, os_version & 0x0F,
+		       hdr->header_version);
+	else if (os_version)
 		printf("Android %u.%u, Build %u.%u, v%d\n",
 		       (os_version >> 25) & 0x7f, (os_version >> 18) & 0x7F,
 		       ((os_version >> 4) & 0x7f) + 2000, os_version & 0x0F,
@@ -1077,7 +1082,7 @@ extract_boot_image_v34_header(struct blk_desc *dev_desc,
 	if (boot_hdr->header_version >= 4 && boot_hdr->os_version == 0) {
 		if (part_get_info_by_name(dev_desc,
 				ANDROID_PARTITION_INIT_BOOT, &part) > 0)
-			boot_hdr->os_version = 13 << 25;
+			boot_hdr->os_version = 0x7f << 25;
 	}
 
 	return boot_hdr;

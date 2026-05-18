@@ -193,6 +193,9 @@ int serdes_i2c_set_sequence(struct serdes *serdes)
 		return 0;
 	}
 
+	if (!serdes->serdes_init_seq)
+		return 0;
+
 	for (i = 0; i < serdes->serdes_init_seq->reg_seq_cnt; i++) {
 		if (serdes->serdes_init_seq->reg_sequence[i].reg == 0xffff) {
 			SERDES_DBG_MFD("%s: delay 0x%04x us\n", __func__,
@@ -287,8 +290,9 @@ int serdes_get_init_seq(struct serdes *serdes)
 
 	data = dev_read_prop(serdes->dev, "serdes-init-sequence", &len);
 	if (!data) {
-		printf("failed to get serdes-init-sequence\n");
-		return -EINVAL;
+		printf("serdes %s failed to get serdes-init-sequence\n",
+		       serdes->dev->name);
+		return 0;
 	}
 
 	serdes->serdes_init_seq = calloc(1, sizeof(*serdes->serdes_init_seq));
@@ -445,6 +449,182 @@ int serdes_pinctrl_register(struct udevice *dev)
 	return ret;
 }
 EXPORT_SYMBOL_GPL(serdes_pinctrl_register);
+
+static const struct device_node *serdes_of_graph_get_port_parent(ofnode port)
+{
+	ofnode parent;
+	int is_ports_node;
+
+	parent = ofnode_get_parent(port);
+	is_ports_node = strstr(ofnode_to_np(parent)->full_name,
+			       "ports") ? 1 : 0;
+	if (is_ports_node)
+		parent = ofnode_get_parent(parent);
+
+	return ofnode_to_np(parent);
+}
+
+static const struct device_node *
+serdes_of_graph_get_remote_node(ofnode node, int port, int endpoint)
+{
+	const struct device_node *ep_node;
+	ofnode ep;
+	uint phandle;
+
+	ep_node = rockchip_of_graph_get_endpoint_by_regs(node, port, endpoint);
+	if (!ep_node)
+		return NULL;
+
+	if (ofnode_read_u32(np_to_ofnode(ep_node), "remote-endpoint", &phandle))
+		return NULL;
+
+	ep = ofnode_get_by_phandle(phandle);
+	if (!ofnode_valid(ep))
+		return NULL;
+
+	return ofnode_to_np(ep);
+}
+
+static int serdes_of_find_panel(struct udevice *dev, int port,
+				int endpoint, struct rockchip_panel **panel)
+{
+	const struct device_node *ep_node, *panel_node;
+	ofnode panel_ofnode, ports;
+	struct udevice *panel_dev;
+	int ret = 0;
+
+	*panel = NULL;
+	panel_ofnode = dev_read_subnode(dev, "panel");
+	if (ofnode_valid(panel_ofnode) && ofnode_is_available(panel_ofnode)) {
+		ret = uclass_get_device_by_ofnode(UCLASS_PANEL, panel_ofnode,
+						  &panel_dev);
+		if (!ret)
+			goto found;
+	}
+
+	ep_node = serdes_of_graph_get_remote_node(dev->node, port, endpoint);
+	if (!ep_node)
+		return -ENODEV;
+
+	ports = ofnode_get_parent(np_to_ofnode(ep_node));
+	if (!ofnode_valid(ports))
+		return -ENODEV;
+
+	panel_node = serdes_of_graph_get_port_parent(ports);
+	if (!panel_node)
+		return -ENODEV;
+
+	ret = uclass_get_device_by_ofnode(UCLASS_PANEL,
+					  np_to_ofnode(panel_node), &panel_dev);
+	if (!ret)
+		goto found;
+
+	return -ENODEV;
+
+found:
+	*panel = (struct rockchip_panel *)dev_get_driver_data(panel_dev);
+	return 0;
+}
+
+static int serdes_of_find_bridge(struct udevice *dev, int port,
+				 int endpoint, struct rockchip_bridge **bridge)
+{
+	const struct device_node *ep_node, *bridge_node;
+	ofnode ports;
+	struct udevice *bridge_dev;
+	int ret = 0;
+
+	ep_node = serdes_of_graph_get_remote_node(dev->node, port, endpoint);
+	if (!ep_node)
+		return -ENODEV;
+
+	ports = ofnode_get_parent(np_to_ofnode(ep_node));
+	if (!ofnode_valid(ports))
+		return -ENODEV;
+
+	bridge_node = serdes_of_graph_get_port_parent(ports);
+	if (!bridge_node)
+		return -ENODEV;
+
+	ret = uclass_get_device_by_ofnode(UCLASS_VIDEO_BRIDGE,
+					  np_to_ofnode(bridge_node),
+					  &bridge_dev);
+	if (!ret)
+		goto found;
+
+	return -ENODEV;
+
+found:
+	*bridge = (struct rockchip_bridge *)dev_get_driver_data(bridge_dev);
+	return 0;
+}
+
+static int
+serdes_find_bridge_or_panel(struct udevice *dev, int port, int endpoint,
+			    struct rockchip_panel **panel,
+			    struct rockchip_bridge **bridge)
+{
+	int ret = 0;
+
+	if (*panel)
+		return 0;
+
+	*panel = NULL;
+	*bridge = NULL;
+
+	if (panel) {
+		ret  = serdes_of_find_panel(dev, port, endpoint, panel);
+		if (!ret)
+			goto exit;
+	}
+
+	if (!ret)
+		goto exit;
+
+	ret = serdes_of_find_bridge(dev, port, endpoint, bridge);
+	if (!ret)
+		ret = serdes_find_bridge_or_panel((*bridge)->dev,
+						  1, 0, panel,
+						  &(*bridge)->next_bridge);
+
+exit:
+	return ret;
+}
+
+void serdes_get_split_bridge_or_panel(struct serdes_bridge *serdes_bridge)
+{
+	int ret;
+	u8 nr = 0;
+	ofnode ports, port;
+	struct rockchip_bridge *bridge = serdes_bridge->bridge;
+	struct udevice *dev = bridge->dev;
+
+	ports = ofnode_find_subnode(dev->node, "ports");
+	if (!ofnode_valid(ports))
+		return;
+
+	ofnode_for_each_subnode(port, ports) {
+		if (!ofnode_is_available(port) ||
+		    !of_find_property(ofnode_to_np(port), "reg", NULL))
+			continue;
+
+		nr++;
+	}
+
+	if (nr == 3)
+		serdes_bridge->split_mode = true;
+
+	if (!serdes_bridge->split_mode)
+		return;
+
+	ret = serdes_find_bridge_or_panel(dev, 2, 0,
+					  &serdes_bridge->panel_split,
+					  &serdes_bridge->bridge_split);
+	if (ret)
+		debug("Warn: no find serdes %s panel or bridge split\n",
+		      dev->name);
+}
+EXPORT_SYMBOL_GPL(serdes_get_split_bridge_or_panel);
 
 static int serdes_i2c_init(struct serdes *serdes)
 {

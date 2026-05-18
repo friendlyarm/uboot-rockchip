@@ -163,6 +163,7 @@
 #define CFG_OTP_ENABLE		BIT(6)
 #define CFG_ECC_ENABLE		BIT(4)
 #define CFG_BUF_ENABLE		BIT(3)
+#define CFG_CONT_ENABLE		BIT(2)
 #define CFG_QUAD_ENABLE		BIT(0)
 
 /* status register */
@@ -254,7 +255,9 @@ extern const struct spinand_manufacturer toshiba_spinand_manufacturer;
 extern const struct spinand_manufacturer winbond_spinand_manufacturer;
 extern const struct spinand_manufacturer dosilicon_spinand_manufacturer;
 extern const struct spinand_manufacturer esmt_spinand_manufacturer;
+extern const struct spinand_manufacturer esmt_elite_spinand_manufacturer;
 extern const struct spinand_manufacturer xincun_spinand_manufacturer;
+extern const struct spinand_manufacturer xincun_6c_spinand_manufacturer;
 extern const struct spinand_manufacturer xtx_spinand_manufacturer;
 extern const struct spinand_manufacturer hyf_spinand_manufacturer;
 extern const struct spinand_manufacturer fmsh_spinand_manufacturer;
