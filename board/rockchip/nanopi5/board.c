@@ -71,6 +71,23 @@ int board_select_fdt_index(ulong dt_table_hdr, struct blk_desc *dev_desc)
 	return (dev_desc ? dev_desc->devnum : 0);
 }
 
+bool board_use_kernel_dtb(const void *fdt)
+{
+	const char *prop;
+	int offset, len;
+
+	offset = fdt_path_offset(fdt, "/board");
+	if (offset) {
+		prop = fdt_getprop(fdt, offset, "uboot,skip-init-kdtb", &len);
+		if (prop) {
+			printf("kdtb: loaded\n");
+			return false;
+		}
+	}
+
+	return true;
+}
+
 static int board_check_supply(void)
 {
 	u32 adc_reading = 0;

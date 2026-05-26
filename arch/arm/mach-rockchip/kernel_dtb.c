@@ -308,6 +308,11 @@ static void *embedded_kdtb(void)
 }
 #endif
 
+__weak bool board_use_kernel_dtb(const void *fdt)
+{
+	return true;
+}
+
 int init_kernel_dtb(void)
 {
 #ifndef CONFIG_USING_KERNEL_DTB_V2
@@ -354,6 +359,9 @@ dtb_embed:
 
 dtb_okay:
 	gd->fdt_blob = (void *)fdt_addr;
+	if (!board_use_kernel_dtb(gd->fdt_blob))
+		return 0;
+
 	hotkey_run(HK_FDT);
 
 #ifndef CONFIG_USING_KERNEL_DTB_V2

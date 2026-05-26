@@ -157,6 +157,23 @@ int board_get_fdt(char **of_flat_tree, ulong *of_size)
 }
 #endif
 
+bool board_use_kernel_dtb(const void *fdt)
+{
+	const char *prop;
+	int offset, len;
+
+	offset = fdt_path_offset(fdt, "/board");
+	if (offset) {
+		prop = fdt_getprop(fdt, offset, "uboot,skip-init-kdtb", &len);
+		if (prop) {
+			printf("kdtb: loaded\n");
+			return false;
+		}
+	}
+
+	return true;
+}
+
 static int board_check_supply(void)
 {
 	u32 adc_reading = 0;
