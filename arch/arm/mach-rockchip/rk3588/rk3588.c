@@ -98,6 +98,7 @@ DECLARE_GLOBAL_DATA_PTR;
 #define DMAC0_PRIORITY_REG		0xfdf32208
 #define VOP_M0_PRIORITY_REG		0xfdf82008
 #define VOP_M1_PRIORITY_REG		0xfdf82208
+#define GIC600_M0_PRIORITY_REG		0xfdf3a008
 #define MMU600PHP_TBU_PRIORITY_REG	0xfdf3a608
 #define MMU600PHP_TCU_PRIORITY_REG	0xfdf3a808
 #define QOS_PRIORITY_LEVEL(h, l)	((((h) & 7) << 8) | ((l) & 7))
@@ -1074,6 +1075,9 @@ int arch_cpu_init(void)
 	 */
 	writel(QOS_PRIORITY_LEVEL(4, 4), MMU600PHP_TBU_PRIORITY_REG);
 	writel(QOS_PRIORITY_LEVEL(4, 4), MMU600PHP_TCU_PRIORITY_REG);
+
+	/* set PCIe1L0/1/2 to priority 0x404 */
+	writel(QOS_PRIORITY_LEVEL(4, 4), GIC600_M0_PRIORITY_REG);
 
 	/*
 	 * Set SATA FBSCP and PORTS_IMPL for kernel drivers
