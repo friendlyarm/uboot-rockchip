@@ -16,7 +16,6 @@
 #include <dwc3-uboot.h>
 
 #include <dm/device.h>
-#include <dm/ofnode.h>
 #include <dm/read.h>
 #include <fdt_support.h>
 
@@ -78,19 +77,16 @@ int board_select_fdt_index(ulong dt_table_hdr, struct blk_desc *dev_desc)
 
 bool board_use_kernel_dtb(const void *fdt)
 {
-	const char *prop;
-	int offset, len;
+	u32 kcode;
 
-	offset = fdt_path_offset(fdt, "/board");
-	if (offset) {
-		prop = fdt_getprop(fdt, offset, "uboot,skip-init-kdtb", &len);
-		if (prop) {
-			printf("kdtb: loaded\n");
-			return false;
-		}
-	}
+	kcode = fdt_getprop_u32_default(fdt, "/board", "linux,version-code",
+					KERNEL_VERSION(6, 1, 0));
+	kcode &= 0xffff00;
+	if (kcode == KERNEL_VERSION(6, 1, 0))
+		return true;
 
-	return true;
+	printf("kdtb: v%u.%u ignored\n", kcode >> 16, (kcode >> 8) & 0xff);
+	return false;
 }
 
 static int board_check_supply(void)
